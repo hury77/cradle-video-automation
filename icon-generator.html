@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cradle Icon Generator</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            background: #f5f5f5;
+        }
+        .icon-preview { 
+            display: inline-block; 
+            margin: 10px; 
+            text-align: center;
+        }
+        canvas { 
+            border: 2px solid #ddd; 
+            margin: 5px;
+            background: white;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover {
+            background: #764ba2;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 Cradle Video Automation - Icon Generator</h1>
+    
+    <div class="icon-preview">
+        <h3>16x16</h3>
+        <canvas id="canvas16" width="16" height="16"></canvas>
+    </div>
+    
+    <div class="icon-preview">
+        <h3>48x48</h3>
+        <canvas id="canvas48" width="48" height="48"></canvas>
+    </div>
+    
+    <div class="icon-preview">
+        <h3>128x128</h3>
+        <canvas id="canvas128" width="128" height="128"></canvas>
+    </div>
+    
+    <br>
+    <button onclick="generateAllIcons()">🎨 Generate & Download All Icons</button>
+    <button onclick="previewIcons()">👀 Preview Icons</button>
+    
+    <script>
+        function createIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Create gradient background
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#764ba2');
+            
+            // Fill background
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Add rounded corners
+            ctx.globalCompositeOperation = 'destination-in';
+            ctx.beginPath();
+            const radius = size * 0.15; // 15% radius
+            ctx.roundRect(0, 0, size, size, radius);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            
+            // Add movie camera emoji or symbol
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${Math.floor(size * 0.6)}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Use text symbol instead of emoji for better compatibility
+            ctx.fillText('🎬', size/2, size/2);
+            
+            return canvas;
+        }
+        
+        function downloadCanvas(canvas, filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function generateAllIcons() {
+            const canvas16 = createIcon('canvas16', 16);
+            const canvas48 = createIcon('canvas48', 48);
+            const canvas128 = createIcon('canvas128', 128);
+            
+            // Small delay between downloads
+            setTimeout(() => downloadCanvas(canvas16, 'icon16.png'), 100);
+            setTimeout(() => downloadCanvas(canvas48, 'icon48.png'), 200);
+            setTimeout(() => downloadCanvas(canvas128, 'icon128.png'), 300);
+            
+            alert('✅ Icons generated! Check your downloads folder.');
+        }
+        
+        function previewIcons() {
+            createIcon('canvas16', 16);
+            createIcon('canvas48', 48);
+            createIcon('canvas128', 128);
+        }
+        
+        // Auto-preview on load
+        window.onload = () => {
+            previewIcons();
+        };
+        
+        // Add roundRect polyfill for older browsers
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2;
+                if (h < 2 * r) r = h / 2;
+                this.beginPath();
+                this.moveTo(x+r, y);
+                this.arcTo(x+w, y,   x+w, y+h, r);
+                this.arcTo(x+w, y+h, x,   y+h, r);
+                this.arcTo(x,   y+h, x,   y,   r);
+                this.arcTo(x,   y,   x+w, y,   r);
+                this.closePath();
+                return this;
+            };
+        }
+    </script>
+</body>
+</html>

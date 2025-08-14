@@ -1,0 +1,40 @@
+{
+  "name": "cradle-video-automation",
+  "version": "1.0.0",
+  "description": "Browser extension for automating Cradle video comparison workflow",
+  "author": "Hubert Rycaj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hury77/cradle-video-automation.git"
+  },
+  "keywords": [
+    "cradle",
+    "video",
+    "automation",
+    "qa", 
+    "browser-extension",
+    "chrome-extension",
+    "edge-extension"
+  ],
+  "scripts": {
+    "build": "npm run copy-manifest && npm run zip-extension",
+    "copy-manifest": "cp extension/manifest.json dist/manifest.json",
+    "zip-extension": "cd extension && zip -r ../dist/cradle-video-automation.zip . -x '*.DS_Store'",
+    "dev": "echo 'Load extension/manifest.json in Chrome Developer Mode'",
+    "lint": "echo 'Linting JavaScript files...' && find extension -name '*.js' -exec node -c {} \\;",
+    "clean": "rm -rf dist && mkdir -p dist",
+    "package": "npm run clean && npm run build",
+    "test": "echo 'Manual testing required - load extension in browser'"
+  },
+  "devDependencies": {
+    "archiver": "^5.3.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "Chrome >= 88",
+    "Edge >= 88"
+  ]
+}
