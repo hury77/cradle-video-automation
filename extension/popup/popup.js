@@ -1,255 +1,143 @@
-// popup.js - Main UI controller
-class AutomationController {
+// Popup script for Manifest V3
+class PopupController {
   constructor() {
     this.isRunning = false;
-    this.maxTasks = 5;
-    this.autoMode = false;
     this.init();
   }
 
   init() {
-    this.loadSettings();
-    this.bindEvents();
-    this.updateUI();
-    this.loadActivityLog();
+    console.log('Popup initializing...');
+    
+    // Get DOM elements
+    this.startBtn = document.getElementById('startBtn');
+    this.stopBtn = document.getElementById('stopBtn');
+    this.statusBtn = document.getElementById('statusBtn');
+    this.statusDiv = document.getElementById('status');
+    this.logDiv = document.getElementById('log');
+
+    // Bind event listeners
+    this.startBtn.addEventListener('click', () => this.startAutomation());
+    this.stopBtn.addEventListener('click', () => this.stopAutomation());
+    this.statusBtn.addEventListener('click', () => this.checkStatus());
+
+    // Check initial status
+    this.checkStatus();
+    
+    console.log('Popup initialized');
   }
 
-  bindEvents() {
-    // Main buttons
-    document.getElementById('scan-btn').addEventListener('click', () => {
-      this.startAutomation();
-    });
+  async sendCommandToContentScript(action, data = {}) {
+    try {
+      // Get active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab || !tab.url.includes('cradle.egplusww.pl')) {
+        throw new Error('Please navigate to Cradle first');
+      }
 
-    document.getElementById('stop-btn').addEventListener('click', () => {
-      this.stopAutomation();
-    });
+      // Use Manifest V3 API
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (action, data) => {
+          document.dispatchEvent(new CustomEvent('extension-command', {
+            detail: { action: action, data: data }
+          }));
+        },
+        args: [action, data]
+      });
 
-    // Settings
-    document.getElementById('auto-mode').addEventListener('change', (e) => {
-      this.autoMode = e.target.checked;
-      this.saveSettings();
-    });
+      this.log(`✅ Command sent: ${action}`);
+      return { success: true };
 
-    document.getElementById('max-tasks').addEventListener('change', (e) => {
-      this.maxTasks = parseInt(e.target.value);
-      this.saveSettings();
-    });
-
-    // Listen for messages from content scripts
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      this.handleMessage(message);
-    });
+    } catch (error) {
+      console.error('Failed to send command:', error);
+      this.log(`❌ Error: ${error.message}`, 'error');
+      throw error;
+    }
   }
 
   async startAutomation() {
-    if (this.isRunning) return;
-
-    this.isRunning = true;
-    this.updateUI();
-    this.logActivity('🚀 Starting automation...', 'info');
-
     try {
-      // Send message to content script to start scanning
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      this.log('🚀 Starting automation...');
+      this.updateUI(true);
       
-      if (!this.isCradleTab(tab.url)) {
-        this.logActivity('❌ Please navigate to Cradle first', 'error');
-        this.updateStatus('Please open Cradle in current tab', 'error');
-        this.isRunning = false;
-        this.updateUI();
-        return;
-      }
-
-      await chrome.tabs.sendMessage(tab.id, {
-        action: 'START_AUTOMATION',
-        maxTasks: this.maxTasks
-      });
-
-      this.updateStatus('🔍 Scanning for pending tasks...', 'processing');
-
+      await this.sendCommandToContentScript('START_AUTOMATION');
+      
+      // Monitor automation
+      this.monitorAutomation();
+      
     } catch (error) {
-      this.logActivity(`❌ Error: ${error.message}`, 'error');
-      this.updateStatus('Error starting automation', 'error');
-      this.isRunning = false;
-      this.updateUI();
+      this.log(`❌ Failed to start: ${error.message}`, 'error');
+      this.updateUI(false);
     }
   }
 
   async stopAutomation() {
-    if (!this.isRunning) return;
-
-    this.isRunning = false;
-    this.updateUI();
-    this.logActivity('⏹️ Stopping automation...', 'warning');
-
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      await chrome.tabs.sendMessage(tab.id, { action: 'STOP_AUTOMATION' });
-      this.updateStatus('Automation stopped', 'info');
+      this.log('⏹️ Stopping automation...');
+      
+      await this.sendCommandToContentScript('STOP_AUTOMATION');
+      this.updateUI(false);
+      
     } catch (error) {
-      console.log('Error stopping automation:', error);
+      this.log(`❌ Failed to stop: ${error.message}`, 'error');
     }
   }
 
-  handleMessage(message) {
-    switch (message.type) {
-      case 'STATUS_UPDATE':
-        this.updateStatus(message.status, message.statusType);
-        break;
-      case 'PROGRESS_UPDATE':
-        this.updateProgress(message.current, message.total, message.message);
-        break;
-      case 'LOG_ACTIVITY':
-        this.logActivity(message.message, message.logType);
-        break;
-      case 'AUTOMATION_COMPLETE':
-        this.onAutomationComplete(message.results);
-        break;
-      case 'AUTOMATION_ERROR':
-        this.onAutomationError(message.error);
-        break;
+  async checkStatus() {
+    try {
+      await this.sendCommandToContentScript('GET_STATUS');
+      this.log('📊 Status check requested');
+    } catch (error) {
+      this.log(`❌ Status check failed: ${error.message}`, 'error');
     }
   }
 
-  updateStatus(message, type = 'info') {
-    const statusEl = document.getElementById('status');
-    statusEl.textContent = message;
-    statusEl.className = `status ${type}`;
-  }
-
-  updateProgress(current, total, message) {
-    const progressEl = document.getElementById('progress');
-    const progressFill = progressEl.querySelector('.progress-fill');
-    const progressText = progressEl.querySelector('.progress-text');
-
-    if (total > 0) {
-      progressEl.classList.remove('hidden');
-      const percentage = (current / total) * 100;
-      progressFill.style.width = `${percentage}%`;
-      progressText.textContent = `${message} (${current}/${total})`;
-    } else {
-      progressEl.classList.add('hidden');
-    }
-  }
-
-  logActivity(message, type = 'info') {
-    const logContainer = document.getElementById('activity-log');
-    const logEntry = document.createElement('div');
-    logEntry.className = `log-entry ${type}`;
+  monitorAutomation() {
+    if (!this.isRunning) return;
     
-    const timestamp = new Date().toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-
-    logEntry.innerHTML = `
-      <span class="timestamp">${timestamp}</span>
-      <span class="message">${message}</span>
-    `;
-
-    logContainer.insertBefore(logEntry, logContainer.firstChild);
-
-    // Keep only last 50 entries
-    while (logContainer.children.length > 50) {
-      logContainer.removeChild(logContainer.lastChild);
-    }
-
-    // Save to storage
-    this.saveActivityLog();
-  }
-
-  onAutomationComplete(results) {
-    this.isRunning = false;
-    this.updateUI();
-    this.updateProgress(0, 0, '');
-    
-    const message = `✅ Completed! Processed ${results.processed} assets, ${results.comparisons} comparisons ready`;
-    this.updateStatus(message, 'success');
-    this.logActivity(message, 'success');
-
-    // Show notification
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: '/assets/icons/icon48.png',
-      title: 'Cradle Automation Complete',
-      message: `${results.comparisons} video comparisons are ready for review!`
-    });
-  }
-
-  onAutomationError(error) {
-    this.isRunning = false;
-    this.updateUI();
-    this.updateProgress(0, 0, '');
-    this.updateStatus(`❌ Error: ${error}`, 'error');
-    this.logActivity(`❌ Error: ${error}`, 'error');
-  }
-
-  updateUI() {
-    const scanBtn = document.getElementById('scan-btn');
-    const stopBtn = document.getElementById('stop-btn');
-
-    if (this.isRunning) {
-      scanBtn.classList.add('hidden');
-      stopBtn.classList.remove('hidden');
-    } else {
-      scanBtn.classList.remove('hidden');
-      stopBtn.classList.add('hidden');
-    }
-  }
-
-  isCradleTab(url) {
-    return url && (url.includes('cradle.com') || url.includes('omnipro.global'));
-  }
-
-  saveSettings() {
-    chrome.storage.local.set({
-      autoMode: this.autoMode,
-      maxTasks: this.maxTasks
-    });
-  }
-
-  loadSettings() {
-    chrome.storage.local.get(['autoMode', 'maxTasks'], (result) => {
-      this.autoMode = result.autoMode || false;
-      this.maxTasks = result.maxTasks || 5;
-
-      document.getElementById('auto-mode').checked = this.autoMode;
-      document.getElementById('max-tasks').value = this.maxTasks;
-    });
-  }
-
-  saveActivityLog() {
-    const logEntries = Array.from(document.querySelectorAll('.log-entry')).slice(0, 20).map(entry => ({
-      timestamp: entry.querySelector('.timestamp').textContent,
-      message: entry.querySelector('.message').textContent,
-      type: entry.className.split(' ').find(cls => ['info', 'success', 'error', 'warning'].includes(cls)) || 'info'
-    }));
-
-    chrome.storage.local.set({ activityLog: logEntries });
-  }
-
-  loadActivityLog() {
-    chrome.storage.local.get(['activityLog'], (result) => {
-      if (result.activityLog) {
-        const logContainer = document.getElementById('activity-log');
-        logContainer.innerHTML = '';
-
-        result.activityLog.forEach(entry => {
-          const logEntry = document.createElement('div');
-          logEntry.className = `log-entry ${entry.type}`;
-          logEntry.innerHTML = `
-            <span class="timestamp">${entry.timestamp}</span>
-            <span class="message">${entry.message}</span>
-          `;
-          logContainer.appendChild(logEntry);
-        });
+    setTimeout(() => {
+      if (this.isRunning) {
+        this.checkStatus();
+        this.monitorAutomation();
       }
-    });
+    }, 3000);
+  }
+
+  updateUI(running) {
+    this.isRunning = running;
+    
+    if (running) {
+      this.startBtn.disabled = true;
+      this.stopBtn.disabled = false;
+      this.statusDiv.textContent = 'Running...';
+      this.statusDiv.className = 'status running';
+    } else {
+      this.startBtn.disabled = false;
+      this.stopBtn.disabled = true;
+      this.statusDiv.textContent = 'Ready';
+      this.statusDiv.className = 'status';
+    }
+  }
+
+  log(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = `[${timestamp}] ${message}\n`;
+    
+    // Add to log
+    this.logDiv.textContent = logEntry + this.logDiv.textContent;
+    
+    // Keep only last 15 entries
+    const lines = this.logDiv.textContent.split('\n');
+    if (lines.length > 20) {
+      this.logDiv.textContent = lines.slice(0, 20).join('\n');
+    }
+    
+    console.log(`Popup: ${message}`);
   }
 }
 
-// Initialize when popup loads
+// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  new AutomationController();
+  new PopupController();
 });

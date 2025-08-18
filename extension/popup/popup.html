@@ -6,64 +6,23 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>🎬 Cradle Video Automation</h1>
-      <div class="version">v1.0.0</div>
-    </header>
-
-    <main>
-      <!-- Status Section -->
-      <section class="status-section">
-        <div id="status" class="status">Ready to scan...</div>
-        <div id="progress" class="progress hidden">
-          <div class="progress-bar">
-            <div class="progress-fill"></div>
-          </div>
-          <span class="progress-text">Processing 2/5 assets...</span>
-        </div>
-      </section>
-
-      <!-- Controls -->
-      <section class="controls">
-        <button id="scan-btn" class="btn primary">
-          <span class="icon">🔍</span>
-          Scan & Process Tasks
-        </button>
-        <button id="stop-btn" class="btn secondary hidden">
-          <span class="icon">⏹️</span>
-          Stop Processing
-        </button>
-      </section>
-
-      <!-- Settings -->
-      <section class="settings">
-        <h3>Settings</h3>
-        <div class="setting-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="auto-mode">
-            <span class="checkmark"></span>
-            Auto mode (every 2min)
-          </label>
-        </div>
-        <div class="setting-group">
-          <label for="max-tasks">Max tasks per run:</label>
-          <input type="number" id="max-tasks" value="5" min="1" max="20">
-        </div>
-      </section>
-
-      <!-- Activity Log -->
-      <section class="log-section">
-        <h3>Recent Activity</h3>
-        <div id="activity-log" class="activity-log">
-          <div class="log-entry info">
-            <span class="timestamp">14:32</span>
-            <span class="message">Extension ready</span>
-          </div>
-        </div>
-      </section>
-    </main>
+    <div class="header">
+      <h1>🎬 Cradle Automation</h1>
+      <div class="status" id="status">Ready</div>
+    </div>
+    
+    <div class="controls">
+      <button id="startBtn" class="btn btn-primary">🚀 Start Automation</button>
+      <button id="stopBtn" class="btn btn-secondary" disabled>⏹️ Stop</button>
+      <button id="statusBtn" class="btn btn-info">📊 Check Status</button>
+    </div>
+    
+    <div class="activity" id="activity">
+      <h3>Activity Log:</h3>
+      <div class="log" id="log">Extension ready...</div>
+    </div>
   </div>
-
+  
   <script src="popup.js"></script>
 </body>
 </html>
