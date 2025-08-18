@@ -1,48 +1,30 @@
 {
   "manifest_version": 3,
   "name": "Cradle Video Automation",
-  "version": "1.0.0",
-  "description": "Automates video file comparison workflow in Cradle system",
+  "version": "2.0.1",
+  "description": "Automates video QA workflow in Cradle system",
   
   "permissions": [
     "activeTab",
     "storage",
-    "downloads",
-    "notifications",
     "scripting"
   ],
   
   "host_permissions": [
-    "https://*.cradle.com/*",
-    "https://*.omnipro.global/*",
-    "file://*/*"
+    "*://cradle.egplusww.pl/*"
   ],
-  
-  "background": {
-    "service_worker": "background/background.js"
-  },
   
   "content_scripts": [
     {
-      "matches": ["https://*.cradle.com/*", "https://*.omnipro.global/*"],
-      "js": [
-        "content/cradle-scanner.js",
-        "content/file-downloader.js", 
-        "content/video-compare.js",
-        "content/notification.js"
-      ],
-      "run_at": "document_idle"
+      "matches": ["*://cradle.egplusww.pl/*"],
+      "js": ["content/cradle-scanner.js"],
+      "run_at": "document_end"
     }
   ],
   
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Cradle Video Automation",
-    "default_icon": {
-      "16": "assets/icons/icon16.png",
-      "48": "assets/icons/icon48.png", 
-      "128": "assets/icons/icon128.png"
-    }
+    "default_title": "Cradle Video Automation"
   },
   
   "icons": {

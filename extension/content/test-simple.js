@@ -1,4 +1,4 @@
-console.log('Notification Manager loading...');
+console.log('🔔 Notification Manager loading...');
 
 class NotificationManager {
   constructor() {
@@ -6,9 +6,9 @@ class NotificationManager {
   }
   
   show(message) {
-    console.log('Notification:', message);
+    console.log('📢 Notification:', message);
   }
 }
 
 window.notificationManager = new NotificationManager();
-console.log('Notification Manager loaded successfully');
+console.log('✅ Notification Manager loaded successfully');
