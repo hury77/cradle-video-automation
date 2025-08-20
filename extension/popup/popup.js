@@ -11,6 +11,7 @@ class PopupController {
     // Get DOM elements
     this.startBtn = document.getElementById('startBtn');
     this.stopBtn = document.getElementById('stopBtn');
+    this.findBtn = document.getElementById('findBtn');
     this.statusBtn = document.getElementById('statusBtn');
     this.statusDiv = document.getElementById('status');
     this.logDiv = document.getElementById('log');
@@ -18,6 +19,7 @@ class PopupController {
     // Bind event listeners
     this.startBtn.addEventListener('click', () => this.startAutomation());
     this.stopBtn.addEventListener('click', () => this.stopAutomation());
+    this.findBtn.addEventListener('click', () => this.findAsset());
     this.statusBtn.addEventListener('click', () => this.checkStatus());
 
     // Check initial status
@@ -81,6 +83,15 @@ class PopupController {
       
     } catch (error) {
       this.log(`❌ Failed to stop: ${error.message}`, 'error');
+    }
+  }
+
+  async findAsset() {
+    try {
+      this.log('🔍 Finding pending asset...');
+      await this.sendCommandToContentScript('FIND_ASSET');
+    } catch (error) {
+      this.log(`❌ Find asset failed: ${error.message}`, 'error');
     }
   }
 

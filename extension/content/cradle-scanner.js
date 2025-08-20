@@ -56,6 +56,9 @@ class CradleScanner {
             case 'STOP_AUTOMATION':
                 this.stopAutomation();
                 break;
+            case 'FIND_ASSET':
+                this.findPendingAsset();
+                break;
             case 'GET_STATUS':
                 this.sendStatus();
                 break;
@@ -109,6 +112,138 @@ class CradleScanner {
         console.log('[CradleScanner] ✅ Already on correct page, applying filter...');
         // Jesteśmy na właściwej stronie - zastosuj filtr
         await this.applyQAFilterOnly();
+    }
+    
+    async findPendingAsset() {
+        console.log('[CradleScanner] 🔍 Finding pending asset...');
+        this.status = 'Finding pending asset...';
+        this.showNotification('Searching for pending assets...', 'info');
+        
+        try {
+            // ZNAJDŹ WŁAŚCIWĄ TABELĘ Z ASSETAMI
+            const allTables = document.querySelectorAll('table');
+            console.log(`[CradleScanner] Found ${allTables.length} tables on page`);
+            
+            let assetsTable = null;
+            
+            // Sprawdź każdą tabelę
+            for (let i = 0; i < allTables.length; i++) {
+                const table = allTables[i];
+                const rows = table.querySelectorAll('tr');
+                const dataRows = Array.from(table.querySelectorAll('tr')).filter(row => 
+                    row.querySelectorAll('td').length > 0
+                );
+                
+                console.log(`[CradleScanner] Table ${i}: ${rows.length} total rows, ${dataRows.length} data rows`);
+                
+                // Szukamy tabeli z najwięcej wierszy danych (prawdopodobnie ta z assetami)
+                if (dataRows.length > 0) {
+                    // Sprawdź czy ma kolumny które oczekujemy (Cradle.ID w pierwszej kolumnie)
+                    const firstDataRow = dataRows[0];
+                    const firstCell = firstDataRow.querySelector('td');
+                    
+                    if (firstCell) {
+                        const cellText = firstCell.textContent.trim();
+                        console.log(`[CradleScanner] Table ${i} first cell:`, cellText);
+                        
+                        // Sprawdź czy pierwsza komórka wygląda jak Cradle.ID (liczba)
+                        if (/^\d+$/.test(cellText)) {
+                            console.log(`[CradleScanner] ✅ Found assets table (Table ${i}) with Cradle.ID: ${cellText}`);
+                            assetsTable = table;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!assetsTable) {
+                throw new Error('Assets table not found among ' + allTables.length + ' tables on page');
+            }
+            
+            // Teraz używamy właściwej tabeli
+            console.log('[CradleScanner] Using assets table, waiting for data to load...');
+            
+            // CZEKAJ na załadowanie wierszy tabeli
+            let rows = [];
+            let attempts = 0;
+            const maxAttempts = 20;
+            
+            while (rows.length === 0 && attempts < maxAttempts) {
+                rows = Array.from(assetsTable.querySelectorAll('tbody tr'));
+                
+                if (rows.length === 0) {
+                    rows = Array.from(assetsTable.querySelectorAll('tr')).filter(row => {
+                        const cells = row.querySelectorAll('td');
+                        return cells.length > 0;
+                    });
+                }
+                
+                if (rows.length === 0) {
+                    console.log(`[CradleScanner] Attempt ${attempts + 1}: No rows in assets table, waiting...`);
+                    await this.wait(500);
+                    attempts++;
+                } else {
+                    console.log(`[CradleScanner] Success! Found ${rows.length} rows in assets table`);
+                    break;
+                }
+            }
+            
+            if (rows.length === 0) {
+                throw new Error('No data rows found in assets table after waiting');
+            }
+            
+            // Tabela jest już posortowana według Prod.deadline (najwcześniejsza data na górze)
+            // Szukamy pierwszego wiersza ze statusem "Pending"
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.querySelectorAll('td');
+                
+                if (cells.length === 0) continue;
+                
+                // Pierwsza kolumna - Cradle.ID
+                const cradleId = cells[0].textContent.trim();
+                
+                // Ostatnia kolumna - State (sprawdzamy precyzyjnie w button .mj-button-txt)
+                const stateCell = cells[cells.length - 1];
+                const stateButton = stateCell.querySelector('button .mj-button-txt');
+                const state = stateButton ? stateButton.textContent.trim().toLowerCase() : '';
+                
+                console.log(`[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, State="${state}"`);
+                
+                // Pomijamy assety "Processing" - ktoś już nad nimi pracuje
+                if (state.includes('processing')) {
+                    console.log(`[CradleScanner] Skipping ${cradleId} - already processing`);
+                    continue;
+                }
+                
+                // Znaleziono pierwszy asset "Pending" (tabela jest posortowana według deadline)
+                if (state.includes('pending')) {
+                    const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
+                    
+                    console.log(`[CradleScanner] ✅ Found earliest pending asset: ${cradleId}`);
+                    console.log(`[CradleScanner] Opening URL: ${assetUrl}`);
+                    
+                    this.status = `Opening asset ${cradleId}`;
+                    this.showNotification(`✅ Opening pending asset ${cradleId}...`, 'success');
+                    
+                    // Otwórz w nowym oknie
+                    window.open(assetUrl, '_blank');
+                    
+                    this.status = 'Ready';
+                    return;
+                }
+            }
+            
+            // Nie znaleziono assetów Pending
+            this.status = 'No pending assets found';
+            this.showNotification('❌ No pending assets available for processing', 'warning');
+            console.log('[CradleScanner] No pending assets found - all are either processing or completed');
+            
+        } catch (error) {
+            console.error('[CradleScanner] Error finding pending asset:', error);
+            this.status = `Error: ${error.message}`;
+            this.showNotification(`❌ Error: ${error.message}`, 'error');
+        }
     }
     
     async applyQAFilterOnly() {
