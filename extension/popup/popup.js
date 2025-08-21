@@ -12,6 +12,7 @@ class PopupController {
     this.startBtn = document.getElementById('startBtn');
     this.stopBtn = document.getElementById('stopBtn');
     this.findBtn = document.getElementById('findBtn');
+    this.takeBtn = document.getElementById('takeBtn');
     this.statusBtn = document.getElementById('statusBtn');
     this.statusDiv = document.getElementById('status');
     this.logDiv = document.getElementById('log');
@@ -20,6 +21,7 @@ class PopupController {
     this.startBtn.addEventListener('click', () => this.startAutomation());
     this.stopBtn.addEventListener('click', () => this.stopAutomation());
     this.findBtn.addEventListener('click', () => this.findAsset());
+    this.takeBtn.addEventListener('click', () => this.takeAsset());
     this.statusBtn.addEventListener('click', () => this.checkStatus());
 
     // Check initial status
@@ -95,56 +97,65 @@ class PopupController {
     }
   }
 
+  async takeAsset() {
+    try {
+      this.log('✋ Taking asset...');
+      await this.sendCommandToContentScript('TAKE_ASSET');
+    } catch (error) {
+      this.log(`❌ Take asset failed: ${error.message}`, 'error');
+    }
+  }
+
   async checkStatus() {
     try {
       await this.sendCommandToContentScript('GET_STATUS');
-      this.log('📊 Status check requested');
     } catch (error) {
       this.log(`❌ Status check failed: ${error.message}`, 'error');
     }
   }
 
   monitorAutomation() {
-    if (!this.isRunning) return;
-    
+    // This could be enhanced to listen for status updates
     setTimeout(() => {
       if (this.isRunning) {
         this.checkStatus();
         this.monitorAutomation();
       }
-    }, 3000);
+    }, 2000);
   }
 
   updateUI(running) {
     this.isRunning = running;
     
     if (running) {
-      this.startBtn.disabled = true;
-      this.stopBtn.disabled = false;
-      this.statusDiv.textContent = 'Running...';
+      this.startBtn.style.display = 'none';
+      this.stopBtn.style.display = 'block';
+      this.statusDiv.textContent = '🔄 Running...';
       this.statusDiv.className = 'status running';
     } else {
-      this.startBtn.disabled = false;
-      this.stopBtn.disabled = true;
-      this.statusDiv.textContent = 'Ready';
-      this.statusDiv.className = 'status';
+      this.startBtn.style.display = 'block';
+      this.stopBtn.style.display = 'none';
+      this.statusDiv.textContent = '⏹️ Stopped';
+      this.statusDiv.className = 'status stopped';
     }
   }
 
   log(message, type = 'info') {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `[${timestamp}] ${message}\n`;
+    console.log(message);
     
-    // Add to log
-    this.logDiv.textContent = logEntry + this.logDiv.textContent;
-    
-    // Keep only last 15 entries
-    const lines = this.logDiv.textContent.split('\n');
-    if (lines.length > 20) {
-      this.logDiv.textContent = lines.slice(0, 20).join('\n');
+    if (this.logDiv) {
+      const logEntry = document.createElement('div');
+      logEntry.className = `log-entry ${type}`;
+      logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+      
+      this.logDiv.appendChild(logEntry);
+      this.logDiv.scrollTop = this.logDiv.scrollHeight;
+      
+      // Keep only last 10 entries
+      while (this.logDiv.children.length > 10) {
+        this.logDiv.removeChild(this.logDiv.firstChild);
+      }
     }
-    
-    console.log(`Popup: ${message}`);
   }
 }
 
