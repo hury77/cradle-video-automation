@@ -5,25 +5,24 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🎬 Cradle Automation</h1>
-      <div class="status" id="status">Ready</div>
-    </div>
-    
-    <div class="controls">
-      <button id="startBtn" class="btn btn-primary">🚀 Start Automation</button>
-      <button id="stopBtn" class="btn btn-secondary" disabled>⏹️ Stop</button>
-      <button id="findBtn" class="btn btn-info">🔍 Find Asset</button>
-      <button id="statusBtn" class="btn btn-info">📊 Check Status</button>
-    </div>
-    
-    <div class="activity" id="activity">
-      <h3>Activity Log:</h3>
-      <div class="log" id="log">Extension ready...</div>
-    </div>
+  <div class="header">
+    <h1>🎬 Cradle Automation</h1>
   </div>
   
+  <div class="content">
+    <div class="controls">
+      <button id="startBtn" class="btn btn-primary">🚀 Start Automation</button>
+      <button id="stopBtn" class="btn btn-danger" style="display: none;">⏹️ Stop Automation</button>
+      <button id="findBtn" class="btn btn-info">🔍 Find Asset</button>
+      <button id="takeBtn" class="btn btn-warning">✋ Take Asset</button>
+      <button id="statusBtn" class="btn btn-secondary">📊 Status</button>
+    </div>
+
+    <div id="status" class="status stopped">⏹️ Stopped</div>
+    
+    <div id="log" class="log"></div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
