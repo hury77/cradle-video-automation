@@ -13,6 +13,7 @@ class PopupController {
     this.stopBtn = document.getElementById('stopBtn');
     this.findBtn = document.getElementById('findBtn');
     this.takeBtn = document.getElementById('takeBtn');
+    this.downloadBtn = document.getElementById('downloadBtn');
     this.statusBtn = document.getElementById('statusBtn');
     this.statusDiv = document.getElementById('status');
     this.logDiv = document.getElementById('log');
@@ -22,6 +23,7 @@ class PopupController {
     this.stopBtn.addEventListener('click', () => this.stopAutomation());
     this.findBtn.addEventListener('click', () => this.findAsset());
     this.takeBtn.addEventListener('click', () => this.takeAsset());
+    this.downloadBtn.addEventListener('click', () => this.downloadFiles());
     this.statusBtn.addEventListener('click', () => this.checkStatus());
 
     // Check initial status
@@ -103,6 +105,15 @@ class PopupController {
       await this.sendCommandToContentScript('TAKE_ASSET');
     } catch (error) {
       this.log(`❌ Take asset failed: ${error.message}`, 'error');
+    }
+  }
+
+  async downloadFiles() {
+    try {
+      this.log('📁 Starting file download...');
+      await this.sendCommandToContentScript('DOWNLOAD_FILES');
+    } catch (error) {
+      this.log(`❌ Download failed: ${error.message}`, 'error');
     }
   }
 
