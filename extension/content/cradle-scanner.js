@@ -1,17 +1,30 @@
+console.log('Cradle Scanner content script loaded');
+
 class CradleScanner {
     constructor() {
         this.isScanning = false;
         this.status = 'Ready';
+        this.currentCradleId = null;
         
         document.addEventListener('extension-command', (event) => {
             console.log('[CradleScanner] Command received:', event.detail.action);
             this.handleCommand(event.detail);
         });
         
-        // Sprawdź czy po przeładowaniu strony mamy automatycznie zastosować filtr
         this.checkAutoApplyFilter();
+        this.extractCradleId();
         
         console.log('[CradleScanner] Scanner initialized');
+    }
+    
+    extractCradleId() {
+        const urlMatch = window.location.href.match(/\/assets\/deliverable-details\/(\d+)/);
+        if (urlMatch) {
+            this.currentCradleId = urlMatch[1];
+            console.log('[CradleScanner] 🆔 Extracted Cradle ID:', this.currentCradleId);
+        } else {
+            console.log('[CradleScanner] ⚠️ Could not extract Cradle ID from URL:', window.location.href);
+        }
     }
     
     async checkAutoApplyFilter() {
@@ -27,10 +40,8 @@ class CradleScanner {
         if (shouldAutoApply === 'true') {
             console.log('[CradleScanner] 🔄 Auto-apply flag found!');
             
-            // Usuń flagę
             localStorage.removeItem('cradle-auto-apply-qa-filter');
             
-            // Sprawdź czy jesteśmy na właściwej stronie
             if (currentUrl !== targetUrl) {
                 console.log('[CradleScanner] ❌ Wrong URL for auto-apply, ignoring...');
                 return;
@@ -38,7 +49,6 @@ class CradleScanner {
             
             console.log('[CradleScanner] ✅ Correct URL, scheduling auto-apply...');
             
-            // Czekaj 3 sekundy na załadowanie strony
             setTimeout(async () => {
                 console.log('[CradleScanner] 🚀 Starting auto-apply filter...');
                 await this.applyQAFilterOnly();
@@ -48,8 +58,12 @@ class CradleScanner {
         }
     }
     
-    handleCommand(command) {
-        switch(command.action) {
+    handleCommand(eventDetail) {
+        console.log('[CradleScanner] Event detail received:', eventDetail);
+        const action = eventDetail.action;
+        console.log('[CradleScanner] Action extracted:', action);
+        
+        switch(action) {
             case 'START_AUTOMATION':
                 this.startAutomation();
                 break;
@@ -62,9 +76,14 @@ class CradleScanner {
             case 'TAKE_ASSET':
                 this.takeAsset();
                 break;
+            case 'DOWNLOAD_FILES':
+                this.downloadFiles();
+                break;
             case 'GET_STATUS':
                 this.sendStatus();
                 break;
+            default:
+                console.warn('[CradleScanner] ⚠️ Unknown action:', action);
         }
     }
     
@@ -93,11 +112,9 @@ class CradleScanner {
         console.log('[CradleScanner] Current URL:', currentUrl);
         console.log('[CradleScanner] Target URL:', targetUrl);
         
-        // Sprawdź URL na samym początku
         if (currentUrl !== targetUrl) {
             console.log('[CradleScanner] ❌ Wrong page! Redirecting...');
             
-            // Ustaw flagę żeby po przeładowaniu automatycznie zastosować filtr
             localStorage.setItem('cradle-auto-apply-qa-filter', 'true');
             console.log('[CradleScanner] ✅ Auto-apply flag set in localStorage');
             
@@ -109,11 +126,10 @@ class CradleScanner {
                 window.location.href = targetUrl;
             }, 1000);
             
-            return; // Zatrzymaj dalsze wykonywanie
+            return;
         }
         
         console.log('[CradleScanner] ✅ Already on correct page, applying filter...');
-        // Jesteśmy na właściwej stronie - zastosuj filtr
         await this.applyQAFilterOnly();
     }
     
@@ -123,13 +139,11 @@ class CradleScanner {
         this.showNotification('Searching for pending assets...', 'info');
         
         try {
-            // ZNAJDŹ WŁAŚCIWĄ TABELĘ Z ASSETAMI
             const allTables = document.querySelectorAll('table');
             console.log(`[CradleScanner] Found ${allTables.length} tables on page`);
             
             let assetsTable = null;
             
-            // Sprawdź każdą tabelę
             for (let i = 0; i < allTables.length; i++) {
                 const table = allTables[i];
                 const rows = table.querySelectorAll('tr');
@@ -142,7 +156,6 @@ class CradleScanner {
                 console.log(`[CradleScanner] Table ${i} classes:`, table.className);
                 console.log(`[CradleScanner] Table ${i} id:`, table.id);
                 
-                // DODATKOWE DEBUGOWANIE - pokaż zawartość pierwszych komórek
                 if (dataRows.length > 0) {
                     console.log(`[CradleScanner] Table ${i} - First 3 rows content:`);
                     for (let j = 0; j < Math.min(3, dataRows.length); j++) {
@@ -157,7 +170,6 @@ class CradleScanner {
                     console.log(`[CradleScanner] Table ${i} has no data rows`);
                 }
                 
-                // Szukamy tabeli z assetami
                 if (dataRows.length > 0) {
                     const firstDataRow = dataRows[0];
                     const firstCell = firstDataRow.querySelector('td');
@@ -169,7 +181,6 @@ class CradleScanner {
                         console.log(`[CradleScanner] Table ${i} is 6+ digit number: ${/^\d{6,}$/.test(cellText)}`);
                         console.log(`[CradleScanner] Table ${i} contains numbers: ${/\d+/.test(cellText)}`);
                         
-                        // ROZSZERZONE SPRAWDZANIE - różne formaty Cradle.ID
                         if (/^\d+$/.test(cellText)) {
                             console.log(`[CradleScanner] ✅ Found assets table (Table ${i}) with pure number Cradle.ID: ${cellText}`);
                             assetsTable = table;
@@ -179,7 +190,6 @@ class CradleScanner {
                             assetsTable = table;
                             break;
                         } else if (cellText.includes('891') || cellText.includes('892') || cellText.includes('878')) {
-                            // Fallback - szukaj znanych ID z przykładu
                             console.log(`[CradleScanner] ✅ Found assets table (Table ${i}) with known Cradle.ID pattern: ${cellText}`);
                             assetsTable = table;
                             break;
@@ -190,7 +200,6 @@ class CradleScanner {
             }
             
             if (!assetsTable) {
-                // Dodatkowe info do błędu
                 console.log('[CradleScanner] ❌ No assets table found. Summary:');
                 for (let i = 0; i < allTables.length; i++) {
                     const table = allTables[i];
@@ -202,10 +211,8 @@ class CradleScanner {
                 throw new Error(`Assets table not found among ${allTables.length} tables. No table has Cradle.ID format in first column.`);
             }
             
-            // Teraz używamy właściwej tabeli
             console.log('[CradleScanner] ✅ Using assets table, waiting for data to load...');
             
-            // CZEKAJ na załadowanie wierszy tabeli
             let rows = [];
             let attempts = 0;
             const maxAttempts = 20;
@@ -234,31 +241,25 @@ class CradleScanner {
                 throw new Error('No data rows found in assets table after waiting');
             }
             
-            // Tabela jest już posortowana według Prod.deadline (najwcześniejsza data na górze)
-            // Szukamy pierwszego wiersza ze statusem "Pending"
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 const cells = row.querySelectorAll('td');
                 
                 if (cells.length === 0) continue;
                 
-                // Pierwsza kolumna - Cradle.ID
                 const cradleId = cells[0].textContent.trim();
                 
-                // Ostatnia kolumna - State (sprawdzamy precyzyjnie w button .mj-button-txt)
                 const stateCell = cells[cells.length - 1];
                 const stateButton = stateCell.querySelector('button .mj-button-txt');
                 const state = stateButton ? stateButton.textContent.trim().toLowerCase() : '';
                 
                 console.log(`[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, State="${state}"`);
                 
-                // Pomijamy assety "Processing" - ktoś już nad nimi pracuje
                 if (state.includes('processing')) {
                     console.log(`[CradleScanner] Skipping ${cradleId} - already processing`);
                     continue;
                 }
                 
-                // Znaleziono pierwszy asset "Pending" (tabela jest posortowana według deadline)
                 if (state.includes('pending')) {
                     const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
                     
@@ -268,7 +269,6 @@ class CradleScanner {
                     this.status = `Opening asset ${cradleId}`;
                     this.showNotification(`✅ Opening pending asset ${cradleId}...`, 'success');
                     
-                    // Otwórz w nowym oknie
                     window.open(assetUrl, '_blank');
                     
                     this.status = 'Ready';
@@ -276,12 +276,10 @@ class CradleScanner {
                 }
             }
             
-            // ❌ Nie znaleziono assetów Pending - POKAŻ POPUP
             this.status = 'No pending assets found';
             this.showNotification('❌ No pending assets available for processing', 'warning');
             console.log('[CradleScanner] No pending assets found - all are either processing or completed');
             
-            // 🚨 POPUP ALERT
             alert('❌ No Pending Assets Found\n\nAll assets are either:\n• Already Processing (someone is working on them)\n• Completed\n• No assets match QA final proofreading filter\n\nPlease check back later or verify the filter settings.');
             
         } catch (error) {
@@ -289,7 +287,6 @@ class CradleScanner {
             this.status = `Error: ${error.message}`;
             this.showNotification(`❌ Error: ${error.message}`, 'error');
             
-            // 🚨 POPUP ALERT dla błędów
             alert(`❌ Error Finding Assets\n\n${error.message}\n\nPlease check:\n• Are you on the correct page?\n• Is the QA filter applied?\n• Are there any assets in the table?`);
         }
     }
@@ -300,55 +297,87 @@ class CradleScanner {
         this.showNotification('Taking asset...', 'info');
         
         try {
-            // 1. Znajdź przycisk "Pending" 
+            // ✅ POPRAWKA: Sprawdź obecny status asset'a
+            const currentStatus = this.getCurrentAssetStatus();
+            console.log('[CradleScanner] Current asset status:', currentStatus);
+            
+            if (currentStatus && currentStatus.toLowerCase().includes('pending')) {
+                console.log('[CradleScanner] ✅ Asset is already Pending, no need to take');
+                this.status = 'Asset already taken';
+                this.showNotification('✅ Asset is already in Pending status!', 'success');
+                this.showNotification('📁 Ready to download files', 'info');
+                return;
+            }
+            
+            // Szukaj przycisku "Pending" - może być w różnych stanach
             const pendingButtons = document.querySelectorAll('button.btn-state .mj-button-txt');
             let pendingButton = null;
             
             for (const button of pendingButtons) {
-                if (button.textContent.trim().toLowerCase().includes('pending')) {
+                const buttonText = button.textContent.trim().toLowerCase();
+                if (buttonText.includes('pending') || buttonText.includes('take')) {
                     pendingButton = button.closest('button');
+                    console.log('[CradleScanner] Found state button:', buttonText);
                     break;
                 }
             }
             
             if (!pendingButton) {
-                throw new Error('Pending button not found on asset page');
+                // ✅ POPRAWKA: Szukaj innych przycisków akcji
+                const actionButtons = document.querySelectorAll('button');
+                for (const button of actionButtons) {
+                    const buttonText = button.textContent.trim().toLowerCase();
+                    if (buttonText.includes('take') || buttonText.includes('claim')) {
+                        pendingButton = button;
+                        console.log('[CradleScanner] Found action button:', buttonText);
+                        break;
+                    }
+                }
             }
             
-            console.log('[CradleScanner] Found Pending button, clicking...');
+            if (!pendingButton) {
+                console.log('[CradleScanner] ⚠️ No take/pending button found - asset may already be taken');
+                this.status = 'Asset may already be taken';
+                this.showNotification('⚠️ No Take button found - asset may already be yours', 'warning');
+                this.showNotification('📁 Try downloading files directly', 'info');
+                return;
+            }
             
-            // 2. Kliknij "Pending"
+            console.log('[CradleScanner] Found button, clicking...');
             pendingButton.click();
             
-            // 3. Czekaj na popup i znajdź "Take"
-            console.log('[CradleScanner] Waiting for Take popup...');
+            console.log('[CradleScanner] Waiting for popup...');
             await this.wait(1500);
             
-            const takeButtons = document.querySelectorAll('button.btn-success');
+            // Szukaj przycisku "Take" w popup
+            const takeButtons = document.querySelectorAll('button.btn-success, button[class*="success"], button');
             let takeButton = null;
             
             for (const button of takeButtons) {
-                if (button.textContent.trim().toLowerCase().includes('take')) {
+                const buttonText = button.textContent.trim().toLowerCase();
+                if (buttonText.includes('take') || buttonText.includes('claim')) {
                     takeButton = button;
+                    console.log('[CradleScanner] Found Take button:', buttonText);
                     break;
                 }
             }
             
             if (!takeButton) {
-                throw new Error('Take button not found in popup');
+                console.log('[CradleScanner] ⚠️ No Take button in popup - asset may already be yours');
+                this.status = 'Asset already taken or no popup';
+                this.showNotification('⚠️ Asset may already be yours', 'warning');
+                this.showNotification('📁 Try downloading files', 'info');
+                return;
             }
             
-            console.log('[CradleScanner] Found Take button, clicking...');
-            
-            // 4. Kliknij "Take"
+            console.log('[CradleScanner] Clicking Take button...');
             takeButton.click();
             
-            // 5. Czekaj na zmianę statusu
             console.log('[CradleScanner] Waiting for status change...');
             await this.wait(2000);
             
             this.status = 'Asset taken successfully';
-            this.showNotification('✅ Asset taken! Ready to find files...', 'success');
+            this.showNotification('✅ Asset taken! Ready to download files...', 'success');
             
             console.log('[CradleScanner] ✅ Asset taken successfully');
             
@@ -356,9 +385,345 @@ class CradleScanner {
             console.error('[CradleScanner] Error taking asset:', error);
             this.status = `Error: ${error.message}`;
             this.showNotification(`❌ Error: ${error.message}`, 'error');
+        }
+    }
+    
+    // ✅ NOVA METODA: Sprawdza obecny status asset'a
+    getCurrentAssetStatus() {
+        try {
+            // Szukaj w różnych miejscach na stronie
+            const statusElements = document.querySelectorAll('[class*="status"], [class*="state"], .mj-button-txt');
             
-            // 🚨 POPUP ALERT dla błędów
-            alert(`❌ Error Taking Asset\n\n${error.message}\n\nPlease check:\n• Are you on the asset details page?\n• Is the asset still Pending?\n• Is the popup visible?`);
+            for (const element of statusElements) {
+                const text = element.textContent.trim();
+                if (text && (text.toLowerCase().includes('pending') || 
+                           text.toLowerCase().includes('processing') || 
+                           text.toLowerCase().includes('completed'))) {
+                    return text;
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.log('[CradleScanner] Error getting status:', error);
+            return null;
+        }
+    }
+
+    async downloadFiles() {
+        try {
+            this.showNotification('📁 Starting file download process...', 'info');
+            console.log('[CradleScanner] 📁 Starting download files process...');
+            
+            if (!this.currentCradleId) {
+                this.extractCradleId();
+                if (!this.currentCradleId) {
+                    throw new Error('Cradle ID not found. Please ensure you are on asset details page.');
+                }
+            }
+
+            console.log('[CradleScanner] 🔍 Scanning Asset comments table...');
+            
+            const commentsTable = await this.findAssetCommentsTable();
+            if (!commentsTable) {
+                throw new Error('Asset comments table not found');
+            }
+
+            const fileInfo = await this.scanForFiles(commentsTable);
+            
+            if (!fileInfo.emissionFile && !fileInfo.acceptanceFile) {
+                throw new Error('No files found for download');
+            }
+
+            console.log('[CradleScanner] 📁 Files found:', fileInfo);
+
+            await this.createDownloadFolder();
+
+            if (fileInfo.acceptanceFile) {
+                await this.downloadAcceptanceFile(fileInfo.acceptanceFile);
+            }
+
+            if (fileInfo.emissionFile) {
+                await this.handleEmissionFile(fileInfo.emissionFile);
+            }
+
+            this.showNotification('✅ File download completed successfully!', 'success');
+
+        } catch (error) {
+            console.error('[CradleScanner] ❌ Download files error:', error);
+            this.showNotification(`❌ Download failed: ${error.message}`, 'error');
+        }
+    }
+
+    async findAssetCommentsTable() {
+        console.log('[CradleScanner] 🔍 Looking for Asset comments table...');
+        
+        for (let i = 0; i < 10; i++) {
+            console.log(`[CradleScanner] ⏳ Table search attempt ${i + 1}/10`);
+            
+            const tables = document.querySelectorAll('table');
+            console.log(`[CradleScanner] Found ${tables.length} tables on page`);
+            
+            for (let j = 0; j < tables.length; j++) {
+                const table = tables[j];
+                const headers = table.querySelectorAll('th');
+                console.log(`[CradleScanner] Table ${j} headers:`, Array.from(headers).map(h => h.textContent.trim()));
+                
+                for (const header of headers) {
+                    const headerText = header.textContent.trim();
+                    if (headerText.includes('Asset comments') || 
+                        headerText.includes('Comment') ||
+                        headerText.includes('Attachment')) {
+                        console.log('[CradleScanner] ✅ Found Asset comments table via header:', headerText);
+                        return table;
+                    }
+                }
+            }
+            
+            for (let j = 0; j < tables.length; j++) {
+                const table = tables[j];
+                const rows = table.querySelectorAll('tr');
+                
+                for (const row of rows) {
+                    const cells = row.querySelectorAll('td');
+                    for (const cell of cells) {
+                        const cellText = cell.textContent.toLowerCase();
+                        if (cellText.includes('qa proofreading') || 
+                            cellText.includes('final file preparation') ||
+                            cellText.includes('broadcast preparation')) {
+                            console.log('[CradleScanner] ✅ Found Asset comments table via content');
+                            return table;
+                        }
+                    }
+                }
+            }
+            
+            console.log(`[CradleScanner] ⏳ Waiting for table... (${i + 1}/10)`);
+            await this.wait(1000);
+        }
+        
+        console.log('[CradleScanner] ❌ Asset comments table not found after 10 attempts');
+        return null;
+    }
+
+    async scanForFiles(table) {
+        console.log('[CradleScanner] 🔍 Scanning table rows for files...');
+        
+        const fileInfo = {
+            emissionFile: null,
+            acceptanceFile: null
+        };
+
+        const rows = table.querySelectorAll('tbody tr');
+        if (rows.length === 0) {
+            const allRows = table.querySelectorAll('tr');
+            console.log(`[CradleScanner] No tbody rows, trying all rows: ${allRows.length}`);
+            
+            allRows.forEach((row, index) => {
+                this.scanRowForFiles(row, index, fileInfo);
+            });
+        } else {
+            console.log(`[CradleScanner] 📊 Found ${rows.length} tbody rows to scan`);
+            
+            rows.forEach((row, index) => {
+                this.scanRowForFiles(row, index, fileInfo);
+            });
+        }
+
+        console.log('[CradleScanner] 📁 File scan results:', fileInfo);
+        return fileInfo;
+    }
+
+    scanRowForFiles(row, index, fileInfo) {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 2) return;
+
+        console.log(`[CradleScanner] 📝 Row ${index + 1}: ${cells.length} cells`);
+        
+        let commentText = '';
+        let attachmentUrl = null;
+        
+        for (let i = 0; i < cells.length; i++) {
+            const cellText = cells[i].textContent.toLowerCase();
+            
+            if (i === 6) {
+                const link = cells[i].querySelector('a[href]');
+                if (link && !link.href.includes('Omit in Shop') && link.textContent.trim() !== 'Omit in Shop') {
+                    attachmentUrl = link.href;
+                    console.log(`[CradleScanner] Found attachment:`, attachmentUrl);
+                }
+            }
+            
+            if (i === 0) {
+                commentText = cellText;
+            }
+        }
+
+        if (!commentText) return;
+
+        if (commentText.includes('final file preparation') || 
+            commentText.includes('broadcast preparation')) {
+            
+            console.log('[CradleScanner] 🎬 Found emission file row');
+            
+            let path = null;
+            const commentCell = cells[2];
+            if (commentCell) {
+                const pathMatch = commentCell.textContent.match(/\/Volumes\/[^\s]+/);
+                if (pathMatch) {
+                    path = pathMatch[0];
+                }
+            }
+            
+            fileInfo.emissionFile = {
+                type: 'emission',
+                path: path,
+                attachment: attachmentUrl,
+                row: row
+            };
+        }
+
+        if ((commentText.includes('qa proofreading') || 
+             commentText.includes('qc_final') || 
+             commentText.includes('qc final')) && 
+            attachmentUrl) {
+            
+            console.log('[CradleScanner] ✅ Found acceptance file row with attachment');
+            
+            if (!fileInfo.acceptanceFile) {
+                fileInfo.acceptanceFile = {
+                    type: 'acceptance',
+                    attachment: attachmentUrl,
+                    row: row
+                };
+            }
+        }
+    }
+
+    async createDownloadFolder() {
+        console.log(`[CradleScanner] 📂 Preparing download folder: ${this.currentCradleId}`);
+        this.showNotification(`📂 Files will be organized in: Downloads/${this.currentCradleId}/`, 'info');
+        this.showNotification(`🔧 Chrome will create folder automatically`, 'info');
+    }
+
+    async downloadAcceptanceFile(fileInfo) {
+        if (!fileInfo.attachment) {
+            console.warn('[CradleScanner] ⚠️ No attachment found for acceptance file');
+            this.showNotification('⚠️ No acceptance file attachment found', 'warning');
+            return;
+        }
+
+        console.log('[CradleScanner] ⬇️ Downloading acceptance file:', fileInfo.attachment);
+        this.showNotification('⬇️ Downloading acceptance file...', 'info');
+        
+        try {
+            // ✅ ZACHOWAJ ORYGINALNĄ NAZWĘ PLIKU
+            const originalFilename = decodeURIComponent(fileInfo.attachment.split('/').pop());
+            console.log('[CradleScanner] Original filename:', originalFilename);
+            
+            // Utwórz link z folderem w nazwie (Chrome automatycznie utworzy folder)
+            const link = document.createElement('a');
+            link.href = fileInfo.attachment;
+            link.download = `${this.currentCradleId}/${originalFilename}`; // ✅ Folder + oryginalna nazwa
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log('[CradleScanner] ✅ Acceptance file download triggered:', originalFilename);
+            this.showNotification(`✅ Downloading: ${originalFilename}`, 'success');
+            this.showNotification(`📂 Saved to: Downloads/${this.currentCradleId}/`, 'info');
+            
+        } catch (error) {
+            console.error('[CradleScanner] ❌ Acceptance download error:', error);
+            this.showNotification(`❌ Download failed: ${error.message}`, 'error');
+        }
+    }
+
+    async handleEmissionFile(fileInfo) {
+        if (fileInfo.attachment) {
+            console.log('[CradleScanner] ⬇️ Downloading emission file attachment:', fileInfo.attachment);
+            this.showNotification('⬇️ Downloading emission file...', 'info');
+            
+            try {
+                // ✅ ZACHOWAJ ORYGINALNĄ NAZWĘ PLIKU
+                const originalFilename = decodeURIComponent(fileInfo.attachment.split('/').pop());
+                console.log('[CradleScanner] Original filename:', originalFilename);
+                
+                const link = document.createElement('a');
+                link.href = fileInfo.attachment;
+                link.download = `${this.currentCradleId}/${originalFilename}`; // ✅ Folder + oryginalna nazwa
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                console.log('[CradleScanner] ✅ Emission file download triggered:', originalFilename);
+                this.showNotification(`✅ Downloading: ${originalFilename}`, 'success');
+                this.showNotification(`📂 Saved to: Downloads/${this.currentCradleId}/`, 'info');
+                
+            } catch (error) {
+                console.error('[CradleScanner] ❌ Emission download error:', error);
+                this.showNotification(`❌ Download failed: ${error.message}`, 'error');
+            }
+            
+        } else if (fileInfo.path) {
+            console.log('[CradleScanner] 📁 Found emission file network path:', fileInfo.path);
+            
+            // ✅ ULEPSZONA OBSŁUGA DYSKU SIECIOWEGO
+            const fullPath = `${fileInfo.path}/broadcast`; // Często pliki są w podfolderze
+            
+            // Spróbuj skopiować do schowka z różnymi metodami
+            try {
+                // Metoda 1: Nowoczesny API
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(fullPath);
+                    this.showNotification(`📋 Path copied to clipboard!`, 'success');
+                    console.log('[CradleScanner] ✅ Path copied to clipboard (modern API):', fullPath);
+                } else {
+                    throw new Error('Clipboard API not available');
+                }
+            } catch (error) {
+                console.log('[CradleScanner] Modern clipboard failed, trying fallback...');
+                
+                // Metoda 2: Fallback - stary sposób
+                try {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = fullPath;
+                    textArea.style.position = 'fixed';
+                    textArea.style.opacity = '0';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    
+                    if (successful) {
+                        this.showNotification(`📋 Path copied to clipboard!`, 'success');
+                        console.log('[CradleScanner] ✅ Path copied to clipboard (fallback):', fullPath);
+                    } else {
+                        throw new Error('execCommand failed');
+                    }
+                } catch (fallbackError) {
+                    console.log('[CradleScanner] ⚠️ Could not copy to clipboard:', fallbackError);
+                    
+                    // Metoda 3: Pokaż instrukcje
+                    this.showNotification(`📁 Network Path: ${fullPath}`, 'info');
+                    this.showNotification(`🔍 Look for file: ${this.currentCradleId}*.*`, 'info');
+                    this.showNotification(`📋 Copy path manually from console`, 'warning');
+                    
+                    // Dodatkowy alert z instrukcjami
+                    setTimeout(() => {
+                        alert(`🎬 EMISSION FILE LOCATION\n\nPath: ${fullPath}\n\nInstructions:\n1. Open Finder/File Explorer\n2. Navigate to above path\n3. Look for file starting with: ${this.currentCradleId}\n4. Copy file to Downloads/${this.currentCradleId}/ folder\n\nPath has been logged to console for easy copying.`);
+                    }, 1000);
+                }
+            }
+            
+            // POKAŻ SZCZEGÓŁOWE INSTRUKCJE
+            this.showNotification(`🎯 Instructions: Open ${fullPath}`, 'info');
+            this.showNotification(`📄 Find file: ${this.currentCradleId}_*.mp4`, 'info');
+            this.showNotification(`💾 Copy to: Downloads/${this.currentCradleId}/`, 'info');
         }
     }
     
@@ -373,11 +738,9 @@ class CradleScanner {
         try {
             console.log('[CradleScanner] === APPLYING QA FILTER ===');
             
-            // KROK 1: Kliknij Saved States i wybierz QA FINAL PROOFREADING
             console.log('[CradleScanner] === STEP 1: Applying QA filter ===');
             await this.applyQAFilter();
             
-            // KROK 2: Czekaj na zastosowanie filtra
             console.log('[CradleScanner] === STEP 2: Waiting for filter ===');
             await this.waitForFilter();
             
@@ -396,7 +759,6 @@ class CradleScanner {
     async applyQAFilter() {
         this.status = 'Looking for Saved States button...';
         
-        // Znajdź przycisk Saved States
         const savedStatesButton = this.findSavedStatesButton();
         
         if (!savedStatesButton) {
@@ -406,13 +768,10 @@ class CradleScanner {
         console.log('[CradleScanner] 🎯 Found Saved States button, clicking...');
         this.status = 'Clicking Saved States...';
         
-        // Kliknij przycisk
         savedStatesButton.click();
         
-        // Czekaj na otwarcie dropdown
         await this.wait(2000);
         
-        // Znajdź opcję QA FINAL PROOFREADING
         const qaOption = this.findQAOption();
         
         if (!qaOption) {
@@ -422,7 +781,6 @@ class CradleScanner {
         console.log('[CradleScanner] 🎯 Found QA FINAL PROOFREADING option, clicking...');
         this.status = 'Selecting QA FINAL PROOFREADING...';
         
-        // Kliknij opcję QA
         qaOption.click();
         
         console.log('[CradleScanner] ✅ QA filter selected');
@@ -431,7 +789,6 @@ class CradleScanner {
     findSavedStatesButton() {
         console.log('[CradleScanner] Looking for Saved States button...');
         
-        // Szukaj wszystkich przycisków
         const buttons = document.querySelectorAll('button');
         console.log('[CradleScanner] Found', buttons.length, 'buttons on page');
         
@@ -451,7 +808,6 @@ class CradleScanner {
     findQAOption() {
         console.log('[CradleScanner] Looking for QA FINAL PROOFREADING option...');
         
-        // Szukaj wszystkich widocznych elementów
         const allElements = document.querySelectorAll('*');
         console.log('[CradleScanner] Checking', allElements.length, 'elements for QA option');
         

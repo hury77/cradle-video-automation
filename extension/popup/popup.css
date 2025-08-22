@@ -181,3 +181,12 @@ body {
 .log::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
+
+.btn-success {
+  background: #28a745;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #218838;
+}
