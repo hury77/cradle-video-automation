@@ -7,8 +7,13 @@
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
+  
+  "background": {
+    "service_worker": "background/background.js"
+  },
   
   "host_permissions": [
     "*://cradle.egplusww.pl/*"

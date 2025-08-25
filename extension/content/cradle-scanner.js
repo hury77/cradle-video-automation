@@ -828,29 +828,40 @@ class CradleScanner {
     this.showNotification("⬇️ Downloading acceptance file...", "info");
 
     try {
-      // ✅ ZACHOWAJ ORYGINALNĄ NAZWĘ PLIKU
       const originalFilename = decodeURIComponent(
         fileInfo.attachment.split("/").pop()
       );
       console.log("[CradleScanner] Original filename:", originalFilename);
 
-      // Utwórz link z folderem w nazwie (Chrome automatycznie utworzy folder)
-      const link = document.createElement("a");
-      link.href = fileInfo.attachment;
-      link.download = `${this.currentCradleId}/${originalFilename}`; // ✅ Folder + oryginalna nazwa
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      console.log(
-        "[CradleScanner] ✅ Acceptance file download triggered:",
-        originalFilename
-      );
-      this.showNotification(`✅ Downloading: ${originalFilename}`, "success");
-      this.showNotification(
-        `📂 Saved to: Downloads/${this.currentCradleId}/`,
-        "info"
+      // ✅ UŻYJ ISTNIEJĄCEGO BACKGROUND SERVICE
+      chrome.runtime.sendMessage(
+        {
+          action: "DOWNLOAD_FILE",
+          url: fileInfo.attachment,
+          filename: `${this.currentCradleId}/${originalFilename}`,
+        },
+        (response) => {
+          if (response && response.success) {
+            console.log("[CradleScanner] ✅ Acceptance file download started");
+            this.showNotification(
+              `✅ Downloading: ${originalFilename}`,
+              "success"
+            );
+            this.showNotification(
+              `📂 Saved to: Downloads/${this.currentCradleId}/`,
+              "info"
+            );
+          } else {
+            console.error(
+              "[CradleScanner] ❌ Download failed:",
+              response?.error
+            );
+            this.showNotification(
+              `❌ Download failed: ${response?.error}`,
+              "error"
+            );
+          }
+        }
       );
     } catch (error) {
       console.error("[CradleScanner] ❌ Acceptance download error:", error);
@@ -874,22 +885,38 @@ class CradleScanner {
         );
         console.log("[CradleScanner] Original filename:", originalFilename);
 
-        const link = document.createElement("a");
-        link.href = fileInfo.attachment;
-        link.download = `${this.currentCradleId}/${originalFilename}`; // ✅ Folder + oryginalna nazwa
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        console.log(
-          "[CradleScanner] ✅ Emission file download triggered:",
-          originalFilename
-        );
-        this.showNotification(`✅ Downloading: ${originalFilename}`, "success");
-        this.showNotification(
-          `📂 Saved to: Downloads/${this.currentCradleId}/`,
-          "info"
+        // ✅ UŻYJ ISTNIEJĄCEGO BACKGROUND SERVICE
+        chrome.runtime.sendMessage(
+          {
+            action: "DOWNLOAD_FILE",
+            url: fileInfo.attachment,
+            filename: `${this.currentCradleId}/${originalFilename}`,
+          },
+          (response) => {
+            if (response && response.success) {
+              console.log(
+                "[CradleScanner] ✅ Emission file download started:",
+                originalFilename
+              );
+              this.showNotification(
+                `✅ Downloading: ${originalFilename}`,
+                "success"
+              );
+              this.showNotification(
+                `📂 Saved to: Downloads/${this.currentCradleId}/`,
+                "info"
+              );
+            } else {
+              console.error(
+                "[CradleScanner] ❌ Emission download failed:",
+                response?.error
+              );
+              this.showNotification(
+                `❌ Download failed: ${response?.error}`,
+                "error"
+              );
+            }
+          }
         );
       } catch (error) {
         console.error("[CradleScanner] ❌ Emission download error:", error);
@@ -1034,23 +1061,34 @@ class CradleScanner {
 
       const fileName = filePath.split("/").pop();
 
-      // Utwórz link do pobrania
-      const link = document.createElement("a");
-      link.href = `file://${filePath}`;
-      link.download = `${this.currentCradleId}/${fileName}`;
-      link.style.display = "none";
-
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      console.log(
-        `[CradleScanner] ✅ Network file download triggered: ${fileName}`
-      );
-      this.showNotification(`✅ Downloading: ${fileName}`, "success");
-      this.showNotification(
-        `📂 Saved to: Downloads/${this.currentCradleId}/`,
-        "info"
+      // ✅ UŻYJ ISTNIEJĄCEGO BACKGROUND SERVICE
+      chrome.runtime.sendMessage(
+        {
+          action: "DOWNLOAD_FILE",
+          url: `file://${filePath}`,
+          filename: `${this.currentCradleId}/${fileName}`,
+        },
+        (response) => {
+          if (response && response.success) {
+            console.log(
+              `[CradleScanner] ✅ Network file download started: ${fileName}`
+            );
+            this.showNotification(`✅ Downloading: ${fileName}`, "success");
+            this.showNotification(
+              `📂 Saved to: Downloads/${this.currentCradleId}/`,
+              "info"
+            );
+          } else {
+            console.error(
+              `[CradleScanner] ❌ Network download failed:`,
+              response?.error
+            );
+            this.showNotification(
+              `❌ Download failed: ${response?.error}`,
+              "error"
+            );
+          }
+        }
       );
     } catch (error) {
       console.error("[CradleScanner] ❌ Network file download error:", error);
