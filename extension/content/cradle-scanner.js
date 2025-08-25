@@ -221,7 +221,7 @@ class CradleScanner {
 
           if (firstCell) {
             const cellText = firstCell.textContent.trim();
-            console.log(`[CradleScanner] Table ${i} first cell: "${cellText}"`);
+            console.log(`[CladleScanner] Table ${i} first cell: "${cellText}"`);
             console.log(
               `[CradleScanner] Table ${i} is pure number: ${/^\d+$/.test(
                 cellText
@@ -613,7 +613,14 @@ class CradleScanner {
 
       console.log("[CradleScanner] 📁 Files found:", fileInfo);
 
-      await this.createDownloadFolder();
+      // ✅ ZMIENIONE: Zamiast createDownloadFolder()
+      this.showNotification(
+        `📂 Files will be saved to: Downloads/${this.currentCradleId}/`,
+        "info"
+      );
+      console.log(
+        `[CradleScanner] 📂 Chrome will auto-create folder: ${this.currentCradleId}`
+      );
 
       if (fileInfo.acceptanceFile) {
         await this.downloadAcceptanceFile(fileInfo.acceptanceFile);
@@ -802,17 +809,6 @@ class CradleScanner {
     }
   }
 
-  async createDownloadFolder() {
-    console.log(
-      `[CradleScanner] 📂 Preparing download folder: ${this.currentCradleId}`
-    );
-    this.showNotification(
-      `📂 Files will be organized in: Downloads/${this.currentCradleId}/`,
-      "info"
-    );
-    this.showNotification(`🔧 Chrome will create folder automatically`, "info");
-  }
-
   async downloadAcceptanceFile(fileInfo) {
     if (!fileInfo.attachment) {
       console.warn(
@@ -862,6 +858,7 @@ class CradleScanner {
     }
   }
 
+  // ✅ POPRAWIONA METODA - Obsługa pliku emisyjnego
   async handleEmissionFile(fileInfo) {
     if (fileInfo.attachment) {
       console.log(
@@ -904,86 +901,206 @@ class CradleScanner {
         fileInfo.path
       );
 
-      // ✅ ULEPSZONA OBSŁUGA DYSKU SIECIOWEGO
-      const fullPath = `${fileInfo.path}/broadcast`; // Często pliki są w podfolderze
+      // ✅ NOWA LOGIKA: Znajdź i pobierz plik automatycznie
+      await this.findAndDownloadEmissionFile(fileInfo.path);
+    }
+  }
 
-      // Spróbuj skopiować do schowka z różnymi metodami
-      try {
-        // Metoda 1: Nowoczesny API
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(fullPath);
-          this.showNotification(`📋 Path copied to clipboard!`, "success");
-          console.log(
-            "[CradleScanner] ✅ Path copied to clipboard (modern API):",
-            fullPath
-          );
-        } else {
-          throw new Error("Clipboard API not available");
-        }
-      } catch (error) {
-        console.log(
-          "[CradleScanner] Modern clipboard failed, trying fallback..."
-        );
+  // ✅ NOWA METODA - Znajdź i pobierz plik emisyjny z dysku sieciowego
+  async findAndDownloadEmissionFile(networkPath) {
+    try {
+      this.showNotification(
+        "🔍 Searching for emission file on network drive...",
+        "info"
+      );
+      console.log(
+        `[CradleScanner] 🔍 Searching for file starting with: ${this.currentCradleId}`
+      );
 
-        // Metoda 2: Fallback - stary sposób
-        try {
-          const textArea = document.createElement("textarea");
-          textArea.value = fullPath;
-          textArea.style.position = "fixed";
-          textArea.style.opacity = "0";
-          document.body.appendChild(textArea);
-          textArea.focus();
-          textArea.select();
-
-          const successful = document.execCommand("copy");
-          document.body.removeChild(textArea);
-
-          if (successful) {
-            this.showNotification(`📋 Path copied to clipboard!`, "success");
-            console.log(
-              "[CradleScanner] ✅ Path copied to clipboard (fallback):",
-              fullPath
-            );
-          } else {
-            throw new Error("execCommand failed");
-          }
-        } catch (fallbackError) {
-          console.log(
-            "[CradleScanner] ⚠️ Could not copy to clipboard:",
-            fallbackError
-          );
-
-          // Metoda 3: Pokaż instrukcje
-          this.showNotification(`📁 Network Path: ${fullPath}`, "info");
-          this.showNotification(
-            `🔍 Look for file: ${this.currentCradleId}*.*`,
-            "info"
-          );
-          this.showNotification(
-            `📋 Copy path manually from console`,
-            "warning"
-          );
-
-          // Dodatkowy alert z instrukcjami
-          setTimeout(() => {
-            alert(
-              `🎬 EMISSION FILE LOCATION\n\nPath: ${fullPath}\n\nInstructions:\n1. Open Finder/File Explorer\n2. Navigate to above path\n3. Look for file starting with: ${this.currentCradleId}\n4. Copy file to Downloads/${this.currentCradleId}/ folder\n\nPath has been logged to console for easy copying.`
-            );
-          }, 1000);
-        }
+      // Sprawdź czy ścieżka kończy się na /broadcast, jeśli nie - dodaj
+      let searchPath = networkPath;
+      if (!searchPath.endsWith("/broadcast")) {
+        searchPath = `${searchPath}/broadcast`;
       }
 
-      // POKAŻ SZCZEGÓŁOWE INSTRUKCJE
-      this.showNotification(`🎯 Instructions: Open ${fullPath}`, "info");
-      this.showNotification(
-        `📄 Find file: ${this.currentCradleId}_*.mp4`,
-        "info"
-      );
-      this.showNotification(
-        `💾 Copy to: Downloads/${this.currentCradleId}/`,
-        "info"
-      );
+      console.log(`[CradleScanner] 🔍 Full search path: ${searchPath}`);
+
+      // Spróbuj znaleźć plik różnymi metodami
+      const foundFile = await this.searchForEmissionFile(searchPath);
+
+      if (foundFile) {
+        console.log(`[CradleScanner] ✅ Found emission file: ${foundFile}`);
+        this.showNotification(`✅ Found: ${foundFile}`, "success");
+
+        // Pobierz znaleziony plik
+        await this.downloadNetworkFile(foundFile);
+      } else {
+        console.log("[CradleScanner] ❌ Emission file not found automatically");
+
+        // Fallback - skopiuj ścieżkę i pokaż instrukcje
+        await this.fallbackEmissionFileInstructions(searchPath);
+      }
+    } catch (error) {
+      console.error("[CradleScanner] ❌ Error handling emission file:", error);
+      this.showNotification(`❌ Error: ${error.message}`, "error");
+
+      // Fallback
+      await this.fallbackEmissionFileInstructions(networkPath);
     }
+  }
+
+  // ✅ NOWA METODA - Szukaj pliku emisyjnego w katalogu
+  async searchForEmissionFile(searchPath) {
+    const possibleExtensions = [".mp4", ".mov", ".avi", ".mkv"];
+    const possiblePatterns = [
+      `${this.currentCradleId}_`,
+      `${this.currentCradleId}.`,
+      `${this.currentCradleId}`,
+    ];
+
+    console.log(`[CradleScanner] 🔍 Trying to access: ${searchPath}`);
+
+    // Spróbuj różne kombinacje nazw plików
+    for (const pattern of possiblePatterns) {
+      for (const ext of possibleExtensions) {
+        const possibleFiles = [
+          `${searchPath}/${pattern}${ext}`,
+          `${searchPath}/${pattern}*${ext}`, // nie będzie działać bezpośrednio, ale logujemy
+        ];
+
+        for (const filePath of possibleFiles) {
+          try {
+            console.log(`[CradleScanner] 🔍 Checking: ${filePath}`);
+
+            // Spróbuj dostępu przez file:// protocol
+            const fileUrl = `file://${filePath}`;
+            const response = await fetch(fileUrl, { method: "HEAD" });
+
+            if (response.ok) {
+              console.log(`[CradleScanner] ✅ File exists: ${filePath}`);
+              return filePath;
+            }
+          } catch (error) {
+            // Plik nie istnieje - kontynuuj szukanie
+            console.log(`[CradleScanner] ❌ File not found: ${filePath}`);
+          }
+        }
+      }
+    }
+
+    // Spróbuj także bezpośredniego listowania katalogu (jeśli możliwe)
+    try {
+      console.log(`[CradleScanner] 🔍 Trying directory listing: ${searchPath}`);
+      const dirResponse = await fetch(`file://${searchPath}/`);
+
+      if (dirResponse.ok) {
+        const dirContent = await dirResponse.text();
+        console.log(
+          `[CradleScanner] 📁 Directory content preview:`,
+          dirContent.substring(0, 500)
+        );
+
+        // Szukaj CradleID w zawartości
+        const cradleIdRegex = new RegExp(
+          `${this.currentCradleId}[^"]*\\.(mp4|mov|avi|mkv)`,
+          "gi"
+        );
+        const matches = dirContent.match(cradleIdRegex);
+
+        if (matches && matches.length > 0) {
+          const fileName = matches[0];
+          const fullPath = `${searchPath}/${fileName}`;
+          console.log(
+            `[CradleScanner] ✅ Found file via directory listing: ${fullPath}`
+          );
+          return fullPath;
+        }
+      }
+    } catch (error) {
+      console.log("[CradleScanner] ❌ Directory listing failed:", error);
+    }
+
+    return null;
+  }
+
+  // ✅ NOWA METODA - Pobierz plik z dysku sieciowego
+  async downloadNetworkFile(filePath) {
+    try {
+      console.log(`[CradleScanner] ⬇️ Downloading network file: ${filePath}`);
+      this.showNotification(
+        "⬇️ Downloading emission file from network drive...",
+        "info"
+      );
+
+      const fileName = filePath.split("/").pop();
+
+      // Utwórz link do pobrania
+      const link = document.createElement("a");
+      link.href = `file://${filePath}`;
+      link.download = `${this.currentCradleId}/${fileName}`;
+      link.style.display = "none";
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      console.log(
+        `[CradleScanner] ✅ Network file download triggered: ${fileName}`
+      );
+      this.showNotification(`✅ Downloading: ${fileName}`, "success");
+      this.showNotification(
+        `📂 Saved to: Downloads/${this.currentCradleId}/`,
+        "info"
+      );
+    } catch (error) {
+      console.error("[CradleScanner] ❌ Network file download error:", error);
+      throw error;
+    }
+  }
+
+  // ✅ METODA - Fallback instrukcje dla pliku emisyjnego
+  async fallbackEmissionFileInstructions(searchPath) {
+    // Skopiuj ścieżkę do schowka
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(searchPath);
+        this.showNotification(`📋 Path copied to clipboard!`, "success");
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = searchPath;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        this.showNotification(`📋 Path copied to clipboard!`, "success");
+      }
+    } catch (error) {
+      console.log("[CradleScanner] Clipboard failed:", error);
+    }
+
+    // Pokaż szczegółowe instrukcje
+    this.showNotification(`🎯 Manual Instructions:`, "info");
+    this.showNotification(`📁 Path: ${searchPath}`, "info");
+    this.showNotification(`🔍 Find file: ${this.currentCradleId}*.*`, "info");
+    this.showNotification(
+      `💾 Copy to: Downloads/${this.currentCradleId}/`,
+      "info"
+    );
+
+    // Alert z instrukcjami
+    setTimeout(() => {
+      alert(
+        `🎬 EMISSION FILE - Manual Copy Needed\n\n` +
+          `Path: ${searchPath}\n\n` +
+          `Instructions:\n` +
+          `1. Open Finder and navigate to above path\n` +
+          `2. Look for file starting with: ${this.currentCradleId}\n` +
+          `3. Copy the file to Downloads/${this.currentCradleId}/ folder\n\n` +
+          `Path has been copied to clipboard.`
+      );
+    }, 1000);
   }
 
   async applyQAFilterOnly() {
