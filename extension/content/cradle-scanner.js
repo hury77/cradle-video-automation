@@ -1163,242 +1163,167 @@ class CradleScanner {
     }
   }
 
-  async handleAcceptanceFile(acceptanceFile, cradleId) {
+  // 2. POPRAWIONA handleAcceptanceFile()
+  async handleAcceptanceFile(fileData) {
     console.log("[CradleScanner] 📥 Handling acceptance file...");
-    console.log("File data:", acceptanceFile);
+    console.log("File data:", fileData);
 
-    if (acceptanceFile.url) {
-      // Wyciągnij oryginalną nazwę z URL
-      const filename = acceptanceFile.url
-        ? decodeURIComponent(acceptanceFile.url.split("/").pop())
-        : acceptanceFile.name || "acceptance_file";
-      const downloadPath = `${cradleId}/${filename}`;
-
-      console.log(
-        "[CradleScanner] 📤 Sending download request to background..."
-      );
-      console.log("URL:", acceptanceFile.url);
-      console.log("Path:", downloadPath);
-
-      chrome.runtime.sendMessage({
-        action: "DOWNLOAD_FILE",
-        url: acceptanceFile.url,
-        filename: downloadPath,
-      });
-
-      this.showNotification(
-        `Pobieranie pliku akceptacji: ${filename}`,
-        "success"
-      );
-    } else {
-      console.log("[CradleScanner] ❌ No URL found for acceptance file");
-      this.showNotification("Brak URL dla pliku akceptacji", "error");
-    }
-  }
-
-  // ✅ POPRAWIONA METODA - Obsługa pliku emisyjnego
-  async handleEmissionFile(emissionFile, cradleId) {
-    console.log("[CradleScanner] 📡 Handling emission file...");
-    console.log("Emission file data:", emissionFile);
-
-    if (emissionFile.url) {
-      // Handle direct attachment
-      // Wyciągnij oryginalną nazwę z URL
-      const filename = emissionFile.url
-        ? decodeURIComponent(emissionFile.url.split("/").pop())
-        : emissionFile.name || "emission_file";
-      const downloadPath = `${cradleId}/${filename}`;
-
-      console.log(
-        "[CradleScanner] 📤 Sending download request to background..."
-      );
-      console.log("URL:", emissionFile.url);
-      console.log("Path:", downloadPath);
-
-      chrome.runtime.sendMessage({
-        action: "DOWNLOAD_FILE",
-        url: emissionFile.url,
-        filename: downloadPath,
-      });
-
-      this.showNotification(`Pobieranie pliku emisji: ${filename}`, "success");
-    } else if (emissionFile.path) {
-      // Handle network path
-      console.log(
-        "[CradleScanner] 🌐 Handling network path for emission file..."
-      );
-      console.log("Network path:", emissionFile.path);
-
-      // Try to search for files in the network path
-      await this.searchForEmissionFile(emissionFile.path, cradleId);
-    } else {
-      console.log("[CradleScanner] ❌ No URL or path found for emission file");
-      this.showNotification("Brak URL lub ścieżki dla pliku emisji", "error");
-    }
-  }
-
-  // ✅ NOWA METODA - Znajdź i pobierz plik emisyjny z dysku sieciowego
-  async findAndDownloadEmissionFile(networkPath) {
     try {
-      this.showNotification(
-        "🔍 Searching for emission file on network drive...",
-        "info"
-      );
+      // Extract filename from URL
+      const filename = this.extractFilenameFromUrl(fileData.url);
+      const path = `${this.currentCradleId}/${filename}`; // ✅ POPRAWKA!
+
       console.log(
-        `[CradleScanner] 🔍 Searching for file starting with: ${this.currentCradleId}`
+        "[CradleScanner] 📤 Sending download request to background..."
       );
+      console.log("URL:", fileData.url);
+      console.log("Path:", path);
 
-      // Sprawdź czy ścieżka kończy się na /broadcast, jeśli nie - dodaj
-      let searchPath = networkPath;
-      if (!searchPath.endsWith("/broadcast")) {
-        searchPath = `${searchPath}/broadcast`;
-      }
-
-      console.log(`[CradleScanner] 🔍 Full search path: ${searchPath}`);
-
-      // Spróbuj znaleźć plik różnymi metodami
-      const foundFile = await this.searchForEmissionFile(searchPath);
-
-      if (foundFile) {
-        console.log(`[CradleScanner] ✅ Found emission file: ${foundFile}`);
-        this.showNotification(`✅ Found: ${foundFile}`, "success");
-
-        // Pobierz znaleziony plik
-        await this.downloadNetworkFile(foundFile);
-      } else {
-        console.log("[CradleScanner] ❌ Emission file not found automatically");
-
-        // Fallback - skopiuj ścieżkę i pokaż instrukcje
-        await this.fallbackEmissionFileInstructions(searchPath);
-      }
-    } catch (error) {
-      console.error("[CradleScanner] ❌ Error handling emission file:", error);
-      this.showNotification(`❌ Error: ${error.message}`, "error");
-
-      // Fallback
-      await this.fallbackEmissionFileInstructions(networkPath);
-    }
-  }
-
-  // ✅ NOWA METODA - Szukaj pliku emisyjnego w katalogu
-  async searchForEmissionFile(searchPath) {
-    const possibleExtensions = [".mp4", ".mov", ".avi", ".mkv"];
-    const possiblePatterns = [
-      `${this.currentCradleId}_`, // CradleID na początku: "875893_filename.mp4"
-      `_${this.currentCradleId}_`, // CradleID w środku: "prefix_875893_filename.mp4"
-      `_${this.currentCradleId}.`, // CradleID przed rozszerzeniem: "prefix_875893.mp4"
-      `${this.currentCradleId}.`, // CradleID bezpośrednio: "875893.mp4"
-      `${this.currentCradleId}`, // CradleID bez separatora
-    ];
-
-    console.log(`[CradleScanner] 🔍 Trying to access: ${searchPath}`);
-
-    // Spróbuj różne kombinacje nazw plików
-    for (const pattern of possiblePatterns) {
-      for (const ext of possibleExtensions) {
-        const possibleFiles = [
-          `${searchPath}/${pattern}${ext}`,
-          `${searchPath}/${pattern}*${ext}`, // nie będzie działać bezpośrednio, ale logujemy
-        ];
-
-        for (const filePath of possibleFiles) {
-          try {
-            console.log(`[CradleScanner] 🔍 Checking: ${filePath}`);
-
-            // Spróbuj dostępu przez file:// protocol
-            const fileUrl = `file://${filePath}`;
-            const response = await fetch(fileUrl, { method: "HEAD" });
-
-            if (response.ok) {
-              console.log(`[CradleScanner] ✅ File exists: ${filePath}`);
-              return filePath;
+      // Check if Chrome runtime is available
+      if (
+        typeof chrome !== "undefined" &&
+        chrome.runtime &&
+        chrome.runtime.sendMessage
+      ) {
+        chrome.runtime.sendMessage(
+          {
+            action: "DOWNLOAD_FILE",
+            url: fileData.url,
+            filename: path,
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                "[CradleScanner] Download error:",
+                chrome.runtime.lastError
+              );
+              this.showNotification(
+                "Błąd pobierania pliku akceptacji",
+                "error"
+              );
+            } else {
+              console.log(
+                "[CradleScanner] ✅ Acceptance file download initiated"
+              );
+              this.showNotification(
+                `Pobieranie pliku akceptacji: ${filename}`,
+                "success"
+              );
             }
-          } catch (error) {
-            // Plik nie istnieje - kontynuuj szukanie
-            console.log(`[CradleScanner] ❌ File not found: ${filePath}`);
           }
-        }
-      }
-    }
-
-    // Spróbuj także bezpośredniego listowania katalogu (jeśli możliwe)
-    try {
-      console.log(`[CradleScanner] 🔍 Trying directory listing: ${searchPath}`);
-      const dirResponse = await fetch(`file://${searchPath}/`);
-
-      if (dirResponse.ok) {
-        const dirContent = await dirResponse.text();
-        console.log(
-          `[CradleScanner] 📁 Directory content preview:`,
-          dirContent.substring(0, 500)
         );
-
-        // Szukaj CradleID w zawartości
-        const cradleIdRegex = new RegExp(
-          `${this.currentCradleId}[^"]*\\.(mp4|mov|avi|mkv)`,
-          "gi"
-        );
-        const matches = dirContent.match(cradleIdRegex);
-
-        if (matches && matches.length > 0) {
-          const fileName = matches[0];
-          const fullPath = `${searchPath}/${fileName}`;
-          console.log(
-            `[CradleScanner] ✅ Found file via directory listing: ${fullPath}`
-          );
-          return fullPath;
-        }
+      } else {
+        console.error("[CradleScanner] Chrome runtime not available");
+        this.showNotification("Błąd: Brak dostępu do Chrome API", "error");
       }
     } catch (error) {
-      console.log("[CradleScanner] ❌ Directory listing failed:", error);
+      console.error("[CradleScanner] Error in handleAcceptanceFile:", error);
+      this.showNotification(
+        "Błąd podczas pobierania pliku akceptacji",
+        "error"
+      );
     }
-
-    return null;
   }
 
-  // ✅ NOWA METODA - Pobierz plik z dysku sieciowego
-  async downloadNetworkFile(filePath) {
+  // 3. POPRAWIONA handleEmissionFile()
+  async handleEmissionFile(fileData) {
+    console.log("[CradleScanner] 📥 Handling emission file...");
+    console.log("File data:", fileData);
+
     try {
-      console.log(`[CradleScanner] ⬇️ Downloading network file: ${filePath}`);
-      this.showNotification(
-        "⬇️ Downloading emission file from network drive...",
-        "info"
-      );
+      if (fileData.path) {
+        // ✅ POPRAWKA - sprawdź `path` zamiast `networkPath`
+        // Network path case - copy to clipboard and show instructions
+        console.log("[CradleScanner] 🌐 Network path detected:", fileData.path);
 
-      const fileName = filePath.split("/").pop();
+        await this.showNetworkPathInstructions(fileData.path);
+        this.showNotification("Ścieżka sieciowa skopiowana do schowka", "info");
+      } else if (fileData.url) {
+        // Direct attachment case
+        const filename = this.extractFilenameFromUrl(fileData.url);
+        const path = `${this.currentCradleId}/${filename}`; // ✅ POPRAWKA!
 
-      // ✅ UŻYJ ISTNIEJĄCEGO BACKGROUND SERVICE
-      chrome.runtime.sendMessage(
-        {
-          action: "DOWNLOAD_FILE",
-          url: `file://${filePath}`,
-          filename: `${this.currentCradleId}/${fileName}`,
-        },
-        (response) => {
-          if (response && response.success) {
-            console.log(
-              `[CradleScanner] ✅ Network file download started: ${fileName}`
-            );
-            this.showNotification(`✅ Downloading: ${fileName}`, "success");
-            this.showNotification(
-              `📂 Saved to: Downloads/${this.currentCradleId}/`,
-              "info"
-            );
-          } else {
-            console.error(
-              `[CradleScanner] ❌ Network download failed:`,
-              response?.error
-            );
-            this.showNotification(
-              `❌ Download failed: ${response?.error}`,
-              "error"
-            );
-          }
+        console.log(
+          "[CradleScanner] 📤 Sending emission file download request..."
+        );
+        console.log("URL:", fileData.url);
+        console.log("Path:", path);
+
+        if (
+          typeof chrome !== "undefined" &&
+          chrome.runtime &&
+          chrome.runtime.sendMessage
+        ) {
+          chrome.runtime.sendMessage(
+            {
+              action: "DOWNLOAD_FILE",
+              url: fileData.url,
+              filename: path,
+            },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error(
+                  "[CradleScanner] Emission download error:",
+                  chrome.runtime.lastError
+                );
+                this.showNotification("Błąd pobierania pliku emisji", "error");
+              } else {
+                console.log(
+                  "[CradleScanner] ✅ Emission file download initiated"
+                );
+                this.showNotification(
+                  `Pobieranie pliku emisji: ${filename}`,
+                  "success"
+                );
+              }
+            }
+          );
+        } else {
+          console.error(
+            "[CradleScanner] Chrome runtime not available for emission file"
+          );
+          this.showNotification("Błąd: Brak dostępu do Chrome API", "error");
         }
-      );
+      } else {
+        console.log("[CradleScanner] ⚠️ No emission file found");
+        this.showNotification("Nie znaleziono pliku emisji", "warning");
+      }
     } catch (error) {
-      console.error("[CradleScanner] ❌ Network file download error:", error);
-      throw error;
+      console.error("[CradleScanner] Error in handleEmissionFile:", error);
+      this.showNotification("Błąd podczas obsługi pliku emisji", "error");
+    }
+  }
+
+  // 4. POPRAWIONA showNetworkPathInstructions()
+  async showNetworkPathInstructions(networkPath) {
+    console.log(
+      "[CradleScanner] 📋 Showing network path instructions for:",
+      networkPath
+    );
+
+    try {
+      // Copy to clipboard
+      await navigator.clipboard.writeText(networkPath);
+      console.log("[CradleScanner] ✅ Network path copied to clipboard");
+
+      // Show detailed instructions
+      const message =
+        `INSTRUKCJE POBIERANIA PLIKU EMISJI:\n\n` +
+        `1. Ścieżka skopiowana do schowka: ${networkPath}\n\n` +
+        `2. Otwórz Finder/Explorer\n` +
+        `3. Wklej ścieżkę (Cmd+V / Ctrl+V)\n` +
+        `4. Znajdź plik zaczynający się od: ${this.currentCradleId}\n` + // ✅ POPRAWKA!
+        `5. Skopiuj do folderu Downloads/${this.currentCradleId}/\n\n` + // ✅ POPRAWKA!
+        `Plik emisji musi być pobrany ręcznie z dysku sieciowego.`;
+
+      alert(message);
+    } catch (error) {
+      console.error("[CradleScanner] Error copying to clipboard:", error);
+      // Fallback - show path in alert
+      const message =
+        `ŚCIEŻKA DO PLIKU EMISJI:\n\n${networkPath}\n\n` +
+        `Skopiuj ręcznie powyższą ścieżkę i znajdź plik zaczynający się od: ${this.currentCradleId}`; // ✅ POPRAWKA!
+      alert(message);
     }
   }
 
@@ -1578,6 +1503,18 @@ class CradleScanner {
     this.isScanning = false;
     this.status = "Stopped";
     console.log("[CradleScanner] Automation stopped");
+  }
+
+  // 1. NOWA METODA - dodaj na końcu klasy
+  extractFilenameFromUrl(url) {
+    try {
+      const urlParts = url.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      return decodeURIComponent(filename) || `file_${Date.now()}.mp4`;
+    } catch (error) {
+      console.log('[CradleScanner] Error extracting filename:', error);
+      return `file_${Date.now()}.mp4`;
+    }
   }
 }
 
