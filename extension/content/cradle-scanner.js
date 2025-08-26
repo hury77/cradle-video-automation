@@ -817,14 +817,153 @@ class CradleScanner {
             )}..."`
           );
 
-          // === ACCEPTANCE FILES ===
-          // Szukaj w wierszach: "file preparation" (ale NIE "broadcast file preparation")
-          if (
+          // === EMISSION FILES - SPRAWDŹ NAJPIERW! ===
+          // 1. Szukaj w wierszach: "final file preparation" - sprawdź kolumnę Comment
+          if (firstCellText.includes("final file preparation")) {
+            console.log(
+              `[CradleScanner] Row ${
+                i + 1
+              }: 📡 Final file preparation - sprawdzam kolumnę Comment`
+            );
+
+            cells.forEach((cell, cellIndex) => {
+              const cellText = cell.textContent.trim();
+
+              // Sprawdź czy to ścieżka sieciowa w kolumnie Comment
+              if (
+                (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
+                !fileInfo.emissionFile
+              ) {
+                console.log(
+                  `[CradleScanner] Row ${
+                    i + 1
+                  }, Cell ${cellIndex}: 🌐 ŚCIEŻKA SIECIOWA w Comment`
+                );
+                console.log(`[CradleScanner] Ścieżka: "${cellText}"`);
+
+                fileInfo.emissionFile = {
+                  type: "network_path",
+                  path: cellText,
+                  name: `emission_from_network`,
+                  row: i + 1,
+                  cell: cellIndex,
+                };
+
+                console.log(
+                  `[CradleScanner] ✅ EMISSION PATH found in row ${
+                    i + 1
+                  }, cell ${cellIndex}`
+                );
+              }
+
+              // Sprawdź też czy nie ma załącznika (jak wcześniej)
+              const attachmentLink =
+                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
+                cell.querySelector("a i.fa-file")?.parentElement;
+
+              if (
+                attachmentLink &&
+                attachmentLink.href &&
+                !fileInfo.emissionFile
+              ) {
+                const fileName =
+                  attachmentLink.href.split("/").pop() ||
+                  `emission_${Date.now()}.mp4`;
+                const fullUrl = attachmentLink.href.startsWith("http")
+                  ? attachmentLink.href
+                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
+
+                fileInfo.emissionFile = {
+                  type: "attachment",
+                  url: fullUrl,
+                  name: fileName,
+                  row: i + 1,
+                  cell: cellIndex,
+                };
+                console.log(
+                  `[CradleScanner] ✅ EMISSION ATTACHMENT found in row ${
+                    i + 1
+                  }, cell ${cellIndex}: ${fileName}`
+                );
+              }
+            });
+          }
+
+          // 2. Szukaj w wierszach: "broadcast file preparation" (alternatywny wzorzec)
+          else if (firstCellText.includes("broadcast file preparation")) {
+            console.log(
+              `[CradleScanner] Row ${
+                i + 1
+              }: 📡 Broadcast file preparation - potencjalny plik EMISSION`
+            );
+
+            cells.forEach((cell, cellIndex) => {
+              const cellText = cell.textContent.trim();
+
+              // Sprawdź ścieżkę sieciową
+              if (
+                (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
+                !fileInfo.emissionFile
+              ) {
+                fileInfo.emissionFile = {
+                  type: "network_path",
+                  path: cellText,
+                  name: `emission_from_network`,
+                  row: i + 1,
+                  cell: cellIndex,
+                };
+
+                console.log(
+                  `[CradleScanner] ✅ EMISSION PATH (broadcast) found in row ${
+                    i + 1
+                  }, cell ${cellIndex}`
+                );
+              }
+
+              // Sprawdź załączniki
+              const attachmentLink =
+                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
+                cell.querySelector("a i.fa-file")?.parentElement;
+
+              if (
+                attachmentLink &&
+                attachmentLink.href &&
+                !fileInfo.emissionFile
+              ) {
+                const fileName =
+                  attachmentLink.href.split("/").pop() ||
+                  `emission_${Date.now()}.mp4`;
+                const fullUrl = attachmentLink.href.startsWith("http")
+                  ? attachmentLink.href
+                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
+
+                fileInfo.emissionFile = {
+                  type: "attachment",
+                  url: fullUrl,
+                  name: fileName,
+                  row: i + 1,
+                  cell: cellIndex,
+                };
+                console.log(
+                  `[CradleScanner] ✅ EMISSION ATTACHMENT (broadcast) found in row ${
+                    i + 1
+                  }, cell ${cellIndex}: ${fileName}`
+                );
+              }
+            });
+          }
+
+          // === ACCEPTANCE FILES - SPRAWDŹ PO EMISSION ===
+          // Szukaj w wierszach: "file preparation" (ale NIE "final file preparation" ani "broadcast file preparation")
+          else if (
             firstCellText.includes("file preparation") &&
+            !firstCellText.includes("final") &&
             !firstCellText.includes("broadcast")
           ) {
             console.log(
-              `[CradleScanner] Row ${i + 1}: 📎 Potencjalny plik ACCEPTANCE`
+              `[CradleScanner] Row ${
+                i + 1
+              }: 📎 File preparation (bez final/broadcast) - potencjalny plik ACCEPTANCE`
             );
 
             cells.forEach((cell, cellIndex) => {
@@ -849,6 +988,8 @@ class CradleScanner {
                   type: "attachment",
                   url: fullUrl,
                   name: fileName,
+                  row: i + 1,
+                  cell: cellIndex,
                 };
                 console.log(
                   `[CradleScanner] ✅ ACCEPTANCE FILE found in row ${
@@ -860,74 +1001,15 @@ class CradleScanner {
             });
           }
 
-          // === EMISSION FILES ===
-          // Szukaj w wierszach: "broadcast file preparation"
-          if (firstCellText.includes("broadcast file preparation")) {
-            console.log(
-              `[CradleScanner] Row ${i + 1}: 📎 Potencjalny plik EMISSION`
-            );
-
-            cells.forEach((cell, cellIndex) => {
-              // POPRAWIONY SELEKTOR
-              const attachmentLink =
-                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
-                cell.querySelector("a i.fa-file")?.parentElement;
-
-              if (
-                attachmentLink &&
-                attachmentLink.href &&
-                !fileInfo.emissionFile
-              ) {
-                const fileName =
-                  attachmentLink.href.split("/").pop() ||
-                  `emission_${Date.now()}.mp4`;
-                const fullUrl = attachmentLink.href.startsWith("http")
-                  ? attachmentLink.href
-                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
-
-                fileInfo.emissionFile = {
-                  type: "attachment",
-                  url: fullUrl,
-                  name: fileName,
-                };
-                console.log(
-                  `[CradleScanner] ✅ EMISSION FILE found in row ${
-                    i + 1
-                  }, cell ${cellIndex}: ${fileName}`
-                );
-                console.log(`[CradleScanner]    URL: ${fullUrl}`);
-              }
-              // Fallback: szukaj ścieżek sieciowych
-              else if (!fileInfo.emissionFile) {
-                const cellText = cell.textContent.trim();
-                if (
-                  cellText.includes("/Volumes/") ||
-                  cellText.includes("\\\\")
-                ) {
-                  fileInfo.emissionFile = {
-                    type: "network_path",
-                    path: cellText,
-                    name: `emission_from_network_${Date.now()}.mp4`,
-                  };
-                  console.log(
-                    `[CradleScanner] ✅ EMISSION PATH found in row ${
-                      i + 1
-                    }, cell ${cellIndex}: ${cellText}`
-                  );
-                }
-              }
-            });
-          }
-
           // === QA PROOFREADING FALLBACK ===
-          if (
+          else if (
             firstCellText.includes("qa proofreading") &&
             !fileInfo.acceptanceFile
           ) {
             console.log(
               `[CradleScanner] Row ${
                 i + 1
-              }: 📎 QA proofreading - sprawdzam załączniki`
+              }: 📎 QA proofreading - sprawdzam załączniki (fallback)`
             );
 
             cells.forEach((cell, cellIndex) => {
@@ -951,6 +1033,8 @@ class CradleScanner {
                   type: "attachment",
                   url: fullUrl,
                   name: fileName,
+                  row: i + 1,
+                  cell: cellIndex,
                 };
                 console.log(
                   `[CradleScanner] ✅ QA ACCEPTANCE FILE found in row ${
