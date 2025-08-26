@@ -6,9 +6,8 @@ class CradleScanner {
     this.status = "Ready";
     this.currentCradleId = null;
 
-    document.addEventListener("extension-command", (event) => {
-      console.log("[CradleScanner] Command received:", event.detail.action);
-      this.handleCommand(event.detail);
+    document.addEventListener("extension-command", async (event) => {
+      await this.handleCommand(event);
     });
 
     this.checkAutoApplyFilter();
@@ -28,11 +27,13 @@ class CradleScanner {
         "[CradleScanner] 🆔 Extracted Cradle ID:",
         this.currentCradleId
       );
+      return this.currentCradleId; // ✅ DODANY RETURN
     } else {
       console.log(
         "[CradleScanner] ⚠️ Could not extract Cradle ID from URL:",
         window.location.href
       );
+      return null; // ✅ DODANY RETURN
     }
   }
 
@@ -91,32 +92,43 @@ class CradleScanner {
     }
   }
 
-  handleCommand(eventDetail) {
-    console.log("[CradleScanner] Event detail received:", eventDetail);
-    const action = eventDetail.action;
+  async handleCommand(event) {
+    console.log("[CradleScanner] Event detail received:", event.detail);
+    const action = event.detail?.action;
     console.log("[CradleScanner] Action extracted:", action);
+
+    if (!action) {
+      console.error("[CradleScanner] No action found in event detail");
+      return;
+    }
 
     switch (action) {
       case "START_AUTOMATION":
-        this.startAutomation();
+        console.log("[CradleScanner] INFO: Rozpoczynam automatyzację...");
+        await this.startAutomation();
         break;
       case "STOP_AUTOMATION":
+        console.log("[CradleScanner] INFO: Zatrzymuję automatyzację...");
         this.stopAutomation();
         break;
+      case "GET_STATUS":
+        console.log("[CradleScanner] Current status:", this.status);
+        this.showNotification(`Status: ${this.status}`, "info");
+        break;
       case "FIND_ASSET":
-        this.findPendingAsset();
+        console.log("[CradleScanner] INFO: Szukam wolnego assetu...");
+        await this.findPendingAsset();
         break;
       case "TAKE_ASSET":
-        this.takeAsset();
+        console.log("[CradleScanner] INFO: Przejmuję asset...");
+        await this.takeAsset();
         break;
       case "DOWNLOAD_FILES":
-        this.downloadFiles();
-        break;
-      case "GET_STATUS":
-        this.sendStatus();
+        console.log("[CradleScanner] INFO: Rozpoczynam pobieranie plików...");
+        await this.downloadFiles();
         break;
       default:
-        console.warn("[CradleScanner] ⚠️ Unknown action:", action);
+        console.log("[CradleScanner] Unknown command:", action);
     }
   }
 
@@ -585,227 +597,425 @@ class CradleScanner {
   }
 
   async downloadFiles() {
-    try {
-      this.showNotification("📁 Starting file download process...", "info");
-      console.log("[CradleScanner] 📁 Starting download files process...");
+    console.log("=== ROZPOCZYNAM POBIERANIE PLIKÓW ===");
 
-      if (!this.currentCradleId) {
-        this.extractCradleId();
-        if (!this.currentCradleId) {
-          throw new Error(
-            "Cradle ID not found. Please ensure you are on asset details page."
-          );
-        }
+    const cradleId = this.extractCradleId();
+    console.log("Cradle ID:", cradleId);
+
+    if (!cradleId) {
+      this.showNotification("Nie można pobrać Cradle ID z URL", "error");
+      return;
+    }
+
+    // Find and scan the asset comments table - TUTAJ JEST KLUCZOWA ZMIANA
+    const table = await this.findAssetCommentsTable();
+
+    // ✅ DODAJ DEBUGOWANIE
+    console.log("[CradleScanner] 🔍 DEBUG: Table received in downloadFiles:");
+    console.log("[CradleScanner] Table type:", typeof table);
+    console.log("[CradleScanner] Table constructor:", table?.constructor?.name);
+    console.log("[CradleScanner] Table tagName:", table?.tagName);
+    console.log("[CradleScanner] Table object:", table);
+
+    const fileInfo = this.scanForFiles(table);
+
+    console.log("=== WYNIKI SKANOWANIA PLIKÓW ===");
+    console.log("Pełne fileInfo:", fileInfo);
+
+    // Download acceptance file if found
+    if (fileInfo.acceptanceFile) {
+      console.log("✓ ZNALEZIONO PLIK AKCEPTACJI:");
+      console.log("  - Nazwa:", fileInfo.acceptanceFile.filename);
+      console.log("  - URL:", fileInfo.acceptanceFile.url);
+      console.log("  - Rząd:", fileInfo.acceptanceFile.row);
+
+      await this.handleAcceptanceFile(fileInfo.acceptanceFile, cradleId);
+    } else {
+      console.log("✗ PLIK AKCEPTACJI NIE ZNALEZIONY");
+    }
+
+    // Handle emission file
+    if (fileInfo.emissionFile) {
+      console.log("✓ ZNALEZIONO PLIK EMISJI:");
+      console.log("  - Typ:", fileInfo.emissionFile.type);
+      if (fileInfo.emissionFile.filename) {
+        console.log("  - Nazwa:", fileInfo.emissionFile.filename);
+        console.log("  - URL:", fileInfo.emissionFile.url);
       }
-
-      console.log("[CradleScanner] 🔍 Scanning Asset comments table...");
-
-      const commentsTable = await this.findAssetCommentsTable();
-      if (!commentsTable) {
-        throw new Error("Asset comments table not found");
+      if (fileInfo.emissionFile.path) {
+        console.log("  - Ścieżka:", fileInfo.emissionFile.path);
       }
+      console.log("  - Rząd:", fileInfo.emissionFile.row);
 
-      const fileInfo = await this.scanForFiles(commentsTable);
+      await this.handleEmissionFile(fileInfo.emissionFile, cradleId);
+    } else {
+      console.log("✗ PLIK EMISJI NIE ZNALEZIONY");
+    }
 
-      if (!fileInfo.emissionFile && !fileInfo.acceptanceFile) {
-        throw new Error("No files found for download");
-      }
+    console.log("=== KONIEC WYNIKÓW SKANOWANIA ===");
 
-      console.log("[CradleScanner] 📁 Files found:", fileInfo);
-
-      // ✅ ZMIENIONE: Zamiast createDownloadFolder()
-      this.showNotification(
-        `📂 Files will be saved to: Downloads/${this.currentCradleId}/`,
-        "info"
-      );
-      console.log(
-        `[CradleScanner] 📂 Chrome will auto-create folder: ${this.currentCradleId}`
-      );
-
-      if (fileInfo.acceptanceFile) {
-        await this.downloadAcceptanceFile(fileInfo.acceptanceFile);
-      }
-
-      if (fileInfo.emissionFile) {
-        await this.handleEmissionFile(fileInfo.emissionFile);
-      }
-
-      this.showNotification(
-        "✅ File download completed successfully!",
-        "success"
-      );
-    } catch (error) {
-      console.error("[CradleScanner] ❌ Download files error:", error);
-      this.showNotification(`❌ Download failed: ${error.message}`, "error");
+    // Show completion message
+    if (!fileInfo.acceptanceFile && !fileInfo.emissionFile) {
+      console.log("Brak pliku akceptacji do pobrania");
+      this.showNotification("Nie znaleziono plików do pobrania", "warning");
+    } else if (!fileInfo.acceptanceFile) {
+      console.log("Brak pliku akceptacji do pobrania");
+      this.showNotification("Pobrano tylko plik emisji", "warning");
+    } else if (!fileInfo.emissionFile) {
+      console.log("Brak pliku emisji do pobrania");
+      this.showNotification("Pobrano tylko plik akceptacji", "warning");
+    } else {
+      this.showNotification("Pobrano oba pliki pomyślnie", "success");
     }
   }
 
   async findAssetCommentsTable() {
     console.log("[CradleScanner] 🔍 Looking for Asset comments table...");
 
-    for (let i = 0; i < 10; i++) {
-      console.log(`[CradleScanner] ⏳ Table search attempt ${i + 1}/10`);
+    const maxAttempts = 10;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      console.log(
+        `[CradleScanner] ⏳ Table search attempt ${attempt}/${maxAttempts}`
+      );
 
       const tables = document.querySelectorAll("table");
       console.log(`[CradleScanner] Found ${tables.length} tables on page`);
 
-      for (let j = 0; j < tables.length; j++) {
-        const table = tables[j];
+      for (let table of tables) {
+        // Method 1: Check for "Asset comments" or "Comment" in headers
         const headers = table.querySelectorAll("th");
-        console.log(
-          `[CradleScanner] Table ${j} headers:`,
-          Array.from(headers).map((h) => h.textContent.trim())
-        );
-
-        for (const header of headers) {
-          const headerText = header.textContent.trim();
+        for (let header of headers) {
+          const headerText = header.textContent.trim().toLowerCase();
           if (
-            headerText.includes("Asset comments") ||
-            headerText.includes("Comment") ||
-            headerText.includes("Attachment")
+            headerText.includes("asset comments") ||
+            headerText.includes("comment") ||
+            headerText.includes("attachment")
           ) {
             console.log(
-              "[CradleScanner] ✅ Found Asset comments table via header:",
-              headerText
+              `[CradleScanner] ✅ Found Asset comments table via header: ${header.textContent.trim()}`
             );
+            console.log("[CradleScanner] Returning table:", table);
+            return table;
+          }
+        }
+
+        // Method 2: Check for key phrases in any cell
+        const cells = table.querySelectorAll("td, th");
+        for (let cell of cells) {
+          const cellText = cell.textContent.trim().toLowerCase();
+          if (
+            cellText.includes("qa proofreading") ||
+            cellText.includes("final file preparation") ||
+            cellText.includes("broadcast preparation") ||
+            cellText.includes("file preparation")
+          ) {
+            console.log(
+              `[CradleScanner] ✅ Found Asset comments table via content: ${cellText}`
+            );
+            console.log("[CradleScanner] Returning table:", table);
             return table;
           }
         }
       }
 
-      for (let j = 0; j < tables.length; j++) {
-        const table = tables[j];
-        const rows = table.querySelectorAll("tr");
-
-        for (const row of rows) {
-          const cells = row.querySelectorAll("td");
-          for (const cell of cells) {
-            const cellText = cell.textContent.toLowerCase();
-            if (
-              cellText.includes("qa proofreading") ||
-              cellText.includes("final file preparation") ||
-              cellText.includes("broadcast preparation")
-            ) {
-              console.log(
-                "[CradleScanner] ✅ Found Asset comments table via content"
-              );
-              return table;
-            }
-          }
-        }
+      if (attempt < maxAttempts) {
+        console.log(
+          `[CradleScanner] ⏳ Table not found, waiting 1 second... (${attempt}/${maxAttempts})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-
-      console.log(`[CradleScanner] ⏳ Waiting for table... (${i + 1}/10)`);
-      await this.wait(1000);
     }
 
     console.log(
-      "[CradleScanner] ❌ Asset comments table not found after 10 attempts"
+      "[CradleScanner] ❌ Asset comments table not found after all attempts"
     );
     return null;
   }
 
-  async scanForFiles(table) {
+  scanForFiles(table) {
     console.log("[CradleScanner] 🔍 Scanning table rows for files...");
 
+    // === KRYTYCZNA WALIDACJA ===
+    console.log("[CradleScanner] 🔍 Validating table object...");
+    console.log("[CradleScanner] Table type:", typeof table);
+    console.log("[CradleScanner] Table constructor:", table?.constructor?.name);
+    console.log("[CradleScanner] Table tagName:", table?.tagName);
+    console.log(
+      "[CradleScanner] Has querySelectorAll:",
+      typeof table?.querySelectorAll
+    );
+
+    if (!table) {
+      console.error("[CradleScanner] ❌ Table is null or undefined");
+      return { acceptanceFile: null, emissionFile: null };
+    }
+
+    if (
+      !table.querySelectorAll ||
+      typeof table.querySelectorAll !== "function"
+    ) {
+      console.error(
+        "[CradleScanner] ❌ Table does not have querySelectorAll method"
+      );
+      console.error("[CradleScanner] Table object:", table);
+      return { acceptanceFile: null, emissionFile: null };
+    }
+
+    if (table.tagName !== "TABLE") {
+      console.error(
+        "[CradleScanner] ❌ Element is not a TABLE:",
+        table.tagName
+      );
+      return { acceptanceFile: null, emissionFile: null };
+    }
+
+    console.log("[CradleScanner] ✅ Table validation passed");
+
+    // === SKANOWANIE WIERSZY ===
     const fileInfo = {
       emissionFile: null,
       acceptanceFile: null,
     };
 
-    const rows = table.querySelectorAll("tbody tr");
-    if (rows.length === 0) {
-      const allRows = table.querySelectorAll("tr");
+    try {
+      let rows = table.querySelectorAll("tbody tr");
+      if (rows.length === 0) {
+        console.log("[CradleScanner] No tbody rows, trying all tr elements...");
+        rows = table.querySelectorAll("tr");
+      }
+
+      console.log(`[CradleScanner] Found ${rows.length} rows to scan`);
+
+      if (rows.length === 0) {
+        console.log("[CradleScanner] ❌ No rows found in table");
+        return fileInfo;
+      }
+
+      // === SKANOWANIE KAŻDEGO WIERSZA ===
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        console.log(
+          `[CradleScanner] --- Scanning row ${i + 1}/${rows.length} ---`
+        );
+
+        try {
+          // === ANALIZA WIERSZA ===
+          const cells = row.querySelectorAll("td");
+          if (cells.length === 0) {
+            console.log(
+              `[CradleScanner] Row ${i + 1}: No cells found, skipping`
+            );
+            continue;
+          }
+
+          const firstCellText = cells[0].textContent.toLowerCase().trim();
+          console.log(
+            `[CradleScanner] Row ${i + 1}: "${firstCellText.substring(
+              0,
+              80
+            )}..."`
+          );
+
+          // === ACCEPTANCE FILES ===
+          // Szukaj w wierszach: "file preparation" (ale NIE "broadcast file preparation")
+          if (
+            firstCellText.includes("file preparation") &&
+            !firstCellText.includes("broadcast")
+          ) {
+            console.log(
+              `[CradleScanner] Row ${i + 1}: 📎 Potencjalny plik ACCEPTANCE`
+            );
+
+            cells.forEach((cell, cellIndex) => {
+              // POPRAWIONY SELEKTOR - szuka linków z /media/cradle/comment/
+              const attachmentLink =
+                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
+                cell.querySelector("a i.fa-file")?.parentElement;
+
+              if (
+                attachmentLink &&
+                attachmentLink.href &&
+                !fileInfo.acceptanceFile
+              ) {
+                const fileName =
+                  attachmentLink.href.split("/").pop() ||
+                  `acceptance_${Date.now()}.mp4`;
+                const fullUrl = attachmentLink.href.startsWith("http")
+                  ? attachmentLink.href
+                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
+
+                fileInfo.acceptanceFile = {
+                  type: "attachment",
+                  url: fullUrl,
+                  name: fileName,
+                };
+                console.log(
+                  `[CradleScanner] ✅ ACCEPTANCE FILE found in row ${
+                    i + 1
+                  }, cell ${cellIndex}: ${fileName}`
+                );
+                console.log(`[CradleScanner]    URL: ${fullUrl}`);
+              }
+            });
+          }
+
+          // === EMISSION FILES ===
+          // Szukaj w wierszach: "broadcast file preparation"
+          if (firstCellText.includes("broadcast file preparation")) {
+            console.log(
+              `[CradleScanner] Row ${i + 1}: 📎 Potencjalny plik EMISSION`
+            );
+
+            cells.forEach((cell, cellIndex) => {
+              // POPRAWIONY SELEKTOR
+              const attachmentLink =
+                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
+                cell.querySelector("a i.fa-file")?.parentElement;
+
+              if (
+                attachmentLink &&
+                attachmentLink.href &&
+                !fileInfo.emissionFile
+              ) {
+                const fileName =
+                  attachmentLink.href.split("/").pop() ||
+                  `emission_${Date.now()}.mp4`;
+                const fullUrl = attachmentLink.href.startsWith("http")
+                  ? attachmentLink.href
+                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
+
+                fileInfo.emissionFile = {
+                  type: "attachment",
+                  url: fullUrl,
+                  name: fileName,
+                };
+                console.log(
+                  `[CradleScanner] ✅ EMISSION FILE found in row ${
+                    i + 1
+                  }, cell ${cellIndex}: ${fileName}`
+                );
+                console.log(`[CradleScanner]    URL: ${fullUrl}`);
+              }
+              // Fallback: szukaj ścieżek sieciowych
+              else if (!fileInfo.emissionFile) {
+                const cellText = cell.textContent.trim();
+                if (
+                  cellText.includes("/Volumes/") ||
+                  cellText.includes("\\\\")
+                ) {
+                  fileInfo.emissionFile = {
+                    type: "network_path",
+                    path: cellText,
+                    name: `emission_from_network_${Date.now()}.mp4`,
+                  };
+                  console.log(
+                    `[CradleScanner] ✅ EMISSION PATH found in row ${
+                      i + 1
+                    }, cell ${cellIndex}: ${cellText}`
+                  );
+                }
+              }
+            });
+          }
+
+          // === QA PROOFREADING FALLBACK ===
+          if (
+            firstCellText.includes("qa proofreading") &&
+            !fileInfo.acceptanceFile
+          ) {
+            console.log(
+              `[CradleScanner] Row ${
+                i + 1
+              }: 📎 QA proofreading - sprawdzam załączniki`
+            );
+
+            cells.forEach((cell, cellIndex) => {
+              const attachmentLink =
+                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
+                cell.querySelector("a i.fa-file")?.parentElement;
+
+              if (
+                attachmentLink &&
+                attachmentLink.href &&
+                !fileInfo.acceptanceFile
+              ) {
+                const fileName =
+                  attachmentLink.href.split("/").pop() ||
+                  `qa_acceptance_${Date.now()}.mp4`;
+                const fullUrl = attachmentLink.href.startsWith("http")
+                  ? attachmentLink.href
+                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
+
+                fileInfo.acceptanceFile = {
+                  type: "attachment",
+                  url: fullUrl,
+                  name: fileName,
+                };
+                console.log(
+                  `[CradleScanner] ✅ QA ACCEPTANCE FILE found in row ${
+                    i + 1
+                  }, cell ${cellIndex}: ${fileName}`
+                );
+              }
+            });
+          }
+        } catch (rowError) {
+          console.error(
+            `[CradleScanner] Error scanning row ${i + 1}:`,
+            rowError
+          );
+        }
+      }
+
+      // === PODSUMOWANIE WYNIKÓW ===
+      console.log("[CradleScanner] 📋 === FINAL SCAN RESULTS ===");
       console.log(
-        `[CradleScanner] No tbody rows, trying all rows: ${allRows.length}`
+        "[CradleScanner] - Acceptance file:",
+        fileInfo.acceptanceFile
+          ? `FOUND: ${fileInfo.acceptanceFile.name}`
+          : "NOT FOUND"
       );
+      console.log(
+        "[CradleScanner] - Emission file:",
+        fileInfo.emissionFile
+          ? `FOUND: ${fileInfo.emissionFile.name || fileInfo.emissionFile.path}`
+          : "NOT FOUND"
+      );
+      console.log("[CradleScanner] === END SCAN RESULTS ===");
 
-      allRows.forEach((row, index) => {
-        this.scanRowForFiles(row, index, fileInfo);
-      });
-    } else {
-      console.log(`[CradleScanner] 📊 Found ${rows.length} tbody rows to scan`);
-
-      rows.forEach((row, index) => {
-        this.scanRowForFiles(row, index, fileInfo);
-      });
+      return fileInfo;
+    } catch (scanError) {
+      console.error(
+        "[CradleScanner] ❌ Error during table scanning:",
+        scanError
+      );
+      return { acceptanceFile: null, emissionFile: null };
     }
-
-    console.log("[CradleScanner] 📁 File scan results:", fileInfo);
-    return fileInfo;
   }
 
-  scanRowForFiles(row, index, fileInfo) {
-    const cells = row.querySelectorAll("td");
-    if (cells.length < 2) return;
-
-    console.log(`[CradleScanner] 📝 Row ${index + 1}: ${cells.length} cells`);
-
-    let commentText = "";
-    let attachmentUrl = null;
-
-    for (let i = 0; i < cells.length; i++) {
-      const cellText = cells[i].textContent.toLowerCase();
-
-      if (i === 6) {
-        const link = cells[i].querySelector("a[href]");
-        if (
-          link &&
-          !link.href.includes("Omit in Shop") &&
-          link.textContent.trim() !== "Omit in Shop"
-        ) {
-          attachmentUrl = link.href;
-          console.log(`[CradleScanner] Found attachment:`, attachmentUrl);
-        }
+  async copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        console.log("[CradleScanner] ✅ Copied to clipboard via Clipboard API");
+      } else {
+        // Fallback method
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        console.log(
+          "[CradleScanner] ✅ Copied to clipboard via fallback method"
+        );
       }
-
-      if (i === 0) {
-        commentText = cellText;
-      }
-    }
-
-    if (!commentText) return;
-
-    if (
-      commentText.includes("final file preparation") ||
-      commentText.includes("broadcast preparation")
-    ) {
-      console.log("[CradleScanner] 🎬 Found emission file row");
-
-      let path = null;
-      const commentCell = cells[2];
-      if (commentCell) {
-        const pathMatch = commentCell.textContent.match(/\/Volumes\/[^\s]+/);
-        if (pathMatch) {
-          path = pathMatch[0];
-        }
-      }
-
-      fileInfo.emissionFile = {
-        type: "emission",
-        path: path,
-        attachment: attachmentUrl,
-        row: row,
-      };
-    }
-
-    if (
-      (commentText.includes("qa proofreading") ||
-        commentText.includes("qc_final") ||
-        commentText.includes("qc final")) &&
-      attachmentUrl
-    ) {
-      console.log(
-        "[CradleScanner] ✅ Found acceptance file row with attachment"
-      );
-
-      if (!fileInfo.acceptanceFile) {
-        fileInfo.acceptanceFile = {
-          type: "acceptance",
-          attachment: attachmentUrl,
-          row: row,
-        };
-      }
+    } catch (error) {
+      console.error("[CradleScanner] ❌ Failed to copy to clipboard:", error);
+      throw error;
     }
   }
 
@@ -869,67 +1079,77 @@ class CradleScanner {
     }
   }
 
+  async handleAcceptanceFile(acceptanceFile, cradleId) {
+    console.log("[CradleScanner] 📥 Handling acceptance file...");
+    console.log("File data:", acceptanceFile);
+
+    if (acceptanceFile.url) {
+      // Wyciągnij oryginalną nazwę z URL
+      const filename = acceptanceFile.url
+        ? decodeURIComponent(acceptanceFile.url.split("/").pop())
+        : acceptanceFile.name || "acceptance_file";
+      const downloadPath = `${cradleId}/${filename}`;
+
+      console.log(
+        "[CradleScanner] 📤 Sending download request to background..."
+      );
+      console.log("URL:", acceptanceFile.url);
+      console.log("Path:", downloadPath);
+
+      chrome.runtime.sendMessage({
+        action: "DOWNLOAD_FILE",
+        url: acceptanceFile.url,
+        filename: downloadPath,
+      });
+
+      this.showNotification(
+        `Pobieranie pliku akceptacji: ${filename}`,
+        "success"
+      );
+    } else {
+      console.log("[CradleScanner] ❌ No URL found for acceptance file");
+      this.showNotification("Brak URL dla pliku akceptacji", "error");
+    }
+  }
+
   // ✅ POPRAWIONA METODA - Obsługa pliku emisyjnego
-  async handleEmissionFile(fileInfo) {
-    if (fileInfo.attachment) {
+  async handleEmissionFile(emissionFile, cradleId) {
+    console.log("[CradleScanner] 📡 Handling emission file...");
+    console.log("Emission file data:", emissionFile);
+
+    if (emissionFile.url) {
+      // Handle direct attachment
+      // Wyciągnij oryginalną nazwę z URL
+      const filename = emissionFile.url
+        ? decodeURIComponent(emissionFile.url.split("/").pop())
+        : emissionFile.name || "emission_file";
+      const downloadPath = `${cradleId}/${filename}`;
+
       console.log(
-        "[CradleScanner] ⬇️ Downloading emission file attachment:",
-        fileInfo.attachment
+        "[CradleScanner] 📤 Sending download request to background..."
       );
-      this.showNotification("⬇️ Downloading emission file...", "info");
+      console.log("URL:", emissionFile.url);
+      console.log("Path:", downloadPath);
 
-      try {
-        // ✅ ZACHOWAJ ORYGINALNĄ NAZWĘ PLIKU
-        const originalFilename = decodeURIComponent(
-          fileInfo.attachment.split("/").pop()
-        );
-        console.log("[CradleScanner] Original filename:", originalFilename);
+      chrome.runtime.sendMessage({
+        action: "DOWNLOAD_FILE",
+        url: emissionFile.url,
+        filename: downloadPath,
+      });
 
-        // ✅ UŻYJ ISTNIEJĄCEGO BACKGROUND SERVICE
-        chrome.runtime.sendMessage(
-          {
-            action: "DOWNLOAD_FILE",
-            url: fileInfo.attachment,
-            filename: `${this.currentCradleId}/${originalFilename}`,
-          },
-          (response) => {
-            if (response && response.success) {
-              console.log(
-                "[CradleScanner] ✅ Emission file download started:",
-                originalFilename
-              );
-              this.showNotification(
-                `✅ Downloading: ${originalFilename}`,
-                "success"
-              );
-              this.showNotification(
-                `📂 Saved to: Downloads/${this.currentCradleId}/`,
-                "info"
-              );
-            } else {
-              console.error(
-                "[CradleScanner] ❌ Emission download failed:",
-                response?.error
-              );
-              this.showNotification(
-                `❌ Download failed: ${response?.error}`,
-                "error"
-              );
-            }
-          }
-        );
-      } catch (error) {
-        console.error("[CradleScanner] ❌ Emission download error:", error);
-        this.showNotification(`❌ Download failed: ${error.message}`, "error");
-      }
-    } else if (fileInfo.path) {
+      this.showNotification(`Pobieranie pliku emisji: ${filename}`, "success");
+    } else if (emissionFile.path) {
+      // Handle network path
       console.log(
-        "[CradleScanner] 📁 Found emission file network path:",
-        fileInfo.path
+        "[CradleScanner] 🌐 Handling network path for emission file..."
       );
+      console.log("Network path:", emissionFile.path);
 
-      // ✅ NOWA LOGIKA: Znajdź i pobierz plik automatycznie
-      await this.findAndDownloadEmissionFile(fileInfo.path);
+      // Try to search for files in the network path
+      await this.searchForEmissionFile(emissionFile.path, cradleId);
+    } else {
+      console.log("[CradleScanner] ❌ No URL or path found for emission file");
+      this.showNotification("Brak URL lub ścieżki dla pliku emisji", "error");
     }
   }
 
@@ -980,9 +1200,11 @@ class CradleScanner {
   async searchForEmissionFile(searchPath) {
     const possibleExtensions = [".mp4", ".mov", ".avi", ".mkv"];
     const possiblePatterns = [
-      `${this.currentCradleId}_`,
-      `${this.currentCradleId}.`,
-      `${this.currentCradleId}`,
+      `${this.currentCradleId}_`, // CradleID na początku: "875893_filename.mp4"
+      `_${this.currentCradleId}_`, // CradleID w środku: "prefix_875893_filename.mp4"
+      `_${this.currentCradleId}.`, // CradleID przed rozszerzeniem: "prefix_875893.mp4"
+      `${this.currentCradleId}.`, // CradleID bezpośrednio: "875893.mp4"
+      `${this.currentCradleId}`, // CradleID bez separatora
     ];
 
     console.log(`[CradleScanner] 🔍 Trying to access: ${searchPath}`);
