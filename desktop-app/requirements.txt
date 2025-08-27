@@ -1,0 +1,5 @@
+websockets==12.0
+asyncio
+pyyaml==6.0.1
+requests==2.31.0
+psutil==5.9.8

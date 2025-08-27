@@ -1,5 +1,74 @@
 console.log("Cradle Scanner content script loaded");
 
+// WebSocket connection to Desktop App
+class DesktopConnection {
+  constructor() {
+    this.ws = null;
+    this.reconnectDelay = 2000;
+    this.maxReconnectAttempts = 5;
+    this.reconnectAttempts = 0;
+    this.connect();
+  }
+
+  connect() {
+    try {
+      this.ws = new WebSocket("ws://localhost:8765");
+
+      this.ws.onopen = () => {
+        console.log("🔗 Connected to Desktop App");
+        this.reconnectAttempts = 0;
+        this.sendMessage({
+          action: "extension_connected",
+          timestamp: Date.now(),
+        });
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("📨 Message from Desktop App:", data);
+        } catch (e) {
+          console.error("Failed to parse message:", event.data);
+        }
+      };
+
+      this.ws.onclose = () => {
+        console.log("❌ Disconnected from Desktop App");
+        this.reconnect();
+      };
+
+      this.ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+    } catch (error) {
+      console.error("Failed to connect to Desktop App:", error);
+      this.reconnect();
+    }
+  }
+
+  sendMessage(data) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+      return true;
+    }
+    console.warn("Desktop App not connected");
+    return false;
+  }
+
+  reconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      console.log(
+        `🔄 Reconnecting to Desktop App (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+      );
+      setTimeout(() => this.connect(), this.reconnectDelay);
+    }
+  }
+}
+
+// Global desktop connection
+const desktopConnection = new DesktopConnection();
+
 class CradleScanner {
   constructor() {
     this.isScanning = false;
@@ -1508,11 +1577,11 @@ class CradleScanner {
   // 1. NOWA METODA - dodaj na końcu klasy
   extractFilenameFromUrl(url) {
     try {
-      const urlParts = url.split('/');
+      const urlParts = url.split("/");
       const filename = urlParts[urlParts.length - 1];
       return decodeURIComponent(filename) || `file_${Date.now()}.mp4`;
     } catch (error) {
-      console.log('[CradleScanner] Error extracting filename:', error);
+      console.log("[CradleScanner] Error extracting filename:", error);
       return `file_${Date.now()}.mp4`;
     }
   }
@@ -1522,3 +1591,26 @@ class CradleScanner {
 if (typeof window.cradleScanner === "undefined") {
   window.cradleScanner = new CradleScanner();
 }
+
+// === GLOBAL EXPOSURE FOR CONSOLE TESTING ===
+window.desktopConnection = desktopConnection;
+window.cradleScanner = window.cradleScanner;
+console.log('[CradleScanner] ✅ Objects exposed to window for console testing');
+console.log('[CradleScanner] Test with: window.desktopConnection.sendMessage({action: "test"})');
+
+// === CUSTOM EVENT FOR CONSOLE TESTING ===
+document.addEventListener('test-desktop-connection', () => {
+    console.log('[CradleScanner] 🧪 Testing desktop connection...');
+    if (desktopConnection && typeof desktopConnection.sendMessage === 'function') {
+        const result = desktopConnection.sendMessage({
+            action: 'CONSOLE_TEST', 
+            message: 'Hello from console via custom event',
+            timestamp: Date.now()
+        });
+        console.log('[CradleScanner] ✅ Test message sent, result:', result);
+    } else {
+        console.error('[CradleScanner] ❌ desktopConnection not available');
+    }
+});
+
+console.log('[CradleScanner] 🧪 Test available via: document.dispatchEvent(new Event("test-desktop-connection"))');
