@@ -736,6 +736,24 @@ class CradleScanner {
     } else {
       this.showNotification("Pobrano oba pliki pomyślnie", "success");
     }
+    // Wyślij info o pobranych plikach do Desktop App
+    console.log("[CradleScanner] 📤 Sending files info to Desktop App...");
+    const filesData = {
+      action: "FILES_DETECTED",
+      cradleId: this.currentCradleId,
+      acceptanceFile: fileInfo.acceptanceFile,
+      emissionFile: fileInfo.emissionFile,
+      timestamp: Date.now(),
+    };
+
+    const sent = desktopConnection.sendMessage(filesData);
+    console.log("[CradleScanner] Files data sent to Desktop App:", sent);
+
+    if (sent) {
+      this.showNotification("📤 Files info sent to Desktop App", "info");
+    } else {
+      this.showNotification("❌ Desktop App not connected", "warning");
+    }
   }
 
   async findAssetCommentsTable() {
@@ -1595,22 +1613,29 @@ if (typeof window.cradleScanner === "undefined") {
 // === GLOBAL EXPOSURE FOR CONSOLE TESTING ===
 window.desktopConnection = desktopConnection;
 window.cradleScanner = window.cradleScanner;
-console.log('[CradleScanner] ✅ Objects exposed to window for console testing');
-console.log('[CradleScanner] Test with: window.desktopConnection.sendMessage({action: "test"})');
+console.log("[CradleScanner] ✅ Objects exposed to window for console testing");
+console.log(
+  '[CradleScanner] Test with: window.desktopConnection.sendMessage({action: "test"})'
+);
 
 // === CUSTOM EVENT FOR CONSOLE TESTING ===
-document.addEventListener('test-desktop-connection', () => {
-    console.log('[CradleScanner] 🧪 Testing desktop connection...');
-    if (desktopConnection && typeof desktopConnection.sendMessage === 'function') {
-        const result = desktopConnection.sendMessage({
-            action: 'CONSOLE_TEST', 
-            message: 'Hello from console via custom event',
-            timestamp: Date.now()
-        });
-        console.log('[CradleScanner] ✅ Test message sent, result:', result);
-    } else {
-        console.error('[CradleScanner] ❌ desktopConnection not available');
-    }
+document.addEventListener("test-desktop-connection", () => {
+  console.log("[CradleScanner] 🧪 Testing desktop connection...");
+  if (
+    desktopConnection &&
+    typeof desktopConnection.sendMessage === "function"
+  ) {
+    const result = desktopConnection.sendMessage({
+      action: "CONSOLE_TEST",
+      message: "Hello from console via custom event",
+      timestamp: Date.now(),
+    });
+    console.log("[CradleScanner] ✅ Test message sent, result:", result);
+  } else {
+    console.error("[CradleScanner] ❌ desktopConnection not available");
+  }
 });
 
-console.log('[CradleScanner] 🧪 Test available via: document.dispatchEvent(new Event("test-desktop-connection"))');
+console.log(
+  '[CradleScanner] 🧪 Test available via: document.dispatchEvent(new Event("test-desktop-connection"))'
+);
