@@ -1,23 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "Cradle Video Automation",
-  "version": "2.0.1",
-  "description": "Automates video QA workflow in Cradle system",
+  "name": "Cradle Scanner",
+  "version": "1.0",
+  "description": "Automated Cradle video processing",
   
   "permissions": [
     "activeTab",
     "storage",
-    "scripting",
-    "downloads"
+    "downloads",
+    "scripting"
   ],
-  
-  "background": {
-    "service_worker": "background/background.js"
-  },
   
   "host_permissions": [
     "*://cradle.egplusww.pl/*"
   ],
+  
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
   
   "content_scripts": [
     {
@@ -29,7 +29,7 @@
   
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Cradle Video Automation"
+    "default_title": "Cradle Scanner"
   },
   
   "icons": {
