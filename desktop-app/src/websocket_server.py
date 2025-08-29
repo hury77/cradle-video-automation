@@ -75,6 +75,7 @@ class WebSocketServer:
             
             # Build file paths
             base_path = Path.home() / "Downloads" / cradle_id
+            logger.info(f"🔍 Looking for files in: {base_path}")
             
             # Find acceptance and emission files
             acceptance_file = None
@@ -83,26 +84,156 @@ class WebSocketServer:
             if base_path.exists():
                 files = list(base_path.glob("*"))
                 logger.info(f"📁 Files in {cradle_id} folder: {[f.name for f in files]}")
+                logger.info(f"📊 Total files found: {len(files)}")
+                
+                # ✅ ZBIERZ WSZYSTKIE PLIKI WIDEO
+                video_files = []
+                video_extensions = ['.mp4', '.mov', '.mxf', '.prores', '.avi', '.mkv', '.MP4', '.MOV', '.MXF', '.PRORES', '.AVI', '.MKV']
                 
                 for file_path in files:
-                    file_name = file_path.name.lower()
-                    if 'acceptance' in file_name or file_name.endswith('byhd.mp4') or file_name.endswith('byhdmod.mp4'):
-                        acceptance_file = str(file_path)
-                    elif 'emission' in file_name or file_name.endswith('.mov') or '_video-' in file_name.lower():
-                        emission_file = str(file_path)
+                    if file_path.is_file():
+                        file_size = file_path.stat().st_size
+                        logger.info(f"🔍 Analyzing file: {file_path.name} ({file_size} bytes)")
+                        
+                        # Sprawdź czy to plik wideo
+                        if any(file_path.name.endswith(ext) for ext in video_extensions):
+                            video_files.append(file_path)
+                            logger.info(f"✅ Video file detected: {file_path.name}")
+                        else:
+                            logger.info(f"⚠️ File ignored (not video): {file_path.name}")
+                
+                logger.info(f"📹 Found {len(video_files)} video files total")
+                
+                # ✅ INTELIGENTNE ROZRÓŻNIENIE PLIKÓW
+                if len(video_files) >= 2:
+                    
+                    # Metoda 1: Próbuj rozróżnić po nazwach/wzorcach
+                    for video_file in video_files:
+                        file_name_lower = video_file.name.lower()
+                        file_size = video_file.stat().st_size
+                        
+                        logger.info(f"🔍 Analyzing for identification: {video_file.name}")
+                        logger.info(f"   Size: {file_size} bytes ({file_size / 1024 / 1024:.1f} MB)")
+                        
+                        # Acceptance: pliki z określonymi wzorcami lub mniejsze pliki
+                        if not acceptance_file:
+                            # Wzorce dla plików akceptacji
+                            acceptance_patterns = [
+                                'accept', 'approval', 'qa', 'proof', 'wcy', '_w' + cradle_id[-3:].lower()
+                            ]
+                            
+                            is_acceptance = (
+                                any(pattern in file_name_lower for pattern in acceptance_patterns) or
+                                (file_name_lower.endswith('.mp4') and file_size < 300_000_000)  # < 300MB dla .mp4
+                            )
+                            
+                            if is_acceptance:
+                                acceptance_file = str(video_file)
+                                logger.info(f"✅ Identified as ACCEPTANCE: {video_file.name}")
+                                continue
+                        
+                        # Emission: pliki z określonymi wzorcami lub większe pliki
+                        if not emission_file:
+                            # Wzorce dla plików emisji
+                            emission_patterns = [
+                                'emission', 'broadcast', 'final', '_1.', '_final', 'master'
+                            ]
+                            
+                            is_emission = (
+                                any(pattern in file_name_lower for pattern in emission_patterns) or
+                                file_name_lower.endswith('.mov') or
+                                file_name_lower.endswith('.mxf') or
+                                file_name_lower.endswith('.prores') or
+                                (file_size > 300_000_000)  # > 300MB
+                            )
+                            
+                            if is_emission:
+                                emission_file = str(video_file)
+                                logger.info(f"✅ Identified as EMISSION: {video_file.name}")
+                                continue
+                    
+                    # Metoda 2: Jeśli nie udało się rozróżnić, użyj kolejności i rozmiaru
+                    if not acceptance_file or not emission_file:
+                        logger.info("⚠️ Could not identify files by pattern, using size and order...")
+                        
+                        # Posortuj pliki po rozmiarze (mniejszy = acceptance, większy = emission)
+                        video_files_by_size = sorted(video_files, key=lambda x: x.stat().st_size)
+                        
+                        if not acceptance_file and len(video_files_by_size) > 0:
+                            acceptance_file = str(video_files_by_size[0])  # Najmniejszy plik
+                            logger.info(f"✅ Assigned as ACCEPTANCE (smallest): {video_files_by_size[0].name}")
+                        
+                        if not emission_file and len(video_files_by_size) > 1:
+                            # Znajdź największy plik różny od acceptance
+                            for vf in reversed(video_files_by_size):  # Od największego
+                                if str(vf) != acceptance_file:
+                                    emission_file = str(vf)
+                                    logger.info(f"✅ Assigned as EMISSION (largest): {vf.name}")
+                                    break
+                    
+                    # Metoda 3: Ostatnia szansa - po nazwie alfabetycznie
+                    if not acceptance_file or not emission_file:
+                        logger.info("⚠️ Still missing files, using alphabetical order...")
+                        
+                        video_files_sorted = sorted(video_files, key=lambda x: x.name.lower())
+                        
+                        if not acceptance_file and len(video_files_sorted) > 0:
+                            acceptance_file = str(video_files_sorted[0])
+                            logger.info(f"✅ Assigned as ACCEPTANCE (alphabetically first): {video_files_sorted[0].name}")
+                        
+                        if not emission_file and len(video_files_sorted) > 1:
+                            for vf in video_files_sorted:
+                                if str(vf) != acceptance_file:
+                                    emission_file = str(vf)
+                                    logger.info(f"✅ Assigned as EMISSION (alphabetically second): {vf.name}")
+                                    break
+                
+                elif len(video_files) == 1:
+                    logger.warning(f"⚠️ Only 1 video file found, need 2 for comparison")
+                    await self.send_error(websocket, f"Only 1 video file found in {cradle_id} folder, need 2 for comparison. Found: {video_files[0].name}")
+                    return
+                
+                else:
+                    logger.error(f"❌ No video files found in {cradle_id} folder")
+                    await self.send_error(websocket, f"No video files found in {cradle_id} folder. Found files: {[f.name for f in files]}")
+                    return
+
+                # ✅ DODATKOWE LOGOWANIE WYNIKÓW
+                logger.info(f"📋 === FILE DETECTION RESULTS ===")
+                logger.info(f"   Acceptance file: {Path(acceptance_file).name if acceptance_file else 'NOT FOUND'}")
+                logger.info(f"   Acceptance size: {Path(acceptance_file).stat().st_size / 1024 / 1024:.1f} MB" if acceptance_file else "N/A")
+                logger.info(f"   Emission file: {Path(emission_file).name if emission_file else 'NOT FOUND'}")
+                logger.info(f"   Emission size: {Path(emission_file).stat().st_size / 1024 / 1024:.1f} MB" if emission_file else "N/A")
+                logger.info(f"📋 === END DETECTION RESULTS ===")
+                
+            else:
+                logger.error(f"❌ Folder does not exist: {base_path}")
+                await self.send_error(websocket, f"Folder not found: {cradle_id}")
+                return
             
+            # ✅ SPRAWDŹ CZY ZNALEZIONO OBA PLIKI
             if not acceptance_file or not emission_file:
-                await self.send_error(websocket, f"Missing files in {cradle_id} folder. Found: {[f.name for f in files] if 'files' in locals() else 'No files'}")
+                missing_files = []
+                if not acceptance_file:
+                    missing_files.append("acceptance file")
+                if not emission_file:
+                    missing_files.append("emission file")
+                
+                error_msg = f"Missing files in {cradle_id} folder. Missing: {', '.join(missing_files)}. Found video files: {[f.name for f in video_files] if 'video_files' in locals() else 'No video files'}"
+                logger.error(f"❌ {error_msg}")
+                await self.send_error(websocket, error_msg)
                 return
             
             logger.info(f"🎬 Starting Video Compare automation for {cradle_id}")
-            logger.info(f"   Acceptance: {acceptance_file}")
-            logger.info(f"   Emission: {emission_file}")
+            logger.info(f"   📁 Acceptance: {Path(acceptance_file).name}")
+            logger.info(f"   📁 Emission: {Path(emission_file).name}")
             
             # Send status update
             await self.send_status_update(websocket, "VIDEO_COMPARE_STARTED", {
                 'cradle_id': cradle_id,
-                'status': 'Starting Video Compare automation...'
+                'status': 'Starting Video Compare automation...',
+                'acceptance_file': Path(acceptance_file).name,
+                'emission_file': Path(emission_file).name
             })
             
             # Run Video Compare automation
