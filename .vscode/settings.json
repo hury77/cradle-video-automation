@@ -1,0 +1,11 @@
+{
+  "python.formatting.provider": "black"
+  ,"editor.defaultFormatter": "esbenp.prettier-vscode"
+  ,"[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  }
+  ,"editor.formatOnSave": true
+}
