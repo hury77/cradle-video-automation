@@ -196,6 +196,10 @@ class CradleScanner {
         console.log("[CradleScanner] INFO: Rozpoczynam pobieranie plików...");
         await this.downloadFiles();
         break;
+      case "VIDEO_COMPARE":
+        console.log("[CradleScanner] INFO: Starting Video Compare...");
+        await this.startVideoCompare();
+        break;
       default:
         console.log("[CradleScanner] Unknown command:", action);
     }
@@ -833,27 +837,13 @@ class CradleScanner {
       typeof table?.querySelectorAll
     );
 
-    if (!table) {
-      console.error("[CradleScanner] ❌ Table is null or undefined");
-      return { acceptanceFile: null, emissionFile: null };
-    }
-
     if (
+      !table ||
       !table.querySelectorAll ||
-      typeof table.querySelectorAll !== "function"
+      typeof table.querySelectorAll !== "function" ||
+      table.tagName !== "TABLE"
     ) {
-      console.error(
-        "[CradleScanner] ❌ Table does not have querySelectorAll method"
-      );
-      console.error("[CradleScanner] Table object:", table);
-      return { acceptanceFile: null, emissionFile: null };
-    }
-
-    if (table.tagName !== "TABLE") {
-      console.error(
-        "[CradleScanner] ❌ Element is not a TABLE:",
-        table.tagName
-      );
+      console.error("[CradleScanner] ❌ Invalid table object");
       return { acceptanceFile: null, emissionFile: null };
     }
 
@@ -887,7 +877,6 @@ class CradleScanner {
         );
 
         try {
-          // === ANALIZA WIERSZA ===
           const cells = row.querySelectorAll("td");
           if (cells.length === 0) {
             console.log(
@@ -905,7 +894,7 @@ class CradleScanner {
           );
 
           // === EMISSION FILES - SPRAWDŹ NAJPIERW! ===
-          // 1. Szukaj w wierszach: "final file preparation" - sprawdź kolumnę Comment
+          // 1. Szukaj w wierszach: "final file preparation"
           if (firstCellText.includes("final file preparation")) {
             console.log(
               `[CradleScanner] Row ${
@@ -916,34 +905,63 @@ class CradleScanner {
             cells.forEach((cell, cellIndex) => {
               const cellText = cell.textContent.trim();
 
-              // Sprawdź czy to ścieżka sieciowa w kolumnie Comment
+              // Sprawdź czy to ścieżka sieciowa - POPRAWIONY PARSING
               if (
                 (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
                 !fileInfo.emissionFile
               ) {
                 console.log(
-                  `[CradleScanner] Row ${
-                    i + 1
-                  }, Cell ${cellIndex}: 🌐 ŚCIEŻKA SIECIOWA w Comment`
+                  `[CradleScanner] Row ${i + 1}, Cell ${
+                    cellIndex + 1
+                  }: 🌐 ŚCIEŻKA SIECIOWA w Comment`
                 );
-                console.log(`[CradleScanner] Ścieżka: "${cellText}"`);
+                console.log(`[CradleScanner] Pełny tekst: "${cellText}"`);
 
-                fileInfo.emissionFile = {
-                  type: "network_path",
-                  path: cellText,
-                  name: `emission_from_network`,
-                  row: i + 1,
-                  cell: cellIndex,
-                };
+                // POPRAWIONY PARSING ŚCIEŻKI
+                let cleanPath = null;
 
-                console.log(
-                  `[CradleScanner] ✅ EMISSION PATH found in row ${
-                    i + 1
-                  }, cell ${cellIndex}`
-                );
+                // Metoda 1: Regex - szuka /Volumes/ i bierze wszystko do końca linii
+                const pathMatch = cellText.match(/\/Volumes\/[^\n\r]+/);
+                if (pathMatch) {
+                  cleanPath = pathMatch[0].trim();
+                  console.log(`[CradleScanner] Regex match: "${cleanPath}"`);
+                }
+
+                // Metoda 2: Split fallback jeśli regex nie działa
+                if (!cleanPath && cellText.includes("/Volumes/")) {
+                  const parts = cellText.split("/Volumes/");
+                  if (parts.length > 1) {
+                    cleanPath = "/Volumes/" + parts[1].trim();
+                    console.log(`[CradleScanner] Split method: "${cleanPath}"`);
+                  }
+                }
+
+                if (cleanPath) {
+                  console.log(
+                    `[CradleScanner] ✅ Wyciągnięta czysta ścieżka: "${cleanPath}"`
+                  );
+
+                  fileInfo.emissionFile = {
+                    type: "network_path",
+                    path: cleanPath,
+                    name: "emission_from_network",
+                    row: i + 1,
+                    cell: cellIndex + 1,
+                  };
+
+                  console.log(
+                    `[CradleScanner] ✅ EMISSION PATH found in row ${
+                      i + 1
+                    }, cell ${cellIndex + 1}`
+                  );
+                } else {
+                  console.log(
+                    `[CradleScanner] ❌ Nie udało się wyciągnąć ścieżki z: "${cellText}"`
+                  );
+                }
               }
 
-              // Sprawdź też czy nie ma załącznika (jak wcześniej)
+              // Sprawdź też czy nie ma załącznika
               const attachmentLink =
                 cell.querySelector('a[href^="/media/cradle/comment/"]') ||
                 cell.querySelector("a i.fa-file")?.parentElement;
@@ -965,18 +983,18 @@ class CradleScanner {
                   url: fullUrl,
                   name: fileName,
                   row: i + 1,
-                  cell: cellIndex,
+                  cell: cellIndex + 1,
                 };
                 console.log(
                   `[CradleScanner] ✅ EMISSION ATTACHMENT found in row ${
                     i + 1
-                  }, cell ${cellIndex}: ${fileName}`
+                  }, cell ${cellIndex + 1}: ${fileName}`
                 );
               }
             });
           }
 
-          // 2. Szukaj w wierszach: "broadcast file preparation" (alternatywny wzorzec)
+          // 2. Szukaj w wierszach: "broadcast file preparation"
           else if (firstCellText.includes("broadcast file preparation")) {
             console.log(
               `[CradleScanner] Row ${
@@ -987,24 +1005,38 @@ class CradleScanner {
             cells.forEach((cell, cellIndex) => {
               const cellText = cell.textContent.trim();
 
-              // Sprawdź ścieżkę sieciową
+              // Sprawdź ścieżkę sieciową - KONSYSTENTNY Z POWYŻSZYM
               if (
                 (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
                 !fileInfo.emissionFile
               ) {
-                fileInfo.emissionFile = {
-                  type: "network_path",
-                  path: cellText,
-                  name: `emission_from_network`,
-                  row: i + 1,
-                  cell: cellIndex,
-                };
+                let cleanPath = null;
 
-                console.log(
-                  `[CradleScanner] ✅ EMISSION PATH (broadcast) found in row ${
-                    i + 1
-                  }, cell ${cellIndex}`
-                );
+                const pathMatch = cellText.match(/\/Volumes\/[^\n\r]+/);
+                if (pathMatch) {
+                  cleanPath = pathMatch[0].trim();
+                } else if (cellText.includes("/Volumes/")) {
+                  const parts = cellText.split("/Volumes/");
+                  if (parts.length > 1) {
+                    cleanPath = "/Volumes/" + parts[1].trim();
+                  }
+                }
+
+                if (cleanPath) {
+                  console.log(
+                    `[CradleScanner] ✅ EMISSION PATH found in row ${
+                      i + 1
+                    }, cell ${cellIndex + 1}`
+                  );
+
+                  fileInfo.emissionFile = {
+                    type: "network_path",
+                    path: cleanPath,
+                    name: "emission_from_network",
+                    row: i + 1,
+                    cell: cellIndex + 1,
+                  };
+                }
               }
 
               // Sprawdź załączniki
@@ -1029,19 +1061,18 @@ class CradleScanner {
                   url: fullUrl,
                   name: fileName,
                   row: i + 1,
-                  cell: cellIndex,
+                  cell: cellIndex + 1,
                 };
                 console.log(
                   `[CradleScanner] ✅ EMISSION ATTACHMENT (broadcast) found in row ${
                     i + 1
-                  }, cell ${cellIndex}: ${fileName}`
+                  }, cell ${cellIndex + 1}: ${fileName}`
                 );
               }
             });
           }
 
-          // === ACCEPTANCE FILES - SPRAWDŹ PO EMISSION ===
-          // Szukaj w wierszach: "file preparation" (ale NIE "final file preparation" ani "broadcast file preparation")
+          // === ACCEPTANCE FILES ===
           else if (
             firstCellText.includes("file preparation") &&
             !firstCellText.includes("final") &&
@@ -1054,7 +1085,6 @@ class CradleScanner {
             );
 
             cells.forEach((cell, cellIndex) => {
-              // POPRAWIONY SELEKTOR - szuka linków z /media/cradle/comment/
               const attachmentLink =
                 cell.querySelector('a[href^="/media/cradle/comment/"]') ||
                 cell.querySelector("a i.fa-file")?.parentElement;
@@ -1076,14 +1106,13 @@ class CradleScanner {
                   url: fullUrl,
                   name: fileName,
                   row: i + 1,
-                  cell: cellIndex,
+                  cell: cellIndex + 1,
                 };
                 console.log(
                   `[CradleScanner] ✅ ACCEPTANCE FILE found in row ${
                     i + 1
-                  }, cell ${cellIndex}: ${fileName}`
+                  }, cell ${cellIndex + 1}: ${fileName}`
                 );
-                console.log(`[CradleScanner]    URL: ${fullUrl}`);
               }
             });
           }
@@ -1121,12 +1150,12 @@ class CradleScanner {
                   url: fullUrl,
                   name: fileName,
                   row: i + 1,
-                  cell: cellIndex,
+                  cell: cellIndex + 1,
                 };
                 console.log(
                   `[CradleScanner] ✅ QA ACCEPTANCE FILE found in row ${
                     i + 1
-                  }, cell ${cellIndex}: ${fileName}`
+                  }, cell ${cellIndex + 1}: ${fileName}`
                 );
               }
             });
@@ -1165,31 +1194,78 @@ class CradleScanner {
     }
   }
 
-  // ✅ POPRAWIONA handleAcceptanceFile() - używa Chrome Downloads API
+  // ✅ BEZPIECZNA handleAcceptanceFile() z try-catch
   async handleAcceptanceFile(fileData, cradleId) {
     console.log("[CradleScanner] 📥 Downloading acceptance file via Chrome...");
 
     const filename = this.extractFilenameFromUrl(fileData.url);
     const downloadPath = `${cradleId}/${filename}`;
 
-    // Wyślij do background script z Chrome Downloads API
-    chrome.runtime.sendMessage(
-      {
-        action: "DOWNLOAD_FILE",
-        url: fileData.url,
-        filename: downloadPath,
-        type: "acceptance",
-      },
-      (response) => {
-        if (response?.success) {
-          console.log(`[CradleScanner] ✅ Chrome download: ${filename}`);
-          this.showNotification(`📥 Downloading: ${filename}`, "success");
-        } else {
-          console.error(`[CradleScanner] ❌ Chrome download failed:`, response);
-          this.showNotification(`❌ Download failed`, "error");
-        }
+    try {
+      // ✅ POTRÓJNE SPRAWDZENIE
+      if (!chrome) {
+        throw new Error("Chrome API not available");
       }
-    );
+
+      if (!chrome.runtime) {
+        throw new Error("Chrome runtime not available");
+      }
+
+      if (!chrome.runtime.sendMessage) {
+        throw new Error("Chrome sendMessage not available");
+      }
+
+      console.log(
+        "[CradleScanner] ✅ Chrome API available, sending download request..."
+      );
+
+      // ✅ BEZPIECZNE WYWOŁANIE Z TRY-CATCH
+      chrome.runtime.sendMessage(
+        {
+          action: "DOWNLOAD_FILE",
+          url: fileData.url,
+          filename: downloadPath,
+          type: "acceptance",
+        },
+        (response) => {
+          // ✅ SPRAWDŹ CHROME RUNTIME ERROR
+          if (chrome.runtime.lastError) {
+            console.error(
+              "[CradleScanner] Chrome runtime error:",
+              chrome.runtime.lastError
+            );
+            this.showNotification(
+              `❌ Chrome error: ${chrome.runtime.lastError.message}`,
+              "error"
+            );
+            return;
+          }
+
+          if (response?.success) {
+            console.log(`[CradleScanner] ✅ Chrome download: ${filename}`);
+            this.showNotification(`📥 Downloading: ${filename}`, "success");
+          } else {
+            console.error(
+              `[CradleScanner] ❌ Chrome download failed:`,
+              response
+            );
+            this.showNotification(`❌ Download failed`, "error");
+          }
+        }
+      );
+    } catch (error) {
+      console.error("[CradleScanner] ❌ Chrome API Error:", error.message);
+      this.showNotification(
+        `❌ Chrome API unavailable: ${error.message}`,
+        "error"
+      );
+
+      // ✅ FALLBACK: Wyślij info do Desktop App
+      console.log("[CradleScanner] 🔄 Fallback: sending to Desktop App...");
+      this.showNotification("🔄 Using Desktop App for download...", "info");
+
+      // Nie rób nic - Desktop App i tak pobierze pliki
+    }
   }
 
   // UPROSZCZONA handleEmissionFile() - tylko logowanie, bez pobierania
@@ -1358,6 +1434,41 @@ class CradleScanner {
     } catch (error) {
       console.log("[CradleScanner] Error extracting filename:", error);
       return `file_${Date.now()}.mp4`;
+    }
+  }
+  async startVideoCompare() {
+    console.log("[CradleScanner] 🎬 Requesting Video Compare automation...");
+
+    const cradleId = this.currentCradleId;
+    if (!cradleId) {
+      this.showNotification("❌ No Cradle ID available", "error");
+      console.log("[CradleScanner] ❌ No Cradle ID found for Video Compare");
+      return;
+    }
+
+    console.log(
+      `[CradleScanner] 🎬 Starting Video Compare for CradleID: ${cradleId}`
+    );
+    this.showNotification("🎬 Starting Video Compare automation...", "info");
+
+    // Send request to Desktop App
+    const sent = desktopConnection.sendMessage({
+      action: "VIDEO_COMPARE_REQUEST",
+      cradleId: cradleId,
+      timestamp: Date.now(),
+    });
+
+    if (sent) {
+      console.log(
+        "[CradleScanner] ✅ Video Compare request sent to Desktop App"
+      );
+      this.showNotification(
+        "📤 Video Compare request sent to Desktop App",
+        "info"
+      );
+    } else {
+      console.log("[CradleScanner] ❌ Desktop App not connected");
+      this.showNotification("❌ Desktop App not connected", "error");
     }
   }
 }
