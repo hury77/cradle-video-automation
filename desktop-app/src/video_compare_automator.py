@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import platform
+import time
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -19,8 +21,131 @@ class VideoCompareAutomator:
         self.driver = None
         self.wait_timeout = 30
 
+    def check_chrome_debugging(self):
+        """Check if Chrome remote debugging is available on port 9222"""
+        try:
+            import requests
+
+            response = requests.get("http://localhost:9222/json/version", timeout=3)
+            if response.status_code == 200:
+                logger.info("✅ Chrome remote debugging already available on port 9222")
+                return True
+            else:
+                logger.info("❌ Chrome debugging port responds but not ready")
+                return False
+        except Exception as e:
+            logger.info(f"❌ Chrome remote debugging not available: {e}")
+            return False
+
+    def start_chrome_debugging(self):
+        """Start Chrome with remote debugging while preserving existing session"""
+        try:
+            system = platform.system()
+
+            if system == "Darwin":  # macOS
+                # Zachowaj istniejący profil Chrome
+                user_data_dir = os.path.expanduser(
+                    "~/Library/Application Support/Google/Chrome"
+                )
+
+                cmd = [
+                    "open",
+                    "-na",
+                    "Google Chrome",
+                    "--args",
+                    "--remote-debugging-port=9222",
+                    f"--user-data-dir={user_data_dir}",
+                ]
+
+                logger.info(
+                    "🚀 Starting Chrome with remote debugging (preserving session)..."
+                )
+                subprocess.run(cmd, check=False)
+
+            elif system == "Windows":
+                # Windows path
+                user_data_dir = os.path.expanduser(
+                    "~/AppData/Local/Google/Chrome/User Data"
+                )
+                chrome_path = (
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+                )
+
+                cmd = [
+                    chrome_path,
+                    "--remote-debugging-port=9222",
+                    f"--user-data-dir={user_data_dir}",
+                ]
+
+                logger.info("🚀 Starting Chrome with remote debugging on Windows...")
+                subprocess.Popen(cmd)
+
+            else:  # Linux
+                user_data_dir = os.path.expanduser("~/.config/google-chrome")
+
+                cmd = [
+                    "google-chrome",
+                    "--remote-debugging-port=9222",
+                    f"--user-data-dir={user_data_dir}",
+                ]
+
+                logger.info("🚀 Starting Chrome with remote debugging on Linux...")
+                subprocess.Popen(cmd)
+
+            # Poczekaj na uruchomienie
+            logger.info("⏳ Waiting for Chrome debugging to start...")
+            for i in range(10):  # Max 10 sekund
+                time.sleep(1)
+                if self.check_chrome_debugging():
+                    logger.info(f"✅ Chrome debugging ready after {i+1} seconds")
+                    return True
+
+            logger.error("❌ Chrome debugging did not start within 10 seconds")
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ Failed to start Chrome debugging: {e}")
+            return False
+
     def setup_browser(self):
-        """Setup Chrome browser with platform-specific ChromeDriver"""
+        """Setup browser - connect to existing Chrome session with debugging"""
+        try:
+            # ✅ SPRAWDŹ CZY CHROME DEBUGGING JUŻ DZIAŁA
+            if not self.check_chrome_debugging():
+                logger.info("🔧 Chrome debugging not available - starting...")
+                if not self.start_chrome_debugging():
+                    raise Exception("Failed to start Chrome with remote debugging")
+
+            # ✅ POŁĄCZ SIĘ DO ISTNIEJĄCEJ SESJI CHROME
+            chrome_options = Options()
+            chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+
+            # Dodatkowe opcje dla stabilności
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+
+            logger.info("🔗 Connecting to existing Chrome session on port 9222...")
+
+            # NIE POTRZEBUJEMY SERVICE - ŁĄCZYMY SIĘ DO ISTNIEJĄCEJ SESJI
+            self.driver = webdriver.Chrome(options=chrome_options)
+            self.driver.implicitly_wait(10)
+
+            logger.info("✅ Connected to existing Chrome session successfully")
+            logger.info(f"🌐 Current page: {self.driver.current_url}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to Chrome session: {e}")
+            logger.error("💡 Make sure Chrome is running and accessible")
+
+            # Fallback do standardowego Chrome (nowe okno)
+            logger.info("🔄 Attempting fallback to new Chrome instance...")
+            return self.setup_browser_fallback()
+
+    def setup_browser_fallback(self):
+        """Fallback: Setup new Chrome instance (original method)"""
         try:
             chrome_options = Options()
             chrome_options.add_argument("--no-sandbox")
@@ -164,11 +289,11 @@ class VideoCompareAutomator:
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.driver.implicitly_wait(10)
 
-            logger.info("Chrome browser setup successful")
+            logger.info("Chrome browser setup successful (fallback mode)")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to setup browser: {e}")
+            logger.error(f"Failed to setup browser in fallback mode: {e}")
             if self.driver:
                 self.driver.quit()
                 self.driver = None
@@ -187,10 +312,18 @@ class VideoCompareAutomator:
             if not os.path.exists(emission_file):
                 raise Exception(f"Emission file not found: {emission_file}")
 
-            # Setup browser if not already done
-            if not self.driver:
-                if not self.setup_browser():
-                    raise Exception("Failed to setup browser")
+            # ✅ FRESH SETUP - ZAWSZE NOWY CONNECTION
+            logger.info("🔄 Setting up fresh browser connection...")
+            if self.driver:
+                try:
+                    logger.info("🗑️ Closing existing driver...")
+                    self.driver.quit()
+                except Exception as e:
+                    logger.warning(f"Error closing existing driver: {e}")
+                self.driver = None
+
+            if not self.setup_browser():
+                raise Exception("Failed to setup browser")
 
             # Navigate to Video Compare page
             video_compare_url = "https://cradle.egplusww.pl/vcompare/add/"
