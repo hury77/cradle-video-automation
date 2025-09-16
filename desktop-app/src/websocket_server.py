@@ -48,10 +48,13 @@ class WebSocketServer:
 
             if action == "extension_connected":
                 logger.info("Extension connected")
+                await self.send_response(
+                    websocket, "CONNECTION_ESTABLISHED", {"status": "connected"}
+                )
 
             elif action == "FILES_DETECTED":
                 logger.info("🎯 FILES_DETECTED received - starting download process...")
-                await self.file_handler.handle_files_detected(websocket, data)
+                await self.handle_files_detected(websocket, data)
 
             elif action == "VIDEO_COMPARE_REQUEST":
                 logger.info(
@@ -59,13 +62,81 @@ class WebSocketServer:
                 )
                 await self.handle_video_compare_request(websocket, data)
 
+            elif action == "VIDEO_COMPARE_UPLOAD_REQUEST":
+                logger.info(
+                    "🎬 VIDEO_COMPARE_UPLOAD_REQUEST received - hybrid upload..."
+                )
+                await self.handle_video_compare_upload_request(websocket, data)
+
+            elif action == "TASK_SCAN_REQUEST":
+                logger.info("📋 TASK_SCAN_REQUEST received")
+                await self.handle_task_scan_request(websocket, data)
+
+            elif action == "AUTOMATION_STATUS_REQUEST":
+                logger.info("📊 AUTOMATION_STATUS_REQUEST received")
+                await self.handle_automation_status_request(websocket, data)
+
+            elif action == "PING":
+                logger.info("📡 PING received")
+                await self.send_response(
+                    websocket, "PONG", {"timestamp": int(time.time() * 1000)}
+                )
+
             else:
                 logger.warning(f"Unknown action: {action}")
+                await self.send_error(websocket, f"Unknown action: {action}")
 
         except json.JSONDecodeError:
             logger.error(f"Invalid JSON received: {message}")
+            await self.send_error(websocket, "Invalid JSON format")
         except Exception as e:
             logger.error(f"Error handling message: {str(e)}")
+            await self.send_error(websocket, f"Server error: {str(e)}")
+
+    async def handle_files_detected(self, websocket, data):
+        """Handle FILES_DETECTED message - download files"""
+        try:
+            cradle_id = data.get("cradleId")
+            acceptance_file = data.get("acceptanceFile")
+            emission_file = data.get("emissionFile")
+
+            if not cradle_id:
+                await self.send_error(websocket, "No CradleID provided")
+                return
+
+            logger.info(f"📁 Processing files for CradleID: {cradle_id}")
+
+            # Send status update
+            await self.send_status_update(
+                websocket,
+                "DOWNLOAD_STARTED",
+                {
+                    "cradle_id": cradle_id,
+                    "status": "Starting file downloads...",
+                    "acceptance_file": acceptance_file,
+                    "emission_file": emission_file,
+                },
+            )
+
+            # Handle file downloads via FileHandler
+            download_results = await self.file_handler.handle_files_detected(
+                websocket, data
+            )
+
+            # Send completion status
+            await self.send_status_update(
+                websocket,
+                "DOWNLOAD_COMPLETED",
+                {
+                    "cradle_id": cradle_id,
+                    "results": download_results,
+                    "status": "File downloads completed",
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Files detected handling failed: {str(e)}")
+            await self.send_error(websocket, f"File download error: {str(e)}")
 
     async def handle_video_compare_request(self, websocket, data):
         """Handle Video Compare automation request"""
@@ -130,129 +201,9 @@ class WebSocketServer:
 
                 # ✅ INTELIGENTNE ROZRÓŻNIENIE PLIKÓW
                 if len(video_files) >= 2:
-
-                    # Metoda 1: Próbuj rozróżnić po nazwach/wzorcach
-                    for video_file in video_files:
-                        file_name_lower = video_file.name.lower()
-                        file_size = video_file.stat().st_size
-
-                        logger.info(
-                            f"🔍 Analyzing for identification: {video_file.name}"
-                        )
-                        logger.info(
-                            f"   Size: {file_size} bytes ({file_size / 1024 / 1024:.1f} MB)"
-                        )
-
-                        # Acceptance: pliki z określonymi wzorcami lub mniejsze pliki
-                        if not acceptance_file:
-                            # Wzorce dla plików akceptacji
-                            acceptance_patterns = [
-                                "accept",
-                                "approval",
-                                "qa",
-                                "proof",
-                                "wcy",
-                                "_w" + cradle_id[-3:].lower(),
-                            ]
-
-                            is_acceptance = any(
-                                pattern in file_name_lower
-                                for pattern in acceptance_patterns
-                            ) or (
-                                file_name_lower.endswith(".mp4")
-                                and file_size < 300_000_000
-                            )  # < 300MB dla .mp4
-
-                            if is_acceptance:
-                                acceptance_file = str(video_file)
-                                logger.info(
-                                    f"✅ Identified as ACCEPTANCE: {video_file.name}"
-                                )
-                                continue
-
-                        # Emission: pliki z określonymi wzorcami lub większe pliki
-                        if not emission_file:
-                            # Wzorce dla plików emisji
-                            emission_patterns = [
-                                "emission",
-                                "broadcast",
-                                "final",
-                                "_1.",
-                                "_final",
-                                "master",
-                            ]
-
-                            is_emission = (
-                                any(
-                                    pattern in file_name_lower
-                                    for pattern in emission_patterns
-                                )
-                                or file_name_lower.endswith(".mov")
-                                or file_name_lower.endswith(".mxf")
-                                or file_name_lower.endswith(".prores")
-                                or (file_size > 300_000_000)  # > 300MB
-                            )
-
-                            if is_emission:
-                                emission_file = str(video_file)
-                                logger.info(
-                                    f"✅ Identified as EMISSION: {video_file.name}"
-                                )
-                                continue
-
-                    # Metoda 2: Jeśli nie udało się rozróżnić, użyj kolejności i rozmiaru
-                    if not acceptance_file or not emission_file:
-                        logger.info(
-                            "⚠️ Could not identify files by pattern, using size and order..."
-                        )
-
-                        # Posortuj pliki po rozmiarze (mniejszy = acceptance, większy = emission)
-                        video_files_by_size = sorted(
-                            video_files, key=lambda x: x.stat().st_size
-                        )
-
-                        if not acceptance_file and len(video_files_by_size) > 0:
-                            acceptance_file = str(
-                                video_files_by_size[0]
-                            )  # Najmniejszy plik
-                            logger.info(
-                                f"✅ Assigned as ACCEPTANCE (smallest): {video_files_by_size[0].name}"
-                            )
-
-                        if not emission_file and len(video_files_by_size) > 1:
-                            # Znajdź największy plik różny od acceptance
-                            for vf in reversed(video_files_by_size):  # Od największego
-                                if str(vf) != acceptance_file:
-                                    emission_file = str(vf)
-                                    logger.info(
-                                        f"✅ Assigned as EMISSION (largest): {vf.name}"
-                                    )
-                                    break
-
-                    # Metoda 3: Ostatnia szansa - po nazwie alfabetycznie
-                    if not acceptance_file or not emission_file:
-                        logger.info(
-                            "⚠️ Still missing files, using alphabetical order..."
-                        )
-
-                        video_files_sorted = sorted(
-                            video_files, key=lambda x: x.name.lower()
-                        )
-
-                        if not acceptance_file and len(video_files_sorted) > 0:
-                            acceptance_file = str(video_files_sorted[0])
-                            logger.info(
-                                f"✅ Assigned as ACCEPTANCE (alphabetically first): {video_files_sorted[0].name}"
-                            )
-
-                        if not emission_file and len(video_files_sorted) > 1:
-                            for vf in video_files_sorted:
-                                if str(vf) != acceptance_file:
-                                    emission_file = str(vf)
-                                    logger.info(
-                                        f"✅ Assigned as EMISSION (alphabetically second): {vf.name}"
-                                    )
-                                    break
+                    acceptance_file, emission_file = await self.identify_video_files(
+                        video_files, cradle_id
+                    )
 
                 elif len(video_files) == 1:
                     logger.warning(f"⚠️ Only 1 video file found, need 2 for comparison")
@@ -336,6 +287,254 @@ class WebSocketServer:
             logger.error(f"❌ Video Compare request failed: {str(e)}")
             await self.send_error(websocket, f"Video Compare error: {str(e)}")
 
+    async def handle_video_compare_upload_request(self, websocket, data):
+        """Handle hybrid Video Compare upload request from extension"""
+        try:
+            cradle_id = data.get("cradleId")
+            tab_id = data.get("tabId")
+            selectors = data.get("selectors", {})
+
+            if not cradle_id:
+                await self.send_error(
+                    websocket, "No CradleID provided for hybrid upload"
+                )
+                return
+
+            # Build file paths
+            base_path = Path.home() / "Downloads" / cradle_id
+            logger.info(f"🔍 Looking for files for hybrid upload in: {base_path}")
+
+            if not base_path.exists():
+                await self.send_error(
+                    websocket, f"Folder not found for hybrid upload: {cradle_id}"
+                )
+                return
+
+            files = list(base_path.glob("*"))
+            video_files = []
+            video_extensions = [".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"]
+
+            for file_path in files:
+                if file_path.is_file() and any(
+                    file_path.name.lower().endswith(ext) for ext in video_extensions
+                ):
+                    video_files.append(file_path)
+
+            if len(video_files) < 2:
+                await self.send_error(
+                    websocket,
+                    f"Need 2 video files for comparison, found {len(video_files)}",
+                )
+                return
+
+            # Identify acceptance and emission files
+            acceptance_file, emission_file = await self.identify_video_files(
+                video_files, cradle_id
+            )
+
+            if not acceptance_file or not emission_file:
+                await self.send_error(
+                    websocket, "Could not identify acceptance and emission files"
+                )
+                return
+
+            logger.info(f"🎬 Starting hybrid Video Compare upload for {cradle_id}")
+            logger.info(f"   📁 Acceptance: {Path(acceptance_file).name}")
+            logger.info(f"   📁 Emission: {Path(emission_file).name}")
+
+            # Prepare hybrid upload data
+            hybrid_data = {
+                "acceptance_file": str(acceptance_file),
+                "emission_file": str(emission_file),
+                "cradle_id": cradle_id,
+                "tab_id": tab_id,
+                "selectors": selectors,
+            }
+
+            # Send to video compare automator
+            result = await self.video_compare.handle_hybrid_upload(hybrid_data)
+
+            # Send results back to extension
+            await self.send_video_compare_results(websocket, result)
+
+        except Exception as e:
+            logger.error(f"❌ Hybrid Video Compare upload failed: {str(e)}")
+            await self.send_error(websocket, f"Hybrid upload error: {str(e)}")
+
+    async def identify_video_files(self, video_files, cradle_id):
+        """Intelligently identify acceptance and emission files"""
+        acceptance_file = None
+        emission_file = None
+
+        # Metoda 1: Próbuj rozróżnić po nazwach/wzorcach
+        for video_file in video_files:
+            file_name_lower = video_file.name.lower()
+            file_size = video_file.stat().st_size
+
+            logger.info(f"🔍 Analyzing for identification: {video_file.name}")
+            logger.info(
+                f"   Size: {file_size} bytes ({file_size / 1024 / 1024:.1f} MB)"
+            )
+
+            # Acceptance: pliki z określonymi wzorcami lub mniejsze pliki
+            if not acceptance_file:
+                acceptance_patterns = [
+                    "accept",
+                    "approval",
+                    "qa",
+                    "proof",
+                    "wcy",
+                    "_w" + cradle_id[-3:].lower(),
+                ]
+
+                is_acceptance = any(
+                    pattern in file_name_lower for pattern in acceptance_patterns
+                ) or (
+                    file_name_lower.endswith(".mp4") and file_size < 300_000_000
+                )  # < 300MB dla .mp4
+
+                if is_acceptance:
+                    acceptance_file = str(video_file)
+                    logger.info(f"✅ Identified as ACCEPTANCE: {video_file.name}")
+                    continue
+
+            # Emission: pliki z określonymi wzorcami lub większe pliki
+            if not emission_file:
+                emission_patterns = [
+                    "emission",
+                    "broadcast",
+                    "final",
+                    "_1.",
+                    "_final",
+                    "master",
+                ]
+
+                is_emission = (
+                    any(pattern in file_name_lower for pattern in emission_patterns)
+                    or file_name_lower.endswith(".mov")
+                    or file_name_lower.endswith(".mxf")
+                    or file_name_lower.endswith(".prores")
+                    or (file_size > 300_000_000)  # > 300MB
+                )
+
+                if is_emission:
+                    emission_file = str(video_file)
+                    logger.info(f"✅ Identified as EMISSION: {video_file.name}")
+                    continue
+
+        # Metoda 2: Jeśli nie udało się rozróżnić, użyj kolejności i rozmiaru
+        if not acceptance_file or not emission_file:
+            logger.info(
+                "⚠️ Could not identify files by pattern, using size and order..."
+            )
+
+            # Posortuj pliki po rozmiarze (mniejszy = acceptance, większy = emission)
+            video_files_by_size = sorted(video_files, key=lambda x: x.stat().st_size)
+
+            if not acceptance_file and len(video_files_by_size) > 0:
+                acceptance_file = str(video_files_by_size[0])  # Najmniejszy plik
+                logger.info(
+                    f"✅ Assigned as ACCEPTANCE (smallest): {video_files_by_size[0].name}"
+                )
+
+            if not emission_file and len(video_files_by_size) > 1:
+                # Znajdź największy plik różny od acceptance
+                for vf in reversed(video_files_by_size):  # Od największego
+                    if str(vf) != acceptance_file:
+                        emission_file = str(vf)
+                        logger.info(f"✅ Assigned as EMISSION (largest): {vf.name}")
+                        break
+
+        # Metoda 3: Ostatnia szansa - po nazwie alfabetycznie
+        if not acceptance_file or not emission_file:
+            logger.info("⚠️ Still missing files, using alphabetical order...")
+
+            video_files_sorted = sorted(video_files, key=lambda x: x.name.lower())
+
+            if not acceptance_file and len(video_files_sorted) > 0:
+                acceptance_file = str(video_files_sorted[0])
+                logger.info(
+                    f"✅ Assigned as ACCEPTANCE (alphabetically first): {video_files_sorted[0].name}"
+                )
+
+            if not emission_file and len(video_files_sorted) > 1:
+                for vf in video_files_sorted:
+                    if str(vf) != acceptance_file:
+                        emission_file = str(vf)
+                        logger.info(
+                            f"✅ Assigned as EMISSION (alphabetically second): {vf.name}"
+                        )
+                        break
+
+        return acceptance_file, emission_file
+
+    async def handle_task_scan_request(self, websocket, data):
+        """Handle task scanning requests"""
+        try:
+            scan_type = data.get("scanType", "pending_tasks")
+
+            logger.info(f"📋 Processing task scan request: {scan_type}")
+
+            # Send acknowledgment
+            await self.send_status_update(
+                websocket,
+                "TASK_SCAN_STARTED",
+                {
+                    "scan_type": scan_type,
+                    "status": "Task scanning started...",
+                    "timestamp": int(time.time() * 1000),
+                },
+            )
+
+            # Simulate task scanning (replace with actual implementation)
+            await asyncio.sleep(2)
+
+            # Mock results
+            scan_results = {
+                "found_tasks": 3,
+                "pending_tasks": 2,
+                "processing_tasks": 1,
+                "scan_timestamp": int(time.time() * 1000),
+            }
+
+            await self.send_response(
+                websocket,
+                "TASK_SCAN_RESULTS",
+                {
+                    "scan_type": scan_type,
+                    "results": scan_results,
+                    "status": "Task scan completed",
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Task scan failed: {str(e)}")
+            await self.send_error(websocket, f"Task scan error: {str(e)}")
+
+    async def handle_automation_status_request(self, websocket, data):
+        """Handle automation status requests"""
+        try:
+            logger.info("📊 Processing automation status request")
+
+            # Collect status information
+            status_info = {
+                "server_status": "running",
+                "connected_clients": len(self.clients),
+                "file_handler_ready": self.file_handler is not None,
+                "video_compare_ready": self.video_compare is not None,
+                "timestamp": int(time.time() * 1000),
+            }
+
+            await self.send_response(
+                websocket,
+                "AUTOMATION_STATUS",
+                {"status": status_info, "message": "Automation system operational"},
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Status request failed: {str(e)}")
+            await self.send_error(websocket, f"Status request error: {str(e)}")
+
     async def send_video_compare_results(self, websocket, result):
         """Send Video Compare results to extension"""
         message = {
@@ -350,6 +549,13 @@ class WebSocketServer:
         """Send status update to extension"""
         message = {"action": action, "data": data, "timestamp": int(time.time() * 1000)}
         await websocket.send(json.dumps(message))
+        logger.info(f"📤 Sent status update: {action}")
+
+    async def send_response(self, websocket, action, data):
+        """Send response to extension"""
+        message = {"action": action, "data": data, "timestamp": int(time.time() * 1000)}
+        await websocket.send(json.dumps(message))
+        logger.info(f"📤 Sent response: {action}")
 
     async def send_error(self, websocket, error_message):
         """Send error message to extension"""
@@ -360,6 +566,17 @@ class WebSocketServer:
         }
         await websocket.send(json.dumps(message))
         logger.error(f"📤 Sent error: {error_message}")
+
+    async def broadcast_message(self, message):
+        """Broadcast message to all connected clients"""
+        if self.clients:
+            logger.info(
+                f"📡 Broadcasting to {len(self.clients)} clients: {message.get('action', 'unknown')}"
+            )
+            await asyncio.gather(
+                *[client.send(json.dumps(message)) for client in self.clients],
+                return_exceptions=True,
+            )
 
     async def start_server(self, host="localhost", port=8765):
         """Start the WebSocket server"""
