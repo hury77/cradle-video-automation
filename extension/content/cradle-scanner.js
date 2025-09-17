@@ -720,7 +720,11 @@ class CradleScanner {
       }
       console.log("  - Rząd:", fileInfo.emissionFile.row);
 
-      await this.handleEmissionFile(fileInfo.emissionFile, cradleId);
+      await this.handleEmissionFile(
+        fileInfo.emissionFile,
+        cradleId,
+        fileInfo.acceptanceFile?.name // Przekaż nazwę acceptance dla porównania
+      );
     } else {
       console.log("✗ PLIK EMISJI NIE ZNALEZIONY");
     }
@@ -1202,24 +1206,14 @@ class CradleScanner {
     const downloadPath = `${cradleId}/${filename}`;
 
     try {
-      // ✅ POTRÓJNE SPRAWDZENIE
-      if (!chrome) {
+      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
         throw new Error("Chrome API not available");
-      }
-
-      if (!chrome.runtime) {
-        throw new Error("Chrome runtime not available");
-      }
-
-      if (!chrome.runtime.sendMessage) {
-        throw new Error("Chrome sendMessage not available");
       }
 
       console.log(
         "[CradleScanner] ✅ Chrome API available, sending download request..."
       );
 
-      // ✅ BEZPIECZNE WYWOŁANIE Z TRY-CATCH
       chrome.runtime.sendMessage(
         {
           action: "DOWNLOAD_FILE",
@@ -1228,7 +1222,6 @@ class CradleScanner {
           type: "acceptance",
         },
         (response) => {
-          // ✅ SPRAWDŹ CHROME RUNTIME ERROR
           if (chrome.runtime.lastError) {
             console.error(
               "[CradleScanner] Chrome runtime error:",
@@ -1243,13 +1236,16 @@ class CradleScanner {
 
           if (response?.success) {
             console.log(`[CradleScanner] ✅ Chrome download: ${filename}`);
-            this.showNotification(`📥 Downloading: ${filename}`, "success");
+            this.showNotification(
+              `📥 Acceptance downloaded: ${filename}`,
+              "success"
+            );
           } else {
             console.error(
               `[CradleScanner] ❌ Chrome download failed:`,
               response
             );
-            this.showNotification(`❌ Download failed`, "error");
+            this.showNotification(`❌ Acceptance download failed`, "error");
           }
         }
       );
@@ -1259,37 +1255,140 @@ class CradleScanner {
         `❌ Chrome API unavailable: ${error.message}`,
         "error"
       );
-
-      // ✅ FALLBACK: Wyślij info do Desktop App
-      console.log("[CradleScanner] 🔄 Fallback: sending to Desktop App...");
-      this.showNotification("🔄 Using Desktop App for download...", "info");
-
-      // Nie rób nic - Desktop App i tak pobierze pliki
     }
   }
+  // Helper function to add _emis suffix if needed
+  addEmissionSuffix(emissionName, acceptanceName) {
+    if (!acceptanceName) return emissionName;
 
-  // UPROSZCZONA handleEmissionFile() - tylko logowanie, bez pobierania
-  async handleEmissionFile(fileData) {
-    console.log(
-      "[CradleScanner] 📥 Emission file detected (Desktop App will handle download)"
-    );
-    console.log("File data:", fileData);
+    // Wyciągnij tylko nazwy plików bez ścieżek
+    const emissionFileName = emissionName.split("/").pop();
+    const acceptanceFileName = acceptanceName.split("/").pop();
 
-    if (fileData.path) {
-      console.log("[CradleScanner] 🌐 Network path detected:", fileData.path);
-      this.showNotification(
-        `📡 Emission file (network): ${fileData.path}`,
-        "info"
-      );
-    } else if (fileData.url) {
-      console.log(
-        "[CradleScanner] 📎 Emission attachment detected:",
-        fileData.name
-      );
-      this.showNotification(`📡 Emission file found: ${fileData.name}`, "info");
+    if (emissionFileName === acceptanceFileName) {
+      // Dodaj _emis przed rozszerzeniem: file.mp4 → file_emis.mp4
+      return emissionName.replace(/(\.[^.]+)$/, "_emis$1");
     }
 
-    // Nie pobieraj tutaj - Desktop App to zrobi!
+    return emissionName;
+  }
+
+  async handleEmissionFile(fileData, cradleId, acceptanceFileName = null) {
+    console.log("[CradleScanner] 📡 Handling emission file...");
+    console.log("Emission type:", fileData.type);
+    console.log("Emission data:", fileData);
+
+    if (fileData.type === "attachment") {
+      // 📎 EMISSION ATTACHMENT - pobierz przez Chrome API (ma cookies)
+      console.log(
+        "[CradleScanner] 📡 Downloading emission attachment via Chrome..."
+      );
+
+      let finalFilename = this.extractFilenameFromUrl(fileData.url);
+
+      // Dodaj sufiks _emis jeśli ma taką samą nazwę jak acceptance
+      if (acceptanceFileName) {
+        const acceptanceNameOnly = acceptanceFileName.split("/").pop(); // tylko nazwa pliku
+        if (finalFilename === acceptanceNameOnly) {
+          const dotIndex = finalFilename.lastIndexOf(".");
+          if (dotIndex !== -1) {
+            finalFilename =
+              finalFilename.substring(0, dotIndex) +
+              "_emis" +
+              finalFilename.substring(dotIndex);
+          } else {
+            finalFilename = finalFilename + "_emis";
+          }
+          console.log(`[CradleScanner] Adding _emis suffix: ${finalFilename}`);
+        }
+      }
+
+      const downloadPath = `${cradleId}/${finalFilename}`;
+
+      try {
+        if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
+          throw new Error("Chrome API not available");
+        }
+
+        console.log(
+          "[CradleScanner] ✅ Chrome API available, downloading emission attachment..."
+        );
+
+        chrome.runtime.sendMessage(
+          {
+            action: "DOWNLOAD_FILE",
+            url: fileData.url,
+            filename: downloadPath,
+            type: "emission_attachment",
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                "[CradleScanner] Chrome runtime error:",
+                chrome.runtime.lastError
+              );
+              this.showNotification(
+                `❌ Chrome error: ${chrome.runtime.lastError.message}`,
+                "error"
+              );
+              return;
+            }
+
+            if (response?.success) {
+              console.log(
+                `[CradleScanner] ✅ Chrome download emission: ${finalFilename}`
+              );
+              this.showNotification(
+                `📡 Emission downloaded: ${finalFilename}`,
+                "success"
+              );
+            } else {
+              console.error(
+                `[CradleScanner] ❌ Chrome emission download failed:`,
+                response
+              );
+              this.showNotification(`❌ Emission download failed`, "error");
+            }
+          }
+        );
+
+        this.showNotification(
+          "📥 Emission attachment download via Chrome API",
+          "info"
+        );
+      } catch (error) {
+        console.error(
+          "[CradleScanner] ❌ Chrome API Error for emission:",
+          error.message
+        );
+        this.showNotification(
+          `❌ Chrome API unavailable for emission: ${error.message}`,
+          "error"
+        );
+      }
+    } else if (fileData.type === "network_path") {
+      // 🌐 NETWORK PATH - Desktop App obsługuje (ma dostęp do sieci)
+      console.log("[CradleScanner] 🌐 Network path detected:", fileData.path);
+      this.showNotification(
+        `📡 Emission file (network): ${fileData.path.split("/").pop()}`,
+        "info"
+      );
+
+      // Desktop App pobierze z sieci automatycznie przez FILES_DETECTED
+      console.log(
+        "[CradleScanner] 📤 Network emission will be handled by Desktop App"
+      );
+    } else {
+      // ⚠️ Nieznany typ
+      console.log(
+        "[CradleScanner] ⚠️ Unknown emission file type:",
+        fileData.type
+      );
+      this.showNotification(
+        `⚠️ Unknown emission type: ${fileData.type}`,
+        "warning"
+      );
+    }
   }
 
   async applyQAFilterOnly() {

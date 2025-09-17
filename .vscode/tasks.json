@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Format Python file",
+			"type": "shell",
+			"command": "autopep8 --in-place --aggressive --aggressive /Users/hubert.rycaj/Documents/cradle-video-automation/desktop-app/src/video_compare_automator.py",
+			"problemMatcher": []
+		}
+	]
+}

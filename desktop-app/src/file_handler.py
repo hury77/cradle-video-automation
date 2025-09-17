@@ -76,7 +76,11 @@ class FileHandler:
                 cradle_id = folder_path.name  # Get CradleID from folder name
                 return await self.handle_network_emission_file(file_info, folder_path, cradle_id)
             
-            # Regular file download (attachment)
+            # 🔥 NOWE: Handle emission attachments with suffix
+            if file_type == "emission" and file_info.get('type') == 'attachment':
+                return await self.handle_emission_attachment(file_info, folder_path)
+            
+            # Regular file download (acceptance attachments)
             url = file_info.get('url')
             original_name = file_info.get('name', f"{file_type}_{file_info.get('row', 'unknown')}.mp4")
             
@@ -90,8 +94,14 @@ class FileHandler:
             self.logger.info(f"⬇️ Downloading {file_type}: {original_name}")
             self.logger.info(f"   URL: {url}")
             
-            # Download file
-            response = requests.get(url, stream=True, timeout=30)
+            # Download file with headers for better compatibility
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Referer': 'https://cradle.egplusww.pl/',
+            }
+            
+            response = requests.get(url, stream=True, timeout=30, headers=headers)
             response.raise_for_status()
             
             # Save to folder
@@ -131,6 +141,67 @@ class FileHandler:
                 'error': str(e),
                 'url': url if 'url' in locals() else 'unknown'
             }
+
+    async def handle_emission_attachment(self, file_info, folder_path):
+        """Handle emission attachment downloads with _emis suffix"""
+        try:
+            url = file_info.get('url')
+            original_name = file_info.get('name', f"emission_{file_info.get('row', 'unknown')}.mp4")
+            
+            if not url:
+                return {'success': False, 'type': 'emission_attachment', 'error': 'No URL provided'}
+            
+            # Check if acceptance file with same name exists
+            acceptance_files = list(folder_path.glob(f"*{original_name}*"))
+            final_name = original_name
+            
+            if acceptance_files:
+                # Add _emis suffix: file.mp4 → file_emis.mp4
+                name_parts = original_name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    final_name = f"{name_parts[0]}_emis.{name_parts[1]}"
+                else:
+                    final_name = f"{original_name}_emis"
+                
+                self.logger.info(f"📝 Adding suffix to avoid conflict: {original_name} → {final_name}")
+            
+            # Download with proper headers (for cookies)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Referer': 'https://cradle.egplusww.pl/',
+            }
+            
+            self.logger.info(f"⬇️ Downloading emission attachment: {final_name}")
+            self.logger.info(f"   URL: {url}")
+            
+            response = requests.get(url, stream=True, timeout=30, headers=headers)
+            response.raise_for_status()
+            
+            # Save with final name
+            file_path = folder_path / final_name
+            
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            file_size = file_path.stat().st_size
+            self.logger.info(f"✅ Downloaded emission attachment: {final_name} ({file_size:,} bytes)")
+            
+            return {
+                'success': True,
+                'type': 'emission_attachment',
+                'filename': final_name,
+                'original_name': original_name,
+                'path': str(file_path),
+                'size': file_size,
+                'url': url
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ Emission attachment download failed: {str(e)}")
+            return {'success': False, 'type': 'emission_attachment', 'error': str(e)}
 
     async def handle_network_emission_file(self, file_info, cradle_folder, cradle_id):
         """Handle emission files from network drives"""
