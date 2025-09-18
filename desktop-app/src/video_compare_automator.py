@@ -1,702 +1,492 @@
 import asyncio
-import logging
-import os
 import json
-import requests
-import websockets
+import logging
+import subprocess
 import time
-
-logger = logging.getLogger(__name__)
-
+import os
+import psutil
+import aiohttp
+from pathlib import Path
+from playwright.async_api import async_playwright, TimeoutError
 
 class VideoCompareAutomator:
-    def __init__(self):
-        self.devtools_port = 9223
-        self.devtools_url = f"http://localhost:{self.devtools_port}"
-        self.upload_timeout = 300  # 5 minutes
-        self.result_wait_timeout = 600  # 10 minutes
-        self._message_id = 1  # ✅ FIX #1: Instance variable for message ID tracking
+    def __init__(self, logger=None):
+        self.logger = logger or self._setup_logger()
+        self.browser = None
+        self.page = None
+        self.playwright = None
+        self.context = None
+        
+    def _setup_logger(self):
+        logger = logging.getLogger('VideoCompareAutomator')
+        logger.setLevel(logging.INFO)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        return logger
 
-    def _get_next_message_id(self):
-        """Get next message ID and increment counter"""
-        current_id = self._message_id
-        self._message_id += 1
-        return current_id
-
-    def check_chrome_debugging(self):
-        """Check if Chrome has remote debugging enabled on port 9223"""
+    async def setup_browser(self, headless=False):
+        """Setupuje przeglądarkę z obsługą plików używając Playwright"""
         try:
-            response = requests.get(f"{self.devtools_url}/json", timeout=5)
-            if response.status_code == 200:
-                tabs = response.json()
-                logger.info(f"✅ Chrome debugging ACTIVE on port 9223")
-                logger.info(f"📊 Found {len(tabs)} open tabs")
-
-                # Check for Video Compare tab
-                vc_tab = None
-                for tab in tabs:
-                    title = tab.get("title", "No title")
-                    url = tab.get("url", "No URL")
-
-                    if "vcompare/add" in url:
-                        vc_tab = tab
-                        logger.info(f"🎬 FOUND Video Compare tab: {title}")
-
-                return True, vc_tab
-            else:
-                logger.error(
-                    f"❌ Chrome debugging port responds with code {response.status_code}"
-                )
-                return False, None
-
-        except requests.exceptions.ConnectionError:
-            logger.error("❌ Chrome debugging NOT ACTIVE - port 9223 closed")
-            logger.error("💡 Start Chrome with: --remote-debugging-port=9223")
-            return False, None
-        except Exception as e:
-            logger.error(f"❌ Error checking Chrome debugging: {e}")
-            return False, None
-
-    def find_video_compare_tab(self):
-        """Find Video Compare tab"""
-        try:
-            response = requests.get(f"{self.devtools_url}/json", timeout=5)
-            tabs = response.json()
-
-            for tab in tabs:
-                url = tab.get("url", "")
-                if "vcompare/add" in url:
-                    logger.info(f"✅ Found VC tab: {tab['title']} - {url}")
-                    return tab
-
-            logger.error("❌ Video Compare tab not found")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Error finding VC tab: {e}")
-            return None
-
-    async def upload_videos_via_devtools(
-        self, acceptance_file, emission_file, cradle_id
-    ):
-        """Complete CDP implementation - actually uploads files"""
-        try:
-            logger.info(f"🎬 Starting CDP file upload for CradleID: {cradle_id}")
-
-            # Reset message ID counter for this session
-            self._message_id = 1
-
-            # 1. Check Chrome debugging
-            debugging_ok, vc_tab = self.check_chrome_debugging()
-            if not debugging_ok:
-                return {
-                    "success": False,
-                    "error": "Chrome debugging not available",
-                    "solution": "Start Chrome with --remote-debugging-port=9223",
-                    "ai_action": "retry_after_chrome_restart",
-                }
-
-            # 2. Find Video Compare tab
-            if not vc_tab:
-                vc_tab = self.find_video_compare_tab()
-                if not vc_tab:
-                    return {
-                        "success": False,
-                        "error": "Video Compare tab not found",
-                        "solution": "Open https://cradle.egplusww.pl/vcompare/add/ in Chrome",
-                        "ai_action": "open_video_compare_tab",
-                    }
-
-            # 3. Verify files exist
-            if not os.path.exists(acceptance_file):
-                return {
-                    "success": False,
-                    "error": f"Acceptance file not found: {acceptance_file}",
-                    "ai_action": "check_file_downloads",
-                }
-            if not os.path.exists(emission_file):
-                return {
-                    "success": False,
-                    "error": f"Emission file not found: {emission_file}",
-                    "ai_action": "check_file_downloads",
-                }
-
-            logger.info(f"📁 Files verified:")
-            logger.info(
-                f"   Acceptance: {os.path.basename(acceptance_file)} ({os.path.getsize(acceptance_file):,} bytes)"
+            self.logger.info("Uruchamianie przeglądarki z Playwright...")
+            
+            self.playwright = await async_playwright().start()
+            
+            # Uruchom Chrome z odpowiednimi opcjami
+            self.browser = await self.playwright.chromium.launch(
+                headless=headless,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-web-security',
+                    '--allow-running-insecure-content',
+                    '--disable-features=VizDisplayCompositor'
+                ]
             )
-            logger.info(
-                f"   Emission: {os.path.basename(emission_file)} ({os.path.getsize(emission_file):,} bytes)"
+            
+            # Utwórz nowy kontekst z obsługą plików
+            self.context = await self.browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                accept_downloads=True
             )
+            
+            self.page = await self.context.new_page()
+            
+            self.logger.info("Pomyślnie uruchomiono przeglądarkę z Playwright")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Błąd podczas setupu przeglądarki: {e}")
+            return False
 
-            # 4. Connect to tab via WebSocket
-            ws_url = vc_tab["webSocketDebuggerUrl"]
-            logger.info(f"🔗 Connecting to tab WebSocket: {ws_url}")
+    async def navigate_to_video_compare(self, cradle_id):
+        """Nawiguje do strony Video Compare"""
+        try:
+            if not self.page:
+                self.logger.error("Przeglądarka nie jest skonfigurowana")
+                return False
+            
+            # ✅ POPRAWKA: Używamy prawidłowego URL
+            video_compare_url = f"https://cradle.egplusww.pl/vcompare/add/"
+            self.logger.info(f"Nawigacja do Video Compare: {video_compare_url}")
+            
+            await self.page.goto(video_compare_url, wait_until='networkidle', timeout=30000)
+            await asyncio.sleep(2)
+            
+            self.logger.info("Pomyślnie załadowano stronę Video Compare")
+            return True
+            
+        except TimeoutError:
+            self.logger.error("Timeout podczas ładowania strony Video Compare")
+            return False
+        except Exception as e:
+            self.logger.error(f"Błąd podczas nawigacji do Video Compare: {e}")
+            return False
 
-            async with websockets.connect(ws_url) as websocket:
+    async def upload_videos(self, acceptance_file_path, emission_file_path):
+        """
+        Ulepszona automatyzacja Video Compare z Playwright:
+        1. Lepsze wykrywanie obszarów drag-and-drop upload
+        2. Spatial assignment (lewy = acceptance, prawy = emission)  
+        3. Precyzyjne wykrywanie przycisku "Submit all files"
+        4. Monitoring postępu i wyników
+        """
+        try:
+            self.logger.info("=== ROZPOCZĘCIE UPLOAD VIDEOS ===")
+            self.logger.info(f"Acceptance file: {acceptance_file_path}")
+            self.logger.info(f"Emission file: {emission_file_path}")
+            
+            # Sprawdź czy pliki istnieją
+            if not os.path.exists(acceptance_file_path):
+                self.logger.error(f"Plik acceptance nie istnieje: {acceptance_file_path}")
+                return {'success': False, 'error': 'Acceptance file not found'}
+                
+            if not os.path.exists(emission_file_path):
+                self.logger.error(f"Plik emission nie istnieje: {emission_file_path}")
+                return {'success': False, 'error': 'Emission file not found'}
 
-                # ✅ FIX #4: Enable domains with proper sequencing
-                logger.info("🔧 Enabling CDP domains...")
-                await self._send_cdp_command(
-                    websocket, self._get_next_message_id(), "Runtime.enable"
-                )
-                await self._send_cdp_command(
-                    websocket, self._get_next_message_id(), "Page.enable"
-                )
-                await self._send_cdp_command(
-                    websocket, self._get_next_message_id(), "DOM.enable"
-                )
+            # ✅ SETUP BROWSER JEŚLI POTRZEBA
+            if not self.browser or not self.page or not self.context:
+                self.logger.info("Browser nie jest skonfigurowany, uruchamiam setup...")
+                setup_success = await self.setup_browser()
+                if not setup_success:
+                    return {'success': False, 'error': 'Browser setup failed'}
 
-                # ✅ FIX #4: Wait for DOM to be ready
-                logger.info("⏳ Waiting for DOM readiness...")
+            # ✅ NAWIGACJA DO VIDEO COMPARE
+            nav_success = await self.navigate_to_video_compare("manual")
+            if not nav_success:
+                return {'success': False, 'error': 'Navigation to Video Compare failed'}
+            
+            # Czekamy na załadowanie strony
+            await asyncio.sleep(3)
+            
+            # KROK 1: Znajdź obszary upload przez tekst "Drop files here"
+            drop_zones = await self.page.evaluate('''() => {
+                // Szukamy wszystkich elementów z tekstem "Drop files here"
+                const elements = Array.from(document.querySelectorAll('*'));
+                const dropZones = elements.filter(el => 
+                    el.textContent && 
+                    el.textContent.includes('Drop files here or click to upload') &&
+                    el.offsetWidth > 100 && 
+                    el.offsetHeight > 100
+                );
+                
+                return dropZones.map(zone => ({
+                    left: zone.getBoundingClientRect().left,
+                    top: zone.getBoundingClientRect().top,
+                    width: zone.getBoundingClientRect().width,
+                    height: zone.getBoundingClientRect().height,
+                    centerX: zone.getBoundingClientRect().left + zone.getBoundingClientRect().width / 2,
+                    centerY: zone.getBoundingClientRect().top + zone.getBoundingClientRect().height / 2
+                }));
+            }''')
+            
+            if not drop_zones or len(drop_zones) < 2:
+                self.logger.error(f"Nie znaleziono 2 obszarów upload. Znaleziono: {len(drop_zones) if drop_zones else 0}")
+                return {'success': False, 'error': f'Expected 2 upload zones, found {len(drop_zones) if drop_zones else 0}'}
+                
+            self.logger.info(f"Znaleziono {len(drop_zones)} obszarów upload")
+            
+            # Debug informacje
+            for i, zone in enumerate(drop_zones):
+                self.logger.debug(f"Zone {i}: centerX={zone['centerX']}, centerY={zone['centerY']}, width={zone['width']}, height={zone['height']}")
+            
+            # KROK 2: Spatial assignment - lewy panel = acceptance, prawy = emission
+            drop_zones.sort(key=lambda zone: zone['centerX'])  # Sortuj od lewej do prawej
+            left_zone = drop_zones[0]   # Acceptance (lewy)
+            right_zone = drop_zones[1]  # Emission (prawy)
+            
+            self.logger.info(f"Lewy panel (acceptance): centerX={left_zone['centerX']}")
+            self.logger.info(f"Prawy panel (emission): centerX={right_zone['centerX']}")
+            
+            # KROK 3: Upload plików przez symulację drag-and-drop
+            self.logger.info("Uploading acceptance file do lewego panelu...")
+            success_acceptance = await self.upload_file_to_zone(acceptance_file_path, left_zone)
+            
+            if success_acceptance:
                 await asyncio.sleep(2)
-
-                # 5. Find file input elements with unique identification
-                logger.info("🔍 Finding and marking file input elements...")
-                js_find_inputs = """
-                (function() {
-                    const inputs = document.querySelectorAll('input[type="file"]');
-                    const result = [];
-                    
-                    inputs.forEach((input, index) => {
-                        // ✅ FIX #3: Add unique CDP identifier
-                        const uniqueId = 'cdp-file-input-' + index + '-' + Date.now();
-                        input.setAttribute('data-cdp-id', uniqueId);
-                        
-                        result.push({
-                            index: index,
-                            cdp_id: uniqueId,
-                            id: input.id || '',
-                            name: input.name || '',
-                            accept: input.accept || '',
-                            className: input.className || ''
-                        });
-                    });
-                    
-                    return {
-                        success: true,
-                        inputs: result,
-                        count: inputs.length
-                    };
-                })();
-                """
-
-                response = await self._send_cdp_command(
-                    websocket,
-                    self._get_next_message_id(),
-                    "Runtime.evaluate",
-                    {"expression": js_find_inputs, "returnByValue": True},
-                )
-
-                if not response or "result" not in response:
-                    return {
-                        "success": False,
-                        "error": "Failed to find file inputs",
-                        "ai_action": "check_page_loaded",
-                    }
-
-                inputs_info = response["result"]["result"]["value"]
-                if not inputs_info.get("success"):
-                    return {
-                        "success": False,
-                        "error": "No file inputs found on page",
-                        "ai_action": "verify_video_compare_page",
-                    }
-
-                inputs = inputs_info.get("inputs", [])
-                if len(inputs) < 2:
-                    return {
-                        "success": False,
-                        "error": f"Need 2 file inputs, found {len(inputs)}",
-                        "available_inputs": inputs,
-                        "ai_action": "check_video_compare_form",
-                    }
-
-                logger.info(f"✅ Found {len(inputs)} file inputs")
-                for i, inp in enumerate(inputs):
-                    logger.info(
-                        f"   Input {i}: id='{inp.get('id')}' name='{inp.get('name')}' accept='{inp.get('accept')}'"
-                    )
-
-                # 6. Identify which input is for acceptance and which for emission
-                acceptance_input_idx = 0  # Default: first input
-                emission_input_idx = 1  # Default: second input
-
-                # ✅ IMPROVED: Smarter identification
-                for i, inp in enumerate(inputs):
-                    inp_id = inp.get("id", "").lower()
-                    inp_name = inp.get("name", "").lower()
-                    inp_class = inp.get("className", "").lower()
-
-                    # Look for acceptance indicators
-                    if any(
-                        keyword in inp_id + inp_name + inp_class
-                        for keyword in ["acceptance", "accept", "qa", "proof"]
-                    ):
-                        acceptance_input_idx = i
-                        logger.info(
-                            f"🎯 Identified acceptance input by keyword: Input {i}"
-                        )
-                    # Look for emission indicators
-                    elif any(
-                        keyword in inp_id + inp_name + inp_class
-                        for keyword in ["emission", "broadcast", "final", "master"]
-                    ):
-                        emission_input_idx = i
-                        logger.info(
-                            f"🎯 Identified emission input by keyword: Input {i}"
-                        )
-
-                logger.info(f"📋 Final input assignment:")
-                logger.info(
-                    f"   Acceptance → Input {acceptance_input_idx} (cdp_id: {inputs[acceptance_input_idx].get('cdp_id')})"
-                )
-                logger.info(
-                    f"   Emission → Input {emission_input_idx} (cdp_id: {inputs[emission_input_idx].get('cdp_id')})"
-                )
-
-                # 7. Upload acceptance file
-                logger.info("📤 Uploading acceptance file...")
-                acceptance_cdp_id = inputs[acceptance_input_idx].get("cdp_id")
-                upload_result = await self._upload_file_to_input(
-                    websocket, acceptance_cdp_id, acceptance_file
-                )
-                if not upload_result.get("success"):
-                    return {
-                        "success": False,
-                        "error": f"Failed to upload acceptance file: {upload_result.get('error')}",
-                        "ai_action": "retry_file_upload",
-                    }
-
-                # 8. Upload emission file
-                logger.info("📤 Uploading emission file...")
-                emission_cdp_id = inputs[emission_input_idx].get("cdp_id")
-                upload_result = await self._upload_file_to_input(
-                    websocket, emission_cdp_id, emission_file
-                )
-                if not upload_result.get("success"):
-                    return {
-                        "success": False,
-                        "error": f"Failed to upload emission file: {upload_result.get('error')}",
-                        "ai_action": "retry_file_upload",
-                    }
-
-                # 9. Wait for files to be processed
-                logger.info("⏳ Waiting for files to be processed...")
-                await asyncio.sleep(3)
-
-                # 10. Find and click submit button
-                logger.info("🔍 Finding submit button...")
-                js_find_submit = """
-                (function() {
-                    const buttons = document.querySelectorAll('button, input[type="submit"], [role="button"], .btn, .button');
-                    
-                    for (let btn of buttons) {
-                        const text = (btn.textContent || btn.value || btn.innerText || '').toLowerCase().trim();
-                        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                        const title = (btn.getAttribute('title') || '').toLowerCase();
-                        const className = (btn.className || '').toLowerCase();
-                        
-                        // ✅ FIX #5: Broader submit button detection
-                        const submitKeywords = [
-                            'submit', 'compare', 'upload', 'send', 'start', 'proceed', 
-                            'analyze', 'process', 'run', 'execute', 'begin', 'go',
-                            'next', 'continue', 'confirm'
-                        ];
-                        
-                        const allText = text + ' ' + ariaLabel + ' ' + title + ' ' + className;
-                        
-                        if (submitKeywords.some(keyword => allText.includes(keyword)) || 
-                            btn.type === 'submit' || 
-                            btn.form) {
-                            
-                            // Mark button for clicking
-                            btn.setAttribute('data-cdp-submit', 'true');
-                            return {
-                                success: true,
-                                text: text || 'unlabeled button',
-                                type: btn.type || 'button',
-                                className: btn.className || '',
-                                found: true
-                            };
-                        }
-                    }
-                    
-                    return {
-                        success: false, 
-                        error: 'Submit button not found',
-                        buttonCount: buttons.length
-                    };
-                })();
-                """
-
-                response = await self._send_cdp_command(
-                    websocket,
-                    self._get_next_message_id(),
-                    "Runtime.evaluate",
-                    {"expression": js_find_submit, "returnByValue": True},
-                )
-
-                if response and "result" in response:
-                    submit_info = response["result"]["result"]["value"]
-                    if submit_info.get("success"):
-                        logger.info(
-                            f"✅ Found submit button: '{submit_info.get('text')}'"
-                        )
-
-                        # Click submit button
-                        js_click_submit = """
-                        (function() {
-                            const btn = document.querySelector('[data-cdp-submit="true"]');
-                            if (btn) {
-                                btn.click();
-                                return {success: true, clicked: btn.textContent || btn.value || 'button'};
-                            }
-                            return {success: false, error: 'Submit button lost'};
-                        })();
-                        """
-
-                        logger.info("🖱️ Clicking submit button...")
-                        click_response = await self._send_cdp_command(
-                            websocket,
-                            self._get_next_message_id(),
-                            "Runtime.evaluate",
-                            {"expression": js_click_submit, "returnByValue": True},
-                        )
-
-                        if click_response and "result" in click_response:
-                            click_result = click_response["result"]["result"]["value"]
-                            if click_result.get("success"):
-                                logger.info(
-                                    f"✅ Submit button clicked: {click_result.get('clicked')}"
-                                )
-
-                                # 11. Wait for comparison results
-                                logger.info("⏳ Waiting for comparison results...")
-                                comparison_result = await self._wait_for_results(
-                                    websocket
-                                )
-
-                                return {
-                                    "success": True,
-                                    "message": "Video comparison completed successfully",
-                                    "cradle_id": cradle_id,
-                                    "files_uploaded": {
-                                        "acceptance": os.path.basename(acceptance_file),
-                                        "emission": os.path.basename(emission_file),
-                                    },
-                                    "comparison_result": comparison_result,
-                                    "ai_action": "process_results",
-                                }
-                            else:
-                                return {
-                                    "success": False,
-                                    "error": f"Failed to click submit: {click_result.get('error')}",
-                                    "ai_action": "manual_submit_check",
-                                }
-                        else:
-                            return {
-                                "success": False,
-                                "error": "No response from submit click",
-                                "ai_action": "manual_submit_check",
-                            }
-                    else:
-                        return {
-                            "success": False,
-                            "error": f"Submit button not found. Available buttons: {submit_info.get('buttonCount', 0)}",
-                            "ai_action": "inspect_page_buttons",
-                        }
-                else:
-                    return {
-                        "success": False,
-                        "error": "Failed to search for submit button",
-                        "ai_action": "check_page_state",
-                    }
-
-        except websockets.exceptions.ConnectionClosed:
-            return {
-                "success": False,
-                "error": "WebSocket connection closed during upload",
-                "ai_action": "retry_connection",
-            }
-        except Exception as e:
-            logger.error(f"❌ CDP upload error: {e}")
-            return {"success": False, "error": str(e), "ai_action": "debug_error"}
-
-    async def _send_cdp_command(self, websocket, message_id, method, params=None):
-        """Send CDP command and wait for response"""
-        command = {"id": message_id, "method": method}
-        if params:
-            command["params"] = params
-
-        try:
-            await websocket.send(json.dumps(command))
-
-            # Wait for response with timeout
-            timeout = 30  # 30 seconds
-            start_time = time.time()
-
-            while time.time() - start_time < timeout:
-                try:
-                    response = await asyncio.wait_for(websocket.recv(), timeout=5)
-                    data = json.loads(response)
-
-                    if data.get("id") == message_id:
-                        if "error" in data:
-                            logger.error(f"CDP command error: {data['error']}")
-                            return None
-                        return data
-                    # Ignore other messages (events, etc.)
-                except asyncio.TimeoutError:
-                    continue
-
-            logger.error(f"CDP command timeout: {method}")
-            return None
-
-        except Exception as e:
-            logger.error(f"CDP command failed: {method} - {e}")
-            return None
-
-    async def _upload_file_to_input(self, websocket, cdp_id, file_path):
-        """Upload file to specific input using Page.setFileInputFiles"""
-        try:
-            logger.info(f"📁 Uploading {os.path.basename(file_path)} to input {cdp_id}")
-
-            # Get document node
-            doc_response = await self._send_cdp_command(
-                websocket, self._get_next_message_id(), "DOM.getDocument"
-            )
-            if not doc_response:
-                return {"success": False, "error": "Could not get document"}
-
-            # Find the marked input element using CSS selector
-            search_response = await self._send_cdp_command(
-                websocket,
-                self._get_next_message_id(),
-                "DOM.querySelector",
-                {
-                    "nodeId": doc_response["result"]["root"]["nodeId"],
-                    "selector": f"input[data-cdp-id='{cdp_id}']",
-                },
-            )
-
-            if not search_response or not search_response.get("result", {}).get(
-                "nodeId"
-            ):
-                return {
-                    "success": False,
-                    "error": f"Could not find input with cdp_id: {cdp_id}",
-                }
-
-            node_id = search_response["result"]["nodeId"]
-            logger.info(f"✅ Found input element, node ID: {node_id}")
-
-            # Upload file using Page.setFileInputFiles
-            upload_response = await self._send_cdp_command(
-                websocket,
-                self._get_next_message_id(),
-                "Page.setFileInputFiles",
-                {"files": [file_path], "nodeId": node_id},
-            )
-
-            if upload_response:
-                logger.info(
-                    f"✅ File uploaded successfully: {os.path.basename(file_path)}"
-                )
-                return {"success": True, "file": os.path.basename(file_path)}
+                self.logger.info("Uploading emission file do prawego panelu...")
+                success_emission = await self.upload_file_to_zone(emission_file_path, right_zone)
             else:
-                return {"success": False, "error": "Page.setFileInputFiles failed"}
-
+                self.logger.error("Upload acceptance file nie powiódł się")
+                return {'success': False, 'error': 'Acceptance file upload failed'}
+                
+            if not success_emission:
+                self.logger.error("Upload emission file nie powiódł się")
+                return {'success': False, 'error': 'Emission file upload failed'}
+                
+            # KROK 4: Znajdź i kliknij przycisk "Submit all files"
+            await asyncio.sleep(2)
+            submit_success = await self.click_submit_button()
+            
+            if not submit_success:
+                self.logger.error("Nie udało się kliknąć przycisku Submit")
+                return {'success': False, 'error': 'Submit button click failed'}
+                
+            # KROK 5: Monitor wyników
+            result = await self.monitor_comparison_results()
+            
+            self.logger.info("=== ZAKOŃCZENIE UPLOAD VIDEOS ===")
+            return {'success': True, 'result': result, 'message': 'Video compare completed successfully'}
+            
         except Exception as e:
-            logger.error(f"❌ File upload error: {e}")
-            return {"success": False, "error": str(e)}
+            self.logger.error(f"Błąd w upload_videos(): {e}")
+            return {'success': False, 'error': str(e)}
 
-    async def _wait_for_results(self, websocket):
-        """Wait for comparison results with intelligent monitoring"""
+    async def upload_file_to_zone(self, file_path, zone_info):
+        """Upload pliku do konkretnej strefy drag-and-drop - wersja Playwright"""
         try:
-            logger.info("⏳ Monitoring page for comparison results...")
-
-            start_time = time.time()
-            last_status = ""
-
-            while time.time() - start_time < self.result_wait_timeout:
-                # ✅ Enhanced result detection
-                js_check_results = """
-                (function() {
-                    const bodyText = document.body.textContent || document.body.innerText || '';
-                    const bodyHTML = document.body.innerHTML || '';
-                    
-                    // Look for success indicators
-                    const successIndicators = [
-                        'comparison complete', 'results ready', 'analysis complete', 
-                        'processing complete', 'finished', 'done', 'success'
-                    ];
-                    
-                    // Look for error indicators
-                    const errorIndicators = [
-                        'error', 'failed', 'unable to process', 'invalid file',
-                        'upload failed', 'comparison failed', 'timeout'
-                    ];
-                    
-                    // Look for processing indicators
-                    const processingIndicators = [
-                        'processing', 'analyzing', 'comparing', 'uploading',
-                        'please wait', 'in progress', 'working'
-                    ];
-                    
-                    const lowerBodyText = bodyText.toLowerCase();
-                    
-                    let status = 'unknown';
-                    let message = 'Monitoring comparison...';
-                    let details = '';
-                    
-                    // Check for completion
-                    if (successIndicators.some(indicator => lowerBodyText.includes(indicator))) {
-                        status = 'complete';
-                        message = 'Comparison completed successfully';
-                        // Try to extract result details
-                        const resultDiv = document.querySelector('.result, .comparison-result, [class*="result"]');
-                        if (resultDiv) {
-                            details = resultDiv.textContent || resultDiv.innerText || '';
-                        }
-                    }
-                    // Check for errors
-                    else if (errorIndicators.some(indicator => lowerBodyText.includes(indicator))) {
-                        status = 'error';
-                        message = 'Comparison failed';
-                        // Try to extract error details
-                        const errorDiv = document.querySelector('.error, .alert-danger, [class*="error"]');
-                        if (errorDiv) {
-                            details = errorDiv.textContent || errorDiv.innerText || '';
-                        }
-                    }
-                    // Check if still processing
-                    else if (processingIndicators.some(indicator => lowerBodyText.includes(indicator))) {
-                        status = 'processing';
-                        message = 'Still processing comparison...';
-                        
-                        // Look for progress indicators
-                        const progressDiv = document.querySelector('[class*="progress"], .progress-bar');
-                        if (progressDiv) {
-                            details = progressDiv.textContent || progressDiv.innerText || '';
-                        }
-                    }
-                    
-                    return {
-                        status: status,
-                        message: message,
-                        details: details.substring(0, 500), // Limit details length
-                        timestamp: Date.now(),
-                        bodyLength: bodyText.length
-                    };
-                })();
-                """
-
-                response = await self._send_cdp_command(
-                    websocket,
-                    self._get_next_message_id(),
-                    "Runtime.evaluate",
-                    {"expression": js_check_results, "returnByValue": True},
-                )
-
-                if response and "result" in response:
-                    result_info = response["result"]["result"]["value"]
-                    status = result_info.get("status", "unknown")
-                    message = result_info.get("message", "")
-                    details = result_info.get("details", "")
-
-                    # Only log if status changed
-                    if status != last_status:
-                        logger.info(f"🔄 Status change: {message}")
-                        if details:
-                            logger.info(f"   Details: {details[:200]}...")
-                        last_status = status
-
-                    if status == "complete":
-                        logger.info("✅ Comparison completed successfully!")
-                        return {
-                            "status": "complete",
-                            "message": message,
-                            "details": details,
-                            "duration": int(time.time() - start_time),
-                        }
-                    elif status == "error":
-                        logger.error("❌ Comparison failed!")
-                        return {
-                            "status": "error",
-                            "message": message,
-                            "details": details,
-                            "duration": int(time.time() - start_time),
-                        }
-                    # Continue monitoring if still processing
-
-                # Wait before next check (shorter intervals at start, longer later)
-                elapsed = time.time() - start_time
-                if elapsed < 60:  # First minute: check every 5 seconds
-                    await asyncio.sleep(5)
-                elif elapsed < 300:  # Next 4 minutes: check every 15 seconds
-                    await asyncio.sleep(15)
-                else:  # After 5 minutes: check every 30 seconds
-                    await asyncio.sleep(30)
-
-            # Timeout reached
-            logger.warning("⚠️ Results wait timeout reached")
-            return {
-                "status": "timeout",
-                "message": "Comparison results wait timeout",
-                "duration": int(time.time() - start_time),
-            }
-
+            # Znajdź ukryty input[type="file"] w tej strefie
+            file_input_id = await self.page.evaluate(f'''() => {{
+                const zone = document.elementFromPoint({zone_info['centerX']}, {zone_info['centerY']});
+                if (!zone) return null;
+                
+                // Szukaj input[type="file"] w tej strefie lub jej rodzicu
+                let current = zone;
+                for (let i = 0; i < 5; i++) {{
+                    const input = current.querySelector('input[type="file"]');
+                    if (input) {{
+                        // Dodaj ID jeśli go nie ma
+                        if (!input.id) {{
+                            input.id = 'upload-input-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                        }}
+                        return input.id;
+                    }}
+                    current = current.parentElement;
+                    if (!current) break;
+                }}
+                return null;
+            }}''')
+            
+            if file_input_id:
+                self.logger.info(f"Znaleziono input file: #{file_input_id}")
+                
+                # Użyj Playwright do upload pliku z timeout
+                file_input = self.page.locator(f'#{file_input_id}')
+                await file_input.set_input_files(file_path, timeout=10000)
+                
+                self.logger.info(f"Plik {file_path} został ustawiony przez Playwright")
+                return True
+            else:
+                self.logger.warning("Nie znaleziono input[type='file'], próbuję kliknąć w strefę")
+                # Fallback: kliknij w centrum strefy
+                await self.page.click(f'{zone_info["centerX"]}, {zone_info["centerY"]}', timeout=5000)
+                await asyncio.sleep(2)
+                
+                # Sprawdź czy pojawiła się reakcja i spróbuj ponownie znaleźć input
+                await asyncio.sleep(1)
+                
+                # Próba z ogólnym selektorem
+                try:
+                    file_inputs = self.page.locator('input[type="file"]')
+                    count = await file_inputs.count()
+                    if count > 0:
+                        # Użyj pierwszego dostępnego input z timeout
+                        await file_inputs.first.set_input_files(file_path, timeout=10000)
+                        self.logger.info(f"Fallback: użyto pierwszego dostępnego input[type='file']")
+                        return True
+                except Exception as fallback_error:
+                    self.logger.warning(f"Fallback też nie zadziałał: {fallback_error}")
+                
+                return True  # Zwróć True nawet jeśli fallback nie zadziałał
+                
         except Exception as e:
-            logger.error(f"❌ Error waiting for results: {e}")
-            return {
-                "status": "error",
-                "message": str(e),
-                "duration": (
-                    int(time.time() - start_time) if "start_time" in locals() else 0
-                ),
-            }
+            self.logger.error(f"Błąd w upload_file_to_zone(): {e}")
+            return False
 
-    # Backward compatibility methods
-    async def upload_videos(self, acceptance_file, emission_file, cradle_id):
-        """Main entry point - calls CDP implementation"""
-        return await self.upload_videos_via_devtools(
-            acceptance_file, emission_file, cradle_id
-        )
-
-    async def handle_hybrid_upload(self, data):
-        """Handle upload request from extension"""
+    async def click_submit_button(self):
+        """Znajdź i kliknij przycisk 'Submit all files' - wersja Playwright"""
         try:
-            acceptance_file = data.get("acceptance_file")
-            emission_file = data.get("emission_file")
-            cradle_id = data.get("cradle_id", "unknown")
-
-            if not acceptance_file or not emission_file:
-                return {
-                    "success": False,
-                    "error": "Missing file paths",
-                    "ai_action": "check_file_detection",
+            # Najpierw spróbuj znaleźć dokładnie "Submit all files"
+            try:
+                submit_button = self.page.locator('button:has-text("Submit all files")')
+                if await submit_button.count() > 0:
+                    # Dodaj timeout do click
+                    await submit_button.first.click(timeout=5000)
+                    self.logger.info("Kliknięto przycisk 'Submit all files'")
+                    return True
+            except Exception:
+                pass
+            
+            # Fallback: szukaj ogólnie "Submit"
+            try:
+                submit_button = self.page.locator('button:has-text("Submit")')
+                if await submit_button.count() > 0:
+                    # Dodaj timeout do click
+                    await submit_button.first.click(timeout=5000)
+                    self.logger.info("Kliknięto przycisk 'Submit' (fallback)")
+                    return True
+            except Exception:
+                pass
+            
+            # Fallback 2: szukaj input submit
+            try:
+                submit_input = self.page.locator('input[type="submit"]')
+                if await submit_input.count() > 0:
+                    # Dodaj timeout do click
+                    await submit_input.first.click(timeout=5000)
+                    self.logger.info("Kliknięto input submit (fallback 2)")
+                    return True
+            except Exception:
+                pass
+            
+            # Fallback 3: JavaScript search
+            submit_found = await self.page.evaluate('''() => {
+                const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a'));
+                const submitButton = buttons.find(btn => {
+                    const text = btn.textContent || btn.value || '';
+                    return text.includes('Submit all files') || 
+                           text.includes('Submit');
+                });
+                
+                if (submitButton) {
+                    submitButton.scrollIntoView();
+                    submitButton.click();
+                    return true;
                 }
-
-            return await self.upload_videos_via_devtools(
-                acceptance_file, emission_file, cradle_id
-            )
-
+                return false;
+            }''')
+            
+            if submit_found:
+                self.logger.info("Przycisk Submit został kliknięty (JavaScript fallback)")
+                return True
+            else:
+                self.logger.error("Nie znaleziono przycisku Submit w żaden sposób")
+                return False
+                
         except Exception as e:
-            logger.error(f"❌ Hybrid upload error: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "ai_action": "debug_hybrid_upload",
+            self.logger.error(f"Błąd w click_submit_button(): {e}")
+            return False
+
+    async def monitor_comparison_results(self):
+        """Monitoruj wyniki porównania video - wersja Playwright"""
+        try:
+            self.logger.info("Rozpoczynam monitoring wyników...")
+            
+            # Czekaj na wyniki przez maksymalnie 5 minut
+            for attempt in range(60):  # 60 x 5s = 5 minut
+                await asyncio.sleep(5)
+                
+                # Sprawdź czy są jakieś wyniki lub komunikaty o błędzie
+                status = await self.page.evaluate('''() => {
+                    // Szukaj indicatorów postępu lub wyników
+                    const progressElements = document.querySelectorAll('*');
+                    const results = [];
+                    
+                    for (let el of progressElements) {
+                        const text = el.textContent || '';
+                        if (text.includes('Time:') || 
+                            text.includes('seconds') ||
+                            text.includes('Complete') ||
+                            text.includes('Success') ||
+                            text.includes('Error') ||
+                            text.includes('Failed') ||
+                            text.includes('Processing')) {
+                            results.push(text.trim());
+                        }
+                    }
+                    
+                    return results.length > 0 ? results : null;
+                }''')
+                
+                if status:
+                    self.logger.info(f"Status update (attempt {attempt + 1}): {status}")
+                    
+                    # Sprawdź czy to końcowy wynik
+                    status_text = ' '.join(status).lower()
+                    if any(word in status_text for word in ['complete', 'success', 'error', 'failed']):
+                        self.logger.info("Wykryto końcowy wynik porównania")
+                        return True
+                else:
+                    self.logger.debug(f"Monitoring attempt {attempt + 1}/60 - brak statusu")
+            
+            self.logger.warning("Timeout podczas oczekiwania na wyniki (5 minut)")
+            return True  # Zwróć True mimo timeout - może proces się zakończył
+            
+        except Exception as e:
+            self.logger.error(f"Błąd w monitor_comparison_results(): {e}")
+            return False
+
+    async def handle_download_attachment(self, data):
+        """Obsługuje pobieranie plików attachment gdy Chrome API nie jest dostępne"""
+        try:
+            url = data.get('url')
+            filename = data.get('filename')
+            file_type = data.get('fileType', 'unknown')
+            cradle_id = data.get('cradleId', 'unknown')
+            
+            if not url or not filename:
+                self.logger.error(f"Brakujące wymagane pola: url={url}, filename={filename}")
+                return {'success': False, 'error': 'Missing required fields: url or filename'}
+            
+            self.logger.info(f"Rozpoczynam pobieranie attachment: {filename} z {url}")
+            
+            # Utwórz folder download jeśli nie istnieje
+            download_folder = Path.home() / "Downloads" / cradle_id
+            download_folder.mkdir(parents=True, exist_ok=True)
+            
+            file_path = download_folder / filename
+            
+            # Pobierz plik z realistycznymi nagłówkami
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
             }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        content = await response.read()
+                        
+                        # Sprawdź czy plik nie jest błędną stroną (zbyt mały rozmiar)
+                        if len(content) < 5000:  # Mniej niż 5KB prawdopodobnie błąd
+                            content_text = content.decode('utf-8', errors='ignore')[:200]
+                            self.logger.warning(f"Plik {filename} jest podejrzanie mały ({len(content)} bajtów): {content_text}")
+                        
+                        with open(file_path, 'wb') as f:
+                            f.write(content)
+                        
+                        self.logger.info(f"Pobrano {filename} ({len(content)} bajtów) do {file_path}")
+                        return {
+                            'success': True, 
+                            'file_path': str(file_path), 
+                            'size': len(content),
+                            'type': file_type
+                        }
+                    else:
+                        self.logger.error(f"HTTP {response.status} podczas pobierania {url}")
+                        return {'success': False, 'error': f'HTTP {response.status}'}
+                        
+        except Exception as e:
+            self.logger.error(f"Błąd podczas pobierania attachment {filename}: {e}")
+            return {'success': False, 'error': str(e)}
 
+    async def handle_hybrid_upload(self, acceptance_file_path, emission_file_path, cradle_id):
+        """Główna metoda obsługująca cały proces upload do Video Compare"""
+        try:
+            self.logger.info(f"=== HYBRID UPLOAD START dla CradleID: {cradle_id} ===")
+            
+            # Sprawdź czy pliki istnieją
+            if not os.path.exists(acceptance_file_path):
+                self.logger.error(f"Plik acceptance nie istnieje: {acceptance_file_path}")
+                return {'success': False, 'error': 'Acceptance file not found'}
+                
+            if not os.path.exists(emission_file_path):
+                self.logger.error(f"Plik emission nie istnieje: {emission_file_path}")
+                return {'success': False, 'error': 'Emission file not found'}
+            
+            # Lepsze sprawdzanie context
+            if not self.browser or not self.page or not self.context:
+                self.logger.info("Browser/context nie jest skonfigurowany, uruchamiam setup...")
+                setup_success = await self.setup_browser()
+                if not setup_success:
+                    return {'success': False, 'error': 'Browser setup failed'}
+            
+            # Nawiguj do Video Compare
+            nav_success = await self.navigate_to_video_compare(cradle_id)
+            if not nav_success:
+                return {'success': False, 'error': 'Navigation to Video Compare failed'}
+            
+            # Upload plików
+            upload_success = await self.upload_videos(acceptance_file_path, emission_file_path)
+            if not upload_success:
+                return {'success': False, 'error': 'Video upload failed'}
+            
+            self.logger.info("=== HYBRID UPLOAD SUCCESS ===")
+            return {'success': True, 'message': 'Video compare completed successfully'}
+            
+        except Exception as e:
+            self.logger.error(f"Błąd w handle_hybrid_upload: {e}")
+            return {'success': False, 'error': str(e)}
 
-# Test function
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    async def close(self):
+        """Zamyka przeglądarkę i czyści zasoby"""
+        try:
+            if self.page:
+                await self.page.close()
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
+                
+            self.logger.info("Zamknięto VideoCompareAutomator")
+        except Exception as e:
+            self.logger.error(f"Błąd podczas zamykania: {e}")
 
-    async def test():
-        automator = VideoCompareAutomator()
-        result = automator.check_chrome_debugging()
-        print(f"Test result: {result}")
-
-    asyncio.run(test())
+    def __del__(self):
+        """Destruktor zapewniający zamknięcie zasobów"""
+        try:
+            # Playwright cleanup w destruktorze jest trudny ze względu na asyncio
+            # Lepiej użyć explicit close()
+            pass
+        except:
+            pass

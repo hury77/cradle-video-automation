@@ -275,9 +275,9 @@ class WebSocketServer:
                 },
             )
 
-            # ✅ POPRAWKA: PRAWIDŁOWA KOLEJNOŚĆ PARAMETRÓW
+            # ✅ POPRAWKA: USUNIĘTO CRADLE_ID Z ARGUMENTÓW
             result = await self.video_compare.upload_videos(
-                acceptance_file, emission_file, cradle_id
+                acceptance_file, emission_file
             )
 
             # Send results
@@ -342,17 +342,10 @@ class WebSocketServer:
             logger.info(f"   📁 Acceptance: {Path(acceptance_file).name}")
             logger.info(f"   📁 Emission: {Path(emission_file).name}")
 
-            # Prepare hybrid upload data
-            hybrid_data = {
-                "acceptance_file": str(acceptance_file),
-                "emission_file": str(emission_file),
-                "cradle_id": cradle_id,
-                "tab_id": tab_id,
-                "selectors": selectors,
-            }
-
-            # Send to video compare automator
-            result = await self.video_compare.handle_hybrid_upload(hybrid_data)
+            # ✅ POPRAWKA: UŻYWAMY handle_hybrid_upload ZAMIAST upload_videos
+            result = await self.video_compare.handle_hybrid_upload(
+                acceptance_file, emission_file, cradle_id
+            )
 
             # Send results back to extension
             await self.send_video_compare_results(websocket, result)
