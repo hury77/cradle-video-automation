@@ -137,3 +137,12 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# New Video Compare specific
+new_video_compare/backend/venv/
+new_video_compare/backend/__pycache__/
+new_video_compare/backend/*.pyc
+new_video_compare/backend/.env
+new_video_compare/frontend/node_modules/
+new_video_compare/frontend/dist/
+new_video_compare/frontend/.env.local
