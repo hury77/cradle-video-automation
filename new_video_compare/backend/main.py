@@ -1,6 +1,6 @@
 """
 New Video Compare - FastAPI Backend
-Main application entry point with API routes
+Main application entry point with Files & Comparison API
 """
 
 from fastapi import FastAPI, HTTPException
@@ -17,6 +17,7 @@ from models.database import create_tables, engine
 
 # Import API routers
 from api.v1.files import router as files_router
+from api.v1.compare import router as compare_router
 
 # Setup logging
 logging.basicConfig(
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"🌍 Environment: {settings.environment}")
     logger.info(f"🔧 Debug mode: {settings.debug}")
-    logger.info(f"�� Upload directory: {settings.upload_dir}")
+    logger.info(f"📁 Upload directory: {settings.upload_dir}")
 
     # Create necessary directories
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -67,12 +68,22 @@ Automatyzacja procesu porównywania plików acceptance i emission
 z wykorzystaniem zaawansowanych algorytmów analizy wideo i audio.
 
 ## Główne funkcje:
-- **�� File Management**: Upload i zarządzanie plikami wideo/audio
+- **📁 File Management**: Upload i zarządzanie plikami wideo/audio
+- **🎬 Comparison Jobs**: Tworzenie i zarządzanie zadaniami porównywania  
 - **🔍 Smart Detection**: Automatyczne rozpoznawanie acceptance/emission  
 - **📊 Video Analysis**: SSIM, histogram, perceptual hash, edge detection
 - **🎵 Audio Analysis**: Spektralna, MFCC, cross-correlation, loudness
 - **⏱️ Real-time Progress**: Live tracking procesów
 - **📄 Export Reports**: PDF, JSON, HTML reports
+
+## Workflow:
+1. **Upload Files** (`/api/v1/files/upload`) - wgraj pliki acceptance i emission
+2. **Create Comparison** (`/api/v1/compare/`) - utwórz zadanie porównywania
+3. **Monitor Progress** (`/api/v1/compare/{job_id}`) - śledź postęp
+4. **View Results** (`/api/v1/results/{job_id}`) - przeglądaj wyniki
+
+## Auto-Pairing:
+- **Smart Pairing** (`/api/v1/compare/auto-pair/{cradle_id}`) - automatyczne parowanie plików
 
 ## Integracje:
 - **🤖 AI Agent API**: Autonomous workflow management
@@ -82,7 +93,7 @@ z wykorzystaniem zaawansowanych algorytmów analizy wideo i audio.
 
 ## API Endpoints:
 - **Files**: `/api/v1/files/*` - Upload, manage, metadata
-- **Compare**: `/api/v1/compare/*` - Start comparisons  
+- **Compare**: `/api/v1/compare/*` - Start comparisons, monitor jobs
 - **Results**: `/api/v1/results/*` - View results & reports
 
 ## Status:
@@ -114,6 +125,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(files_router, prefix="/api/v1")
+app.include_router(compare_router, prefix="/api/v1")
 
 
 # Root endpoint with configuration info
@@ -129,9 +141,22 @@ async def root():
         "upload_dir": str(settings.upload_dir),
         "max_file_size_mb": round(settings.max_file_size / 1024 / 1024, 1),
         "api_endpoints": {
+            # Files API
             "files_upload": "/api/v1/files/upload",
             "files_list": "/api/v1/files/",
             "files_stats": "/api/v1/files/stats/summary",
+            # Comparison API
+            "compare_create": "/api/v1/compare/",
+            "compare_list": "/api/v1/compare/",
+            "compare_auto_pair": "/api/v1/compare/auto-pair/{cradle_id}",
+            "compare_start": "/api/v1/compare/{job_id}/start",
+            "compare_cancel": "/api/v1/compare/{job_id}/cancel",
+            "compare_stats": "/api/v1/compare/stats/summary",
+        },
+        "workflows": {
+            "manual_upload": "Upload files → Create comparison → Monitor progress",
+            "auto_pairing": "Upload files → Auto-pair by Cradle ID → Monitor progress",
+            "desktop_integration": "Desktop App → WebSocket → Auto processing",
         },
         "message": f"🎬 {settings.app_name} API is ready!",
     }
@@ -147,7 +172,8 @@ async def health_check():
         "upload_dir_exists": settings.upload_dir.exists(),
         "max_concurrent_jobs": settings.max_concurrent_jobs,
         "database_connected": True,  # Will be enhanced later
-        "timestamp": "2024-09-25T12:00:00Z",
+        "apis_available": ["files", "compare"],
+        "timestamp": "2024-09-25T13:40:00Z",
     }
 
 
@@ -179,11 +205,22 @@ async def api_status():
             "webhook": "configured" if settings.webhook_url else "not_configured",
         },
         "endpoints": {
+            # Files
             "files_upload": "/api/v1/files/upload",
             "files_list": "/api/v1/files/",
             "files_by_id": "/api/v1/files/{file_id}",
             "files_stats": "/api/v1/files/stats/summary",
-            "compare": "/api/v1/compare",
+            "files_by_cradle": "/api/v1/files/cradle/{cradle_id}",
+            # Comparison
+            "compare_create": "/api/v1/compare/",
+            "compare_list": "/api/v1/compare/",
+            "compare_by_id": "/api/v1/compare/{job_id}",
+            "compare_start": "/api/v1/compare/{job_id}/start",
+            "compare_cancel": "/api/v1/compare/{job_id}/cancel",
+            "compare_auto_pair": "/api/v1/compare/auto-pair/{cradle_id}",
+            "compare_stats": "/api/v1/compare/stats/summary",
+            "compare_by_cradle": "/api/v1/compare/cradle/{cradle_id}",
+            # Results (future)
             "results": "/api/v1/results",
         },
     }
@@ -203,6 +240,7 @@ async def get_config():
         "max_concurrent_jobs": settings.max_concurrent_jobs,
         "frontend_url": settings.frontend_url,
         "upload_dir": str(settings.upload_dir),
+        "processing_timeout": settings.processing_timeout,
     }
 
 
