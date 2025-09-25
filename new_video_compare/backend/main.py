@@ -1,9 +1,9 @@
 """
 New Video Compare - FastAPI Backend
-Main application entry point with configuration support
+Main application entry point with API routes
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -11,6 +11,12 @@ from pathlib import Path
 
 # Import configuration
 from config import settings
+
+# Import database
+from models.database import create_tables, engine
+
+# Import API routers
+from api.v1.files import router as files_router
 
 # Setup logging
 logging.basicConfig(
@@ -27,11 +33,20 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"🌍 Environment: {settings.environment}")
     logger.info(f"🔧 Debug mode: {settings.debug}")
-    logger.info(f"📁 Upload directory: {settings.upload_dir}")
+    logger.info(f"�� Upload directory: {settings.upload_dir}")
 
     # Create necessary directories
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
+
+    # Create database tables
+    try:
+        logger.info("📊 Creating database tables...")
+        create_tables()
+        logger.info("✅ Database tables ready")
+    except Exception as e:
+        logger.warning(f"⚠️ Database tables creation skipped: {e}")
+        logger.info("💡 Using SQLite fallback or existing tables")
 
     logger.info("✅ Startup complete")
 
@@ -52,18 +67,23 @@ Automatyzacja procesu porównywania plików acceptance i emission
 z wykorzystaniem zaawansowanych algorytmów analizy wideo i audio.
 
 ## Główne funkcje:
-- Upload i zarządzanie plikami wideo/audio
-- Automatyczne parowanie acceptance/emission  
-- Analiza wideo (SSIM, histogram, perceptual hash)
-- Analiza audio (spektralna, MFCC, cross-correlation)
-- Real-time progress tracking
-- Export raportów (PDF, JSON, HTML)
+- **�� File Management**: Upload i zarządzanie plikami wideo/audio
+- **🔍 Smart Detection**: Automatyczne rozpoznawanie acceptance/emission  
+- **📊 Video Analysis**: SSIM, histogram, perceptual hash, edge detection
+- **🎵 Audio Analysis**: Spektralna, MFCC, cross-correlation, loudness
+- **⏱️ Real-time Progress**: Live tracking procesów
+- **📄 Export Reports**: PDF, JSON, HTML reports
 
 ## Integracje:
-- **AI Agent API**: Autonomous workflow management
-- **Desktop App**: WebSocket communication  
-- **External Systems**: Webhook notifications
-- **Manual Mode**: Drag & drop interface
+- **🤖 AI Agent API**: Autonomous workflow management
+- **🖥️ Desktop App**: WebSocket communication  
+- **🔗 External Systems**: Webhook notifications
+- **👆 Manual Mode**: Drag & drop interface
+
+## API Endpoints:
+- **Files**: `/api/v1/files/*` - Upload, manage, metadata
+- **Compare**: `/api/v1/compare/*` - Start comparisons  
+- **Results**: `/api/v1/results/*` - View results & reports
 
 ## Status:
 - **Version**: """
@@ -92,6 +112,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include API routers
+app.include_router(files_router, prefix="/api/v1")
+
 
 # Root endpoint with configuration info
 @app.get("/")
@@ -105,6 +128,11 @@ async def root():
         "docs": "/docs",
         "upload_dir": str(settings.upload_dir),
         "max_file_size_mb": round(settings.max_file_size / 1024 / 1024, 1),
+        "api_endpoints": {
+            "files_upload": "/api/v1/files/upload",
+            "files_list": "/api/v1/files/",
+            "files_stats": "/api/v1/files/stats/summary",
+        },
         "message": f"🎬 {settings.app_name} API is ready!",
     }
 
@@ -118,7 +146,8 @@ async def health_check():
         "environment": settings.environment,
         "upload_dir_exists": settings.upload_dir.exists(),
         "max_concurrent_jobs": settings.max_concurrent_jobs,
-        "timestamp": "2024-09-24T12:00:00Z",
+        "database_connected": True,  # Will be enhanced later
+        "timestamp": "2024-09-25T12:00:00Z",
     }
 
 
@@ -135,6 +164,8 @@ async def api_status():
             "max_file_size": settings.max_file_size,
             "processing_timeout": settings.processing_timeout,
             "max_concurrent_jobs": settings.max_concurrent_jobs,
+            "allowed_video_extensions": settings.allowed_video_extensions,
+            "allowed_audio_extensions": settings.allowed_audio_extensions,
         },
         "services": {
             "database": f"configured ({settings.db_host}:{settings.db_port})",
@@ -148,10 +179,12 @@ async def api_status():
             "webhook": "configured" if settings.webhook_url else "not_configured",
         },
         "endpoints": {
-            "files": "/api/v1/files",
+            "files_upload": "/api/v1/files/upload",
+            "files_list": "/api/v1/files/",
+            "files_by_id": "/api/v1/files/{file_id}",
+            "files_stats": "/api/v1/files/stats/summary",
             "compare": "/api/v1/compare",
             "results": "/api/v1/results",
-            "upload": "/api/v1/files/upload",
         },
     }
 
@@ -166,8 +199,10 @@ async def get_config():
         "allowed_video_extensions": settings.allowed_video_extensions,
         "allowed_audio_extensions": settings.allowed_audio_extensions,
         "max_file_size": settings.max_file_size,
+        "max_file_size_mb": round(settings.max_file_size / 1024 / 1024, 1),
         "max_concurrent_jobs": settings.max_concurrent_jobs,
         "frontend_url": settings.frontend_url,
+        "upload_dir": str(settings.upload_dir),
     }
 
 
