@@ -19,6 +19,9 @@ from models.database import create_tables, engine
 from api.v1.files import router as files_router
 from api.v1.compare import router as compare_router
 
+# Import Results API router
+from api.results import router as results_router
+
 # Setup logging
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -126,6 +129,9 @@ app.add_middleware(
 # Include API routers
 app.include_router(files_router, prefix="/api/v1")
 app.include_router(compare_router, prefix="/api/v1")
+
+# Include Results API routes
+app.include_router(results_router, prefix="/api/v1")
 
 
 # Root endpoint with configuration info
