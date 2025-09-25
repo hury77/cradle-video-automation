@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 from .database import Base
 
@@ -65,6 +65,26 @@ class ComparisonType(enum.Enum):
     VIDEO_ONLY = "video_only"
     AUDIO_ONLY = "audio_only"
     FULL = "full"  # Both video and audio
+
+
+class DifferenceType(enum.Enum):
+    """Types of differences found in comparison"""
+
+    VIDEO_FRAME = "video_frame"
+    AUDIO_LEVEL = "audio_level"
+    AUDIO_SPECTRAL = "audio_spectral"
+    SYNC_ISSUE = "sync_issue"
+    CONTENT_MISSING = "content_missing"
+    QUALITY_DEGRADATION = "quality_degradation"
+
+
+class SeverityLevel(enum.Enum):
+    """Severity levels for differences"""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 # =============================================================================
@@ -200,6 +220,23 @@ class ComparisonJob(Base):
         "ComparisonResult", back_populates="job", cascade="all, delete-orphan"
     )
 
+    # NEW: Detailed results relationships
+    video_result = relationship(
+        "VideoComparisonResult",
+        back_populates="job",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    audio_result = relationship(
+        "AudioComparisonResult",
+        back_populates="job",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    differences = relationship(
+        "DifferenceTimestamp", back_populates="job", cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<ComparisonJob(id={self.id}, name='{self.job_name}', status={self.status.value})>"
 
@@ -263,6 +300,167 @@ class ComparisonResult(Base):
 
     def __repr__(self):
         return f"<ComparisonResult(id={self.id}, job_id={self.job_id}, similarity={self.overall_similarity})>"
+
+
+# =============================================================================
+# NEW: DETAILED RESULTS MODELS
+# =============================================================================
+
+
+class VideoComparisonResult(Base):
+    """Detailed video comparison results"""
+
+    __tablename__ = "video_comparison_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("comparison_jobs.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # Overall metrics
+    similarity_score = Column(Float, nullable=False)  # 0.0 - 1.0
+    total_frames = Column(Integer, nullable=False)
+    different_frames = Column(Integer, nullable=False)
+
+    # Technical details
+    resolution = Column(String(20), nullable=True)  # "1920x1080"
+    fps = Column(Float, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+
+    # Analysis metrics
+    ssim_score = Column(Float, nullable=True)  # Structural similarity
+    histogram_similarity = Column(Float, nullable=True)  # Color histogram
+    perceptual_hash_distance = Column(Float, nullable=True)  # pHash distance
+    edge_similarity = Column(Float, nullable=True)  # Edge detection similarity
+
+    # Processing info
+    algorithm_used = Column(String(100), default="SSIM+Histogram")
+    processing_time_seconds = Column(Float, nullable=True)
+    frames_per_second_processed = Column(Float, nullable=True)
+
+    # Frame analysis data (JSON for detailed info)
+    frame_analysis_data = Column(JSON, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationship
+    job = relationship("ComparisonJob", back_populates="video_result")
+
+    def __repr__(self):
+        return f"<VideoComparisonResult(job_id={self.job_id}, similarity={self.similarity_score:.3f})>"
+
+
+class AudioComparisonResult(Base):
+    """Detailed audio comparison results"""
+
+    __tablename__ = "audio_comparison_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("comparison_jobs.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # Overall metrics
+    similarity_score = Column(Float, nullable=False)  # 0.0 - 1.0
+    sync_offset_ms = Column(
+        Float, nullable=True
+    )  # Audio sync difference in milliseconds
+
+    # Audio technical details
+    sample_rate = Column(Integer, nullable=True)  # 44100, 48000 etc.
+    channels = Column(Integer, nullable=True)  # 1=mono, 2=stereo
+    duration_seconds = Column(Float, nullable=True)
+
+    # Analysis results
+    rms_difference = Column(Float, nullable=True)  # RMS volume difference
+    peak_difference = Column(Float, nullable=True)  # Peak level difference
+    spectral_similarity = Column(Float, nullable=True)  # Frequency domain similarity
+    mfcc_similarity = Column(
+        Float, nullable=True
+    )  # Mel-frequency cepstral coefficients
+    cross_correlation = Column(Float, nullable=True)  # Time domain correlation
+
+    # Loudness analysis (EBU R128 standard)
+    lufs_difference = Column(
+        Float, nullable=True
+    )  # Loudness Units Full Scale difference
+    lra_difference = Column(Float, nullable=True)  # Loudness Range difference
+
+    # Processing info
+    processing_time_seconds = Column(Float, nullable=True)
+    algorithm_used = Column(String(100), default="FFT+MFCC+CrossCorr")
+    window_size_ms = Column(Integer, default=1000)  # Analysis window size
+
+    # Detailed analysis data (JSON)
+    audio_analysis_data = Column(JSON, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationship
+    job = relationship("ComparisonJob", back_populates="audio_result")
+
+    def __repr__(self):
+        return f"<AudioComparisonResult(job_id={self.job_id}, similarity={self.similarity_score:.3f})>"
+
+
+class DifferenceTimestamp(Base):
+    """Timestamps where differences were detected"""
+
+    __tablename__ = "difference_timestamps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(
+        Integer, ForeignKey("comparison_jobs.id"), nullable=False, index=True
+    )
+
+    # Timestamp info
+    timestamp_seconds = Column(Float, nullable=False, index=True)
+    duration_seconds = Column(Float, default=1.0)  # Duration of the difference
+
+    # Difference details
+    difference_type = Column(Enum(DifferenceType), nullable=False, index=True)
+    severity = Column(Enum(SeverityLevel), nullable=False, index=True)
+    confidence = Column(Float, default=1.0)  # 0.0 - 1.0
+
+    # Metrics for this timestamp
+    similarity_score = Column(
+        Float, nullable=True
+    )  # Local similarity at this timestamp
+    metric_value = Column(
+        Float, nullable=True
+    )  # Specific metric value (depends on type)
+
+    # Visual/Audio bounds (for UI highlighting)
+    frame_number = Column(Integer, nullable=True)  # For video differences
+    frequency_range = Column(String(50), nullable=True)  # "20Hz-20kHz" for audio
+
+    # Description and metadata
+    description = Column(Text, nullable=True)
+    difference_metadata = Column(
+        JSON, nullable=True
+    )  # Additional difference-specific data
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationship
+    job = relationship("ComparisonJob", back_populates="differences")
+
+    def __repr__(self):
+        return f"<DifferenceTimestamp(job_id={self.job_id}, time={self.timestamp_seconds}s, type={self.difference_type.value})>"
 
 
 # =============================================================================
