@@ -1,0 +1,4060 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Video Compare - Prezentacja dla Zespołu</title>
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/theme/white.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/github.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+  --primary-color: #3b82f6;
+  --secondary-color: #6366f1;
+  --accent-color: #10b981;
+  --text-dark: #1f2937;
+  --text-light: #6b7280;
+  --bg-light: #f8fafc;
+  --border: #e5e7eb;
+  --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.reveal {
+  font-family: "Inter", sans-serif;
+  font-size: 18px;
+  color: var(--text-dark);
+}
+
+.reveal h1,
+.reveal h2,
+.reveal h3,
+.reveal h4 {
+  color: var(--text-dark);
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+.reveal h1 {
+  font-size: 2.5rem;
+}
+.reveal h2 {
+  font-size: 1.8rem;
+}
+.reveal h3 {
+  font-size: 1.4rem;
+}
+.reveal h4 {
+  font-size: 1.1rem;
+}
+
+.reveal p,
+.reveal li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 0.6rem;
+}
+
+.reveal .slides section {
+  padding: 1.5rem;
+  margin: 1rem;
+  height: auto;
+}
+
+/* HERO SLIDE - ZMIENIONE KOLORY */
+.hero-slide {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+  color: #34495e !important;
+}
+
+.hero-slide::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle,
+    rgba(52, 73, 94, 0.05) 0%,
+    transparent 70%
+  );
+  animation: float 8s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translate(-50%, -60%) rotate(0deg);
+  }
+  50% {
+    transform: translate(-50%, -40%) rotate(180deg);
+  }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 3rem 0;
+}
+
+.hero-title {
+  font-size: 3.5rem !important;
+  font-weight: 800 !important;
+  color: #34495e !important;
+  margin-bottom: 1rem !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.hero-subtitle {
+  font-size: 1.3rem !important;
+  color: #34495e !important;
+  font-weight: 400 !important;
+}
+
+.hero-features {
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  margin-top: 2rem;
+}
+
+.hero-feature {
+  text-align: center;
+  color: #34495e;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 15px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.hero-feature-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+/* FINAL SLIDE - ZMIENIONE KOLORY */
+.final-slide {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+  color: #34495e !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.final-slide::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><defs><radialGradient id="grad1" cx="30%" cy="30%" r="40%"><stop offset="0%" style="stop-color:%23f5f7fa;stop-opacity:0.3"/><stop offset="100%" style="stop-color:%23f5f7fa;stop-opacity:0"/></radialGradient><radialGradient id="grad2" cx="70%" cy="70%" r="60%"><stop offset="0%" style="stop-color:%23c3cfe2;stop-opacity:0.4"/><stop offset="100%" style="stop-color:%23c3cfe2;stop-opacity:0"/></radialGradient></defs><circle cx="300" cy="300" r="400" fill="url(%23grad1)"/><circle cx="700" cy="700" r="600" fill="url(%23grad2)"/></svg>')
+    center/cover;
+  z-index: 0;
+}
+
+.final-content {
+  position: relative;
+  z-index: 1;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.2rem;
+  margin: 0.8rem 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+      /* Technology Stack */
+      .tech-stack {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2rem;
+        margin: 2rem 0;
+      }
+
+      .tech-category {
+        background: var(--gradient-1);
+        color: white;
+        border-radius: 16px;
+        padding: 2rem;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .tech-category::before {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.1) 0%,
+          transparent 50%
+        );
+        animation: pulse 4s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.8;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.05);
+        }
+      }
+
+      .tech-category:nth-child(2) {
+        background: var(--gradient-2);
+      }
+      .tech-category:nth-child(3) {
+        background: var(--gradient-3);
+      }
+
+      .tech-category h4 {
+        color: white;
+        margin-bottom: 1rem;
+        font-size: 1.1rem;
+        position: relative;
+        z-index: 1;
+      }
+
+      .tech-item {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 0.7rem;
+        margin: 0.5rem 0;
+        font-size: 0.75rem;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Audio Algorithm Visual */
+      .audio-pipeline {
+        background: var(--bg-light);
+        border-radius: 16px;
+        padding: 2rem;
+        margin: 2rem 0;
+      }
+
+      .pipeline-step {
+        display: flex;
+        align-items: center;
+        margin: 1.5rem 0;
+        padding: 1rem;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid var(--primary-color);
+      }
+
+      .pipeline-icon {
+        font-size: 2rem;
+        margin-right: 1.5rem;
+        width: 60px;
+        text-align: center;
+      }
+
+      .pipeline-content h4 {
+        margin-bottom: 0.5rem;
+        color: var(--primary-color);
+      }
+
+      .pipeline-content p {
+        margin: 0;
+        color: var(--text-light);
+        font-size: 0.8rem;
+      }
+
+      .pipeline-arrow {
+        text-align: center;
+        font-size: 1.5rem;
+        color: var(--primary-color);
+        margin: 0.5rem 0;
+      }
+
+      /* Architecture */
+      .architecture {
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        border-radius: 16px;
+        padding: 2rem;
+        margin: 2rem 0;
+      }
+
+      .arch-layer {
+        background: white;
+        border: 2px solid var(--primary-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        text-align: center;
+        position: relative;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      .arch-layer:after {
+        content: "⬇";
+        position: absolute;
+        bottom: -2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 2rem;
+        color: var(--primary-color);
+        background: white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .arch-layer:last-child:after {
+        display: none;
+      }
+
+      .arch-layer h4 {
+        color: var(--primary-color);
+        margin-bottom: 1rem;
+        font-size: 1.1rem;
+      }
+
+      .arch-components {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .arch-component {
+        background: var(--bg-light);
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.75rem;
+        color: var(--text-light);
+        border: 1px solid var(--border);
+      }
+
+      /* Interface Mockup - NOWY DESIGN */
+      .interface-showcase {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-radius: 16px;
+        padding: 2rem;
+        margin: 2rem 0;
+        color: white;
+      }
+
+      .mockup-container {
+        background: #0f172a;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid #334155;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+      }
+
+      .mockup-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.8rem 0;
+        border-bottom: 1px solid #334155;
+        margin-bottom: 1rem;
+      }
+
+      .mockup-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #3b82f6;
+      }
+
+      .mockup-controls {
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+
+      .video-players {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin: 1rem 0;
+      }
+
+      .video-player {
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+      }
+
+      .player-title {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 0.5rem;
+      }
+
+      .player-screen {
+        background: #000;
+        height: 60px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.5rem;
+        font-size: 1.5rem;
+      }
+
+      .player-status {
+        font-size: 0.7rem;
+        color: #10b981;
+      }
+
+      .mockup-controls-panel {
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        text-align: center;
+      }
+
+      .audio-viz {
+        display: flex;
+        justify-content: space-between;
+        gap: 2px;
+        margin: 1rem 0;
+        height: 30px;
+        align-items: end;
+      }
+
+      .audio-bar {
+        background: var(--primary-color);
+        width: 3px;
+        border-radius: 1px;
+      }
+
+      .differences-panel {
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+
+      .difference-item {
+        display: flex;
+        align-items: center;
+        padding: 0.4rem 0;
+        font-size: 0.7rem;
+        border-bottom: 1px solid #334155;
+      }
+
+      .difference-item:last-child {
+        border-bottom: none;
+      }
+
+      .diff-indicator {
+        margin-right: 0.5rem;
+        font-size: 0.8rem;
+      }
+
+      /* Timeline */
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.5rem;
+        margin: 2rem 0;
+      }
+
+      .timeline-item {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-top: 4px solid var(--primary-color);
+        position: relative;
+      }
+
+      .timeline-item::before {
+        content: attr(data-week);
+        position: absolute;
+        top: -15px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--primary-color);
+        color: white;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+
+      .timeline-item h4 {
+        color: var(--primary-color);
+        font-size: 0.9rem;
+        margin: 1rem 0 0.8rem 0;
+      }
+
+      .timeline-item ul {
+        list-style: none;
+        padding: 0;
+        font-size: 0.75rem;
+      }
+
+      .timeline-item li {
+        padding: 0.3rem 0;
+        margin: 0;
+        color: var(--text-light);
+      }
+
+      
+      /* Metrics - ZMIENIONE KOLORY */
+.metrics {
+  background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+  color: #3498db;
+  border-radius: 16px;
+  padding: 2rem;
+  margin: 2rem 0;
+  text-align: center;
+}
+
+.metrics h3 {
+  color: white;
+  margin-bottom: 1rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.metric-item {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 1.5rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.metric-label {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+      /* Benefits grid */
+      .benefits-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 2rem;
+        margin: 2rem 0;
+      }
+
+      .benefit-card {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid var(--primary-color);
+      }
+
+      .benefit-card h4 {
+        color: var(--primary-color);
+        margin-bottom: 1rem;
+      }
+
+      .benefit-card ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      .benefit-card li {
+        padding: 0.6rem 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.8rem;
+      }
+
+      .benefit-card li:last-child {
+        border-bottom: none;
+      }
+
+      /* CTA Button */
+      .cta-button {
+        background: white;
+        color: var(--primary-color);
+        border: none;
+        border-radius: 50px;
+        padding: 1rem 2.5rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+        margin-top: 2rem;
+      }
+
+      .cta-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 35px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
+        .tech-stack,
+        .timeline,
+        .benefits-grid,
+        .video-players {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-features {
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .reveal .slides section {
+          padding: 1rem;
+          margin: 0.5rem;
+        }
+      }
+
+      /* Progress bar */
+      .reveal .progress {
+        background: rgba(59, 130, 246, 0.2);
+        height: 4px;
+      }
+
+      .reveal .progress span {
+        background: var(--primary-color);
+      }
+
+      /* Navigation */
+      .reveal .controls {
+        color: var(--primary-color);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <!-- SLAJD 1: HERO -->
+        <section class="hero-slide" data-background="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;">
+  <div class="hero-content" style="text-align: center; padding: 2rem;">
+    <h1 class="hero-title" style="color: #34495e; font-size: 4rem; margin-bottom: 1rem; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); font-weight: bold;">
+      🎬 New Video Compare
+    </h1>
+    <h3 class="hero-subtitle" style="color: #34495e; font-size: 1.8rem; margin-bottom: 3rem; font-weight: 300;">
+      AI-Powered Video & Audio Analysis Platform
+    </h3>
+
+    <div class="hero-features" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3rem; margin: 3rem 0; max-width: 1000px; margin-left: auto; margin-right: auto;">
+      <div class="hero-feature" style="background: rgba(255, 255, 255, 0.8); border-radius: 15px; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">
+        <span class="hero-feature-icon" style="font-size: 3rem; display: block; margin-bottom: 1rem;">⚡</span>
+        <div style="color: #2c3e50;">
+          <strong style="color: #34495e; font-size: 1.2rem;">Lightning Fast</strong><br />
+          <span style="color: #7f8c8d; font-size: 1rem;">3x Realtime Processing</span>
+        </div>
+      </div>
+      <div class="hero-feature" style="background: rgba(255, 255, 255, 0.8); border-radius: 15px; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">
+        <span class="hero-feature-icon" style="font-size: 3rem; display: block; margin-bottom: 1rem;">🎯</span>
+        <div style="color: #2c3e50;">
+          <strong style="color: #34495e; font-size: 1.2rem;">Pixel Perfect</strong><br />
+          <span style="color: #7f8c8d; font-size: 1rem;">99.9% Accuracy</span>
+        </div>
+      </div>
+      <div class="hero-feature" style="background: rgba(255, 255, 255, 0.8); border-radius: 15px; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">
+        <span class="hero-feature-icon" style="font-size: 3rem; display: block; margin-bottom: 1rem;">🤖</span>
+        <div style="color: #2c3e50;">
+          <strong style="color: #34495e; font-size: 1.2rem;">AI Enhanced</strong><br />
+          <span style="color: #7f8c8d; font-size: 1rem;">Smart Automation</span>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top: 3rem; color: #95a5a6; font-size: 0.9rem;">
+      Cardle Video Automation Project | Wrzesień 2025
+    </p>
+  </div>
+</section>
+
+        <!-- SLAJD 2: CURRENT CHALLENGE -->
+        <section>
+          <h2>🚨 Wyzwanie: Obecny Stan</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3 style="color: #ef4444">❌ Problemy z obecnym procesem</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  🕐 <strong>Czasochłonność:</strong> Godziny ręcznego
+                  porównywania plików
+                </li>
+                <li>
+                  👁️ <strong>Błędy ludzkie:</strong> Przegapione różnice w
+                  manual review
+                </li>
+                <li>
+                  🔗 <strong>Zależności:</strong> Problemy z CDP automation w
+                  Cradle
+                </li>
+                <li>
+                  📈 <strong>Skalowalność:</strong> Niemożność obsługi wielu
+                  porównań jednocześnie
+                </li>
+                <li>
+                  🔧 <strong>Maintenance:</strong> Częste awarie zewnętrznych
+                  systemów
+                </li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <h3 style="color: var(--accent-color)">
+                ✅ Nasza wizja rozwiązania
+              </h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  🤖 <strong>Automatyzacja:</strong> AI-powered frame & audio
+                  comparison
+                </li>
+                <li>
+                  ⚡ <strong>Szybkość:</strong> 3x szybsze niż real-time video
+                </li>
+                <li>
+                  🎯 <strong>Precyzja:</strong> 99.9% accuracy w wykrywaniu
+                  różnic
+                </li>
+                <li>
+                  🔄 <strong>Batch processing:</strong> Wiele porównań
+                  równolegle
+                </li>
+                <li>
+                  🏗️ <strong>Niezależność:</strong> Własna infrastruktura i
+                  kontrola
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <h3>🎯 Cele biznesowe</h3>
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <div class="metric-value">80%</div>
+                <div class="metric-label">Redukcja czasu pracy</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">95%</div>
+                <div class="metric-label">Mniej błędów</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">5x</div>
+                <div class="metric-label">Zwiększona produktywność</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">&lt;6M</div>
+                <div class="metric-label">ROI payback period</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 3: PROJECT GOALS -->
+        <section>
+          <h2>🎯 Założenia i Cele Projektu</h2>
+
+          <div class="card">
+            <h3>🚀 Kluczowe wymagania New Video Compare</h3>
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 2rem;
+                margin-top: 1rem;
+              "
+            >
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 0.8rem">
+                  Performance
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>
+                    <strong>Szybkość:</strong> Max 180s dla 90s video (3x
+                    realtime)
+                  </li>
+                  <li>
+                    <strong>Throughput:</strong> Min. 3 porównania jednocześnie
+                  </li>
+                  <li><strong>Uptime:</strong> 99.5% dostępność systemu</li>
+                </ul>
+              </div>
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 0.8rem">
+                  Quality
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>
+                    <strong>Precyzja:</strong> Frame-by-frame video analysis
+                  </li>
+                  <li><strong>Audio:</strong> Advanced spectral comparison</li>
+                  <li><strong>Accuracy:</strong> 99.9% detection rate</li>
+                </ul>
+              </div>
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 0.8rem">
+                  Automation
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>
+                    <strong>File watching:</strong> Auto-detection nowych plików
+                  </li>
+                  <li>
+                    <strong>Intelligent pairing:</strong> Acceptance vs Emission
+                  </li>
+                  <li>
+                    <strong>Batch processing:</strong> Kolejka z priorytetami
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 0.8rem">
+                  User Experience
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li><strong>Interface:</strong> Side-by-side video player</li>
+                  <li><strong>Navigation:</strong> Jump to differences</li>
+                  <li><strong>Reporting:</strong> Detailed analysis reports</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 4: TECHNOLOGY STACK -->
+        <section>
+          <h2>🛠️ Technology Stack</h2>
+
+          <div class="tech-stack">
+            <div class="tech-category">
+              <h4>🐍 Backend Core</h4>
+              <div class="tech-item">Python 3.11+ FastAPI</div>
+              <div class="tech-item">FFmpeg Processing</div>
+              <div class="tech-item">OpenCV Computer Vision</div>
+              <div class="tech-item">Celery + Redis Queue</div>
+              <div class="tech-item">PostgreSQL Database</div>
+              <div class="tech-item">Prometheus Monitoring</div>
+            </div>
+
+            <div class="tech-category">
+              <h4>⚛️ Frontend</h4>
+              <div class="tech-item">React 18 + TypeScript</div>
+              <div class="tech-item">TailwindCSS Framework</div>
+              <div class="tech-item">Video.js Professional Player</div>
+              <div class="tech-item">Socket.io Real-time</div>
+              <div class="tech-item">Chart.js Visualization</div>
+              <div class="tech-item">Responsive Design</div>
+            </div>
+
+            <div class="tech-category">
+              <h4>🚀 Infrastructure</h4>
+              <div class="tech-item">Docker + Compose</div>
+              <div class="tech-item">GitHub Actions CI/CD</div>
+              <div class="tech-item">Nginx Load Balancer</div>
+              <div class="tech-item">Prometheus + Grafana</div>
+              <div class="tech-item">Cloud Ready</div>
+              <div class="tech-item">Auto Scaling</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 5: SYSTEM ARCHITECTURE -->
+        <section data-transition="slide">
+          <h2 style="color: #2d5aa0; margin-bottom: 1.5rem">
+            🏗️ System Architecture
+          </h2>
+
+          <div
+            class="architecture"
+            style="
+              display: flex;
+              flex-direction: column;
+              gap: 1rem;
+              max-height: 75vh;
+              overflow: visible;
+            "
+          >
+            <div
+              class="arch-layer"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1rem;
+                margin-bottom: 0.5rem;
+              "
+            >
+              <h4
+                style="
+                  color: #3498db;
+                  margin-bottom: 0.8rem;
+                  text-align: center;
+                "
+              >
+                📱 User Interface Layer
+              </h4>
+              <div
+                class="arch-components"
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 0.5rem;
+                  justify-content: center;
+                "
+              >
+                <div
+                  class="arch-component"
+                  style="
+                    background: #3498db;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  React SPA
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #3498db;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Video Players
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #3498db;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  File Upload
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #3498db;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Real-time Dashboard
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #3498db;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Progress Tracking
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="arch-layer"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1rem;
+                margin-bottom: 0.5rem;
+              "
+            >
+              <h4
+                style="
+                  color: #e67e22;
+                  margin-bottom: 0.8rem;
+                  text-align: center;
+                "
+              >
+                🔌 API Gateway Layer
+              </h4>
+              <div
+                class="arch-components"
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 0.5rem;
+                  justify-content: center;
+                "
+              >
+                <div
+                  class="arch-component"
+                  style="
+                    background: #e67e22;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  FastAPI Router
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #e67e22;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  WebSocket Handlers
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #e67e22;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  File Management
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #e67e22;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Authentication
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #e67e22;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Rate Limiting
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="arch-layer"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1rem;
+                margin-bottom: 0.5rem;
+              "
+            >
+              <h4
+                style="
+                  color: #8e44ad;
+                  margin-bottom: 0.8rem;
+                  text-align: center;
+                "
+              >
+                ⚙️ Processing Engine
+              </h4>
+              <div
+                class="arch-components"
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 0.5rem;
+                  justify-content: center;
+                "
+              >
+                <div
+                  class="arch-component"
+                  style="
+                    background: #8e44ad;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Celery Workers
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #8e44ad;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Video Processing
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #8e44ad;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Audio Analysis
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #8e44ad;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  AI Comparison
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #8e44ad;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Report Generation
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="arch-layer"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1rem;
+                margin-bottom: 1rem;
+              "
+            >
+              <h4
+                style="
+                  color: #27ae60;
+                  margin-bottom: 0.8rem;
+                  text-align: center;
+                "
+              >
+                💾 Data Layer
+              </h4>
+              <div
+                class="arch-components"
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 0.5rem;
+                  justify-content: center;
+                "
+              >
+                <div
+                  class="arch-component"
+                  style="
+                    background: #27ae60;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  PostgreSQL
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #27ae60;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Redis Cache
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #27ae60;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  File Storage
+                </div>
+                <div
+                  class="arch-component"
+                  style="
+                    background: #27ae60;
+                    color: white;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                  "
+                >
+                  Metadata API
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style="
+              margin-top: 1rem;
+              text-align: center;
+              background: rgba(52, 152, 219, 0.2);
+              border-left: 4px solid #3498db;
+              padding: 0.8rem;
+              border-radius: 8px;
+              font-size: 0.9rem;
+            "
+          >
+            <strong>🔗 Scalable Architecture:</strong> Microservices design
+            enabling horizontal scaling and independent component updates
+          </div>
+        </section>
+
+        <<!-- SLAJD 6: AUDIO PROCESSING - NOWY DESIGN -->
+        <section data-transition="slide">
+          <h2 style="color: #2d5aa0; margin-bottom: 1.5rem">
+            🎵 Inteligentne Przetwarzanie Audio
+          </h2>
+
+          <div
+            style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 2rem;
+              align-items: start;
+              height: 70vh;
+            "
+          >
+            <!-- LEWA KOLUMNA: Pipeline -->
+            <div
+              class="audio-pipeline"
+              style="
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 12px;
+                padding: 1.5rem;
+              "
+            >
+              <h3
+                style="color: #e74c3c; margin-bottom: 1rem; text-align: center"
+              >
+                🔄 Processing Pipeline
+              </h3>
+
+              <div
+                class="pipeline-step"
+                style="
+                  background: rgba(52, 152, 219, 0.2);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  margin-bottom: 0.8rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  <div
+                    class="pipeline-icon"
+                    style="font-size: 1.5rem; margin-right: 0.8rem"
+                  >
+                    🎧
+                  </div>
+                  <h4 style="margin: 0; color: #3498db">
+                    1. Ekstrakcja i Normalizacja
+                  </h4>
+                </div>
+                <p style="font-size: 0.8rem; margin: 0; opacity: 0.9">
+                  High-quality audio extraction z automatyczną normalizacją
+                  poziomów głośności
+                </p>
+              </div>
+
+              <div
+                class="pipeline-step"
+                style="
+                  background: rgba(230, 126, 34, 0.2);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  margin-bottom: 0.8rem;
+                  border-left: 4px solid #e67e22;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  <div
+                    class="pipeline-icon"
+                    style="font-size: 1.5rem; margin-right: 0.8rem"
+                  >
+                    📊
+                  </div>
+                  <h4 style="margin: 0; color: #e67e22">
+                    2. Analiza Spektralna
+                  </h4>
+                </div>
+                <p style="font-size: 0.8rem; margin: 0; opacity: 0.9">
+                  Konwersja do domeny częstotliwości (STFT) + porównanie
+                  spektrogramów
+                </p>
+              </div>
+
+              <div
+                class="pipeline-step"
+                style="
+                  background: rgba(142, 68, 173, 0.2);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  margin-bottom: 0.8rem;
+                  border-left: 4px solid #8e44ad;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  <div
+                    class="pipeline-icon"
+                    style="font-size: 1.5rem; margin-right: 0.8rem"
+                  >
+                    🧠
+                  </div>
+                  <h4 style="margin: 0; color: #8e44ad">
+                    3. Perceptual Analysis
+                  </h4>
+                </div>
+                <p style="font-size: 0.8rem; margin: 0; opacity: 0.9">
+                  MFCC features + psychoacoustic modeling - focus na
+                  częstotliwości słyszalne
+                </p>
+              </div>
+
+              <div
+                class="pipeline-step"
+                style="
+                  background: rgba(39, 174, 96, 0.2);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  border-left: 4px solid #27ae60;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  <div
+                    class="pipeline-icon"
+                    style="font-size: 1.5rem; margin-right: 0.8rem"
+                  >
+                    🔄
+                  </div>
+                  <h4 style="margin: 0; color: #27ae60">
+                    4. Cross-Correlation
+                  </h4>
+                </div>
+                <p style="font-size: 0.8rem; margin: 0; opacity: 0.9">
+                  Temporal alignment detection + sync różnic w czasie
+                </p>
+              </div>
+            </div>
+
+            <!-- PRAWA KOLUMNA: Rozwiązanie problemów -->
+            <div
+              style="
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 12px;
+                padding: 1.5rem;
+              "
+            >
+              <h3
+                style="color: #f39c12; margin-bottom: 1rem; text-align: center"
+              >
+                🔧 Rozwiązanie problemu z audio levels
+              </h3>
+
+              <div
+                style="
+                  background: rgba(46, 204, 113, 0.15);
+                  border-radius: 8px;
+                  padding: 1.2rem;
+                  margin-bottom: 1rem;
+                  border-left: 4px solid #2ecc71;
+                "
+              >
+                <h4
+                  style="
+                    color: #2ecc71;
+                    margin-bottom: 0.8rem;
+                    display: flex;
+                    align-items: center;
+                  "
+                >
+                  <span style="margin-right: 0.5rem">✅</span>
+                  Przed normalizacją
+                </h4>
+                <ul
+                  style="
+                    font-size: 0.85rem;
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                  "
+                >
+                  <li
+                    style="
+                      margin-bottom: 0.4rem;
+                      display: flex;
+                      align-items: center;
+                    "
+                  >
+                    <span style="color: #2ecc71; margin-right: 0.5rem">•</span>
+                    Loudness normalization (-23 LUFS)
+                  </li>
+                  <li
+                    style="
+                      margin-bottom: 0.4rem;
+                      display: flex;
+                      align-items: center;
+                    "
+                  >
+                    <span style="color: #2ecc71; margin-right: 0.5rem">•</span>
+                    Dynamic range compression
+                  </li>
+                  <li style="display: flex; align-items: center">
+                    <span style="color: #2ecc71; margin-right: 0.5rem">•</span>
+                    Peak limiting (-2 dBTP)
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                style="
+                  background: rgba(52, 152, 219, 0.15);
+                  border-radius: 8px;
+                  padding: 1.2rem;
+                  margin-bottom: 1rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <h4
+                  style="
+                    color: #3498db;
+                    margin-bottom: 0.8rem;
+                    display: flex;
+                    align-items: center;
+                  "
+                >
+                  <span style="margin-right: 0.5rem">🧠</span>
+                  Inteligentna analiza
+                </h4>
+                <ul
+                  style="
+                    font-size: 0.85rem;
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                  "
+                >
+                  <li
+                    style="
+                      margin-bottom: 0.4rem;
+                      display: flex;
+                      align-items: center;
+                    "
+                  >
+                    <span style="color: #3498db; margin-right: 0.5rem">•</span>
+                    Spectral analysis niezależna od amplitudy
+                  </li>
+                  <li
+                    style="
+                      margin-bottom: 0.4rem;
+                      display: flex;
+                      align-items: center;
+                    "
+                  >
+                    <span style="color: #3498db; margin-right: 0.5rem">•</span>
+                    Perceptual weighting filters
+                  </li>
+                  <li style="display: flex; align-items: center">
+                    <span style="color: #3498db; margin-right: 0.5rem">•</span>
+                    Human auditory system modeling
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                style="
+                  background: rgba(231, 76, 60, 0.15);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  border-left: 4px solid #e74c3c;
+                  text-align: center;
+                "
+              >
+                <h4 style="color: #e74c3c; margin-bottom: 0.5rem">⚡ Wynik</h4>
+                <p style="font-size: 0.9rem; margin: 0; font-weight: bold">
+                  99.9% accuracy niezależnie od różnic w poziomach audio
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 7: VIDEO PROCESSING -->
+        <section>
+          <h2>🎥 Zaawansowane Przetwarzanie Video</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3>🔍 Smart Frame Extraction</h3>
+              <pre><code class="python">def extract_frames(video_path, target_fps=5):
+    # Hardware-accelerated extraction
+    frames = ffmpeg.extract_frames(
+        input=video_path,
+        vf=f"fps={target_fps}",
+        hwaccel="videotoolbox"  # Mac optimization
+    )
+    return frames</code></pre>
+            </div>
+
+            <div class="card">
+              <h3>⚡ Performance Optimizations</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  <strong>Parallel processing:</strong> 4 frames simultaneously
+                </li>
+                <li>
+                  <strong>Smart sampling:</strong> Skip similar consecutive
+                  frames
+                </li>
+                <li>
+                  <strong>GPU acceleration:</strong> Hardware-assisted
+                  processing
+                </li>
+                <li><strong>Frame caching:</strong> Reuse processed frames</li>
+                <li>
+                  <strong>Adaptive quality:</strong> Dynamic resolution scaling
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🧮 Advanced Comparison Algorithms</h3>
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 1rem;
+                margin-top: 1rem;
+              "
+            >
+              <div
+                style="
+                  text-align: center;
+                  padding: 1rem;
+                  background: var(--bg-light);
+                  border-radius: 8px;
+                "
+              >
+                <div style="font-size: 2rem; margin-bottom: 0.5rem">📐</div>
+                <strong>SSIM</strong><br />
+                <small>Structural Similarity Index</small>
+              </div>
+              <div
+                style="
+                  text-align: center;
+                  padding: 1rem;
+                  background: var(--bg-light);
+                  border-radius: 8px;
+                "
+              >
+                <div style="font-size: 2rem; margin-bottom: 0.5rem">🎨</div>
+                <strong>Histogram</strong><br />
+                <small>Color Distribution Analysis</small>
+              </div>
+              <div
+                style="
+                  text-align: center;
+                  padding: 1rem;
+                  background: var(--bg-light);
+                  border-radius: 8px;
+                "
+              >
+                <div style="font-size: 2rem; margin-bottom: 0.5rem">🔍</div>
+                <strong>pHash</strong><br />
+                <small>Perceptual Hashing</small>
+              </div>
+              <div
+                style="
+                  text-align: center;
+                  padding: 1rem;
+                  background: var(--bg-light);
+                  border-radius: 8px;
+                "
+              >
+                <div style="font-size: 2rem; margin-bottom: 0.5rem">📏</div>
+                <strong>Edge Detection</strong><br />
+                <small>Contour Analysis</small>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 8: INTERFACE DESIGN -->
+        <section>
+          <h2>🎨 Professional Interface Design</h2>
+
+          <div class="interface-showcase">
+            <h3 style="color: white; margin-bottom: 1.5rem">
+              New Video Comparepare - Main Dashboard
+            </h3>
+
+            <div class="mockup-container">
+              <div class="mockup-header">
+                <div class="mockup-title">🎬 New Video Compare Pro</div>
+                <div class="mockup-controls">
+                  [⚙️ Settings] [📊 Analytics] [👤 Profile]
+                </div>
+              </div>
+
+              <div class="video-players">
+                <div class="video-player">
+                  <div class="player-title">📁 ACCEPTANCE</div>
+                  <div class="player-screen">▶️</div>
+                  <div class="player-status">✅ Ready | 1920x1080 • 30fps</div>
+                </div>
+                <div class="video-player">
+                  <div class="player-title">📤 EMISSION</div>
+                  <div class="player-screen">▶️</div>
+                  <div class="player-status">✅ Ready | 1920x1080 • 30fps</div>
+                </div>
+              </div>
+
+              <div class="mockup-controls-panel">
+                <div style="margin-bottom: 1rem">
+                  <strong>Unified Controls:</strong> [⏮️] [⏸️] [▶️] [⏭️] 🔊
+                  ────●──── [🔄 SYNC] [⚡ ANALYZE]
+                </div>
+                <div style="margin-bottom: 1rem">
+                  <strong>Timeline:</strong> ━━━━━━━●━━━━━━━━━━━━━━━
+                  [05:23/12:45]
+                </div>
+
+                <div>
+                  <strong>Audio Visualization:</strong>
+                  <div class="audio-viz">
+                    <div class="audio-bar" style="height: 15px"></div>
+                    <div class="audio-bar" style="height: 25px"></div>
+                    <div class="audio-bar" style="height: 30px"></div>
+                    <div class="audio-bar" style="height: 20px"></div>
+                    <div class="audio-bar" style="height: 28px"></div>
+                    <div class="audio-bar" style="height: 18px"></div>
+                    <div class="audio-bar" style="height: 22px"></div>
+                    <div class="audio-bar" style="height: 26px"></div>
+                    <div class="audio-bar" style="height: 12px"></div>
+                    <div class="audio-bar" style="height: 30px"></div>
+                    <div class="audio-bar" style="height: 24px"></div>
+                    <div class="audio-bar" style="height: 16px"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="differences-panel">
+                <h4 style="color: #94a3b8; margin-bottom: 0.8rem">
+                  🔍 Difference Navigator
+                </h4>
+                <div class="difference-item">
+                  <span class="diff-indicator">🔴</span>
+                  <span>[02:15] Critical: Video frame mismatch detected</span>
+                </div>
+                <div class="difference-item">
+                  <span class="diff-indicator">🟡</span>
+                  <span>[04:32] Warning: Minor audio level variance</span>
+                </div>
+                <div class="difference-item">
+                  <span class="diff-indicator">🔴</span>
+                  <span>[07:28] Critical: Color grade difference</span>
+                </div>
+                <div
+                  style="
+                    margin-top: 1rem;
+                    text-align: center;
+                    font-size: 0.8rem;
+                    color: #94a3b8;
+                  "
+                >
+                  📊 Confidence: 96.8% | Total: 3 differences found | Status: ✅
+                  Completed
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-grid" style="margin-top: 2rem">
+            <div class="card">
+              <h4>🎯 Key Interface Features</h4>
+              <ul style="font-size: 0.8rem">
+                <li>
+                  • <strong>Synchronized playback:</strong> Perfect frame
+                  alignment
+                </li>
+                <li>
+                  • <strong>Smart navigation:</strong> Jump directly to
+                  differences
+                </li>
+                <li>
+                  • <strong>Real-time analysis:</strong> Live confidence scoring
+                </li>
+                <li>
+                  • <strong>Keyboard shortcuts:</strong> Professional workflow
+                </li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>📊 Advanced Visualization</h4>
+              <ul style="font-size: 0.8rem">
+                <li>
+                  • <strong>Audio waveforms:</strong> Visual difference
+                  detection
+                </li>
+                <li>
+                  • <strong>Heatmaps:</strong> Pixel-level change visualization
+                </li>
+                <li>
+                  • <strong>Timeline markers:</strong> Quick difference overview
+                </li>
+                <li>
+                  • <strong>Export options:</strong> PDF reports, annotated
+                  videos
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 9: AUTOMATED WORKFLOW -->
+        <section data-transition="slide">
+          <h2 style="color: #2d5aa0; margin-bottom: 1.5rem">
+            🔄 Automated Workflow
+          </h2>
+
+          <div
+            style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 2rem;
+              align-items: start;
+              height: 75vh;
+            "
+          >
+            <!-- LEWA KOLUMNA: Kod + Integracja -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem">
+              <!-- Sekcja z kodem -->
+              <div
+                class="card"
+                style="
+                  background: rgba(255, 255, 255, 0.1);
+                  border-radius: 12px;
+                  padding: 1.2rem;
+                "
+              >
+                <h3
+                  style="color: #e74c3c; margin-bottom: 1rem; font-size: 1.1rem"
+                >
+                  📁 Intelligent File Processing
+                </h3>
+                <pre
+                  style="
+                    background: rgba(0, 0, 0, 0.5);
+                    border-radius: 8px;
+                    padding: 1rem;
+                    margin: 0;
+                    overflow-x: auto;
+                  "
+                ><code class="python" style="font-size: 0.7rem; line-height: 1.3;">class FileWatcher:
+    def on_new_file(self, file_path):
+        # Smart pattern matching for pairs
+        if is_acceptance_file(file_path):
+            emission_file = find_matching_emission(file_path)
+            if emission_file:
+                trigger_comparison(file_path, emission_file)
+                send_notification("Processing started")</code></pre>
+              </div>
+
+              <!-- Sekcja integracji -->
+              <div
+                class="metrics"
+                style="
+                  background: rgba(255, 255, 255, 0.1);
+                  border-radius: 12px;
+                  padding: 1.2rem;
+                "
+              >
+                <h3
+                  style="color: #27ae60; margin-bottom: 1rem; font-size: 1.1rem"
+                >
+                  🔗 Integracja z Cardle Automation
+                </h3>
+                <div
+                  style="
+                    background: rgba(0, 0, 0, 0.3);
+                    border-radius: 8px;
+                    padding: 1rem;
+                    border-left: 4px solid #27ae60;
+                  "
+                >
+                  <div
+                    style="
+                      font-family: monospace;
+                      font-size: 0.75rem;
+                      line-height: 1.4;
+                    "
+                  >
+                    <div style="margin-bottom: 0.8rem">
+                      <strong style="color: #e74c3c">Obecny Flow:</strong><br />
+                      <span style="color: #3498db">Extension</span> →
+                      <span style="color: #e67e22">Desktop App</span> →
+                      <span style="color: #8e44ad">Cradle Video Compare</span>
+                    </div>
+                    <div>
+                      <strong style="color: #27ae60">Nowy Flow:</strong><br />
+                      <span style="color: #3498db">Extension</span> →
+                      <span style="color: #e67e22">Desktop App</span> →
+                      <span style="color: #27ae60">New Video Compare</span> →
+                      <span style="color: #f39c12">Results Dashboard</span
+                      ><br />
+                      <span style="margin-left: 6rem; color: #27ae60">↑</span
+                      ><br />
+                      <span
+                        style="
+                          margin-left: 3rem;
+                          font-size: 0.7rem;
+                          color: #27ae60;
+                        "
+                        >Auto File Watch</span
+                      >
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PRAWA KOLUMNA: Architektura -->
+            <div
+              class="architecture"
+              style="display: flex; flex-direction: column; gap: 1rem"
+            >
+              <div
+                class="arch-layer"
+                style="
+                  background: rgba(52, 152, 219, 0.15);
+                  border-radius: 10px;
+                  padding: 1rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <h4
+                  style="
+                    color: #3498db;
+                    margin-bottom: 0.8rem;
+                    font-size: 1rem;
+                    text-align: center;
+                  "
+                >
+                  📁 File Detection & Pairing
+                </h4>
+                <div
+                  class="arch-components"
+                  style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem;
+                  "
+                >
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #3498db;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Directory Watcher
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #3498db;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Pattern Recognition
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #3498db;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Intelligent Pairing
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #3498db;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Metadata Analysis
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="arch-layer"
+                style="
+                  background: rgba(230, 126, 34, 0.15);
+                  border-radius: 10px;
+                  padding: 1rem;
+                  border-left: 4px solid #e67e22;
+                "
+              >
+                <h4
+                  style="
+                    color: #e67e22;
+                    margin-bottom: 0.8rem;
+                    font-size: 1rem;
+                    text-align: center;
+                  "
+                >
+                  🚀 Processing Queue Management
+                </h4>
+                <div
+                  class="arch-components"
+                  style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem;
+                  "
+                >
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #e67e22;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Priority Queue
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #e67e22;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Worker Distribution
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #e67e22;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Load Balancing
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #e67e22;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Progress Tracking
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="arch-layer"
+                style="
+                  background: rgba(142, 68, 173, 0.15);
+                  border-radius: 10px;
+                  padding: 1rem;
+                  border-left: 4px solid #8e44ad;
+                "
+              >
+                <h4
+                  style="
+                    color: #8e44ad;
+                    margin-bottom: 0.8rem;
+                    font-size: 1rem;
+                    text-align: center;
+                  "
+                >
+                  📊 Results & Reporting
+                </h4>
+                <div
+                  class="arch-components"
+                  style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0.5rem;
+                  "
+                >
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #8e44ad;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Real-time Dashboard
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #8e44ad;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    PDF Reports
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #8e44ad;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    Email Notifications
+                  </div>
+                  <div
+                    class="arch-component"
+                    style="
+                      background: #8e44ad;
+                      color: white;
+                      padding: 0.4rem 0.6rem;
+                      border-radius: 6px;
+                      font-size: 0.75rem;
+                      text-align: center;
+                    "
+                  >
+                    API Integration
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bonus info box -->
+              <div
+                style="
+                  background: rgba(39, 174, 96, 0.2);
+                  border-radius: 8px;
+                  padding: 0.8rem;
+                  border-left: 4px solid #27ae60;
+                  margin-top: 0.5rem;
+                "
+              >
+                <div style="font-size: 0.8rem; text-align: center">
+                  <strong style="color: #27ae60">⚡ Performance:</strong>
+                  Process 50+ files simultaneously with intelligent queuing
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 10: DEVELOPMENT ROADMAP -->
+        <section>
+          <h2>🚀 Development Roadmap</h2>
+
+          <div class="timeline">
+            <div class="timeline-item" data-week="1-2">
+              <h4>Foundation</h4>
+              <ul>
+                <li>🏗️ Backend API architecture setup</li>
+                <li>🎬 Core video processing pipeline</li>
+                <li>⚛️ React frontend foundation</li>
+                <li>🐳 Docker development environment</li>
+                <li>📊 Database schema design</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="3-4">
+              <h4>Core Features</h4>
+              <ul>
+                <li>🔍 Video comparison algorithms</li>
+                <li>🎵 Audio processing pipeline</li>
+                <li>🎨 Side-by-side video player</li>
+                <li>📡 WebSocket real-time updates</li>
+                <li>🔄 Celery task queue system</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="5-6">
+              <h4>Advanced Features</h4>
+              <ul>
+                <li>🧭 Smart difference navigation</li>
+                <li>📊 Audio waveform visualization</li>
+                <li>👁️ Automated file watching</li>
+                <li>📋 Professional report generation</li>
+                <li>🔔 Notification system</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="7-8">
+              <h4>Production Ready</h4>
+              <ul>
+                <li>⚡ Performance optimization</li>
+                <li>🧪 Comprehensive testing suite</li>
+                <li>📖 Documentation & training</li>
+                <li>🚀 Production deployment</li>
+                <li>📈 Monitoring & alerting</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 11: SUCCESS METRICS -->
+        <section>
+          <h2>📈 Success Metrics & KPIs</h2>
+
+          <div class="benefits-grid">
+            <div class="benefit-card">
+              <h4>🎯 Technical Performance</h4>
+              <ul>
+                <li>
+                  <strong>Processing Speed:</strong> &lt;3min dla 90% plików
+                  video
+                </li>
+                <li>
+                  <strong>Accuracy Rate:</strong> &gt;99.9% w wykrywaniu różnic
+                </li>
+                <li>
+                  <strong>Concurrent Jobs:</strong> Min 3 porównania równolegle
+                </li>
+                <li><strong>System Uptime:</strong> &gt;99.5% availability</li>
+                <li><strong>Response Time:</strong> &lt;200ms API latency</li>
+              </ul>
+            </div>
+
+            <div class="benefit-card">
+              <h4>💼 Business Impact</h4>
+              <ul>
+                <li><strong>Time Savings:</strong> 80% redukcja manual work</li>
+                <li>
+                  <strong>Error Reduction:</strong> 95% mniej przegapionych
+                  różnic
+                </li>
+                <li>
+                  <strong>Team Productivity:</strong> 3x szybszy approval
+                  process
+                </li>
+                <li>
+                  <strong>Cost Savings:</strong> 60% niższe operational costs
+                </li>
+                <li>
+                  <strong>ROI Timeline:</strong> Payback period &lt;6 miesięcy
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <h3>📊 Expected Results - First 6 Months</h3>
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <div class="metric-value">500+</div>
+                <div class="metric-label">Comparisons processed</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">120h</div>
+                <div class="metric-label">Time saved monthly</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">98.7%</div>
+                <div class="metric-label">Team satisfaction</div>
+              </div>
+              <div class="metric-item">
+                <div class="metric-value">€45k</div>
+                <div class="metric-label">Cost savings</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 12: FUTURE VISION -->
+        <section>
+          <h2>🔮 Future Vision & AI Integration</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3>🤖 Phase 2: AI Enhancement</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  <strong>Machine Learning Models:</strong> Pattern recognition
+                  w różnicach
+                </li>
+                <li>
+                  <strong>Predictive Analysis:</strong> Anticipate common issues
+                </li>
+                <li>
+                  <strong>Quality Scoring:</strong> Automated content quality
+                  assessment
+                </li>
+                <li>
+                  <strong>Smart Prioritization:</strong> Critical vs minor
+                  differences
+                </li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <h3>🚀 Phase 3: Full Automation</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  <strong>Automated Decisions:</strong> Standard approvals bez
+                  human input
+                </li>
+                <li>
+                  <strong>Workflow Integration:</strong> Direct API z broadcast
+                  systems
+                </li>
+                <li>
+                  <strong>Real-time Processing:</strong> Live stream comparison
+                </li>
+                <li>
+                  <strong>Self-Learning:</strong> Continuous improvement
+                  algorithms
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="architecture">
+            <div class="arch-layer">
+              <h4>🧠 AI Analysis Layer</h4>
+              <div class="arch-components">
+                <div class="arch-component">Content Classification</div>
+                <div class="arch-component">Quality Assessment</div>
+                <div class="arch-component">Pattern Recognition</div>
+                <div class="arch-component">Anomaly Detection</div>
+              </div>
+            </div>
+
+            <div class="arch-layer">
+              <h4>🤖 Decision Engine</h4>
+              <div class="arch-components">
+                <div class="arch-component">Rules Engine</div>
+                <div class="arch-component">ML Models</div>
+                <div class="arch-component">Confidence Scoring</div>
+                <div class="arch-component">Auto Approval</div>
+              </div>
+            </div>
+
+            <div class="arch-layer">
+              <h4>🔄 Continuous Learning</h4>
+              <div class="arch-components">
+                <div class="arch-component">Feedback Loop</div>
+                <div class="arch-component">Model Training</div>
+                <div class="arch-component">Performance Analytics</div>
+                <div class="arch-component">Self-Optimization</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 13: TECHNICAL DEEP DIVE -->
+        <section>
+          <h2>🔧 Technical Implementation Details</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3>🏗️ Backend Architecture</h3>
+              <pre><code class="python"># FastAPI application structure
+app = FastAPI(title="New Video Compare API")
+
+@app.post("/api/compare")
+async def compare_videos(
+    acceptance_file: UploadFile,
+    emission_file: UploadFile,
+    background_tasks: BackgroundTasks
+):
+    task = compare_videos_task.delay(
+        acceptance_file.filename,
+        emission_file.filename
+    )
+    return {"task_id": task.id}</code></pre>
+            </div>
+
+            <div class="card">
+              <h3>⚛️ Frontend Components</h3>
+              <pre><code class="typescript">// React component architecture
+const VideoCompareApp = () => {
+  const [comparisonState, setComparisonState] = 
+    useRealtimeComparison();
+  
+  return (
+    &lt;div className="app-container"&gt;
+      &lt;VideoPlayerPair 
+        acceptanceVideo={acceptanceVideo}
+        emissionVideo={emissionVideo}
+      /&gt;
+      &lt;DifferenceNavigator 
+        differences={comparisonState.differences}
+      /&gt;
+    &lt;/div&gt;
+  );
+};</code></pre>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🐳 Deployment Configuration</h3>
+            <pre><code class="yaml"># docker-compose.yml
+version: '3.8'
+services:
+  api:
+    build: ./backend
+    ports: ["8000:8000"]
+    depends_on: [postgres, redis]
+    
+  frontend:
+    build: ./frontend
+    ports: ["3000:80"]
+    
+  worker:
+    build: ./backend
+    command: celery worker -A app.celery
+    depends_on: [redis, postgres]
+    
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: New Video Compare</code></pre>
+          </div>
+        </section>
+
+        <!-- SLAJD 14: RISK ANALYSIS -->
+        <section>
+          <h2>⚠️ Risk Analysis & Mitigation</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3 style="color: #ef4444">🚨 Potential Risks</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  <strong>Performance:</strong> Large video files processing
+                  time
+                </li>
+                <li>
+                  <strong>Storage:</strong> Disk space requirements for
+                  comparisons
+                </li>
+                <li>
+                  <strong>Integration:</strong> Compatibility z existing Cardle
+                  workflow
+                </li>
+                <li>
+                  <strong>User Adoption:</strong> Team training and change
+                  management
+                </li>
+                <li>
+                  <strong>Maintenance:</strong> Ongoing system updates and
+                  support
+                </li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <h3 style="color: var(--accent-color)">
+                ✅ Mitigation Strategies
+              </h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li>
+                  <strong>Performance:</strong> Hardware acceleration + smart
+                  sampling
+                </li>
+                <li>
+                  <strong>Storage:</strong> Automated cleanup + cloud storage
+                  options
+                </li>
+                <li>
+                  <strong>Integration:</strong> Gradual rollout + backwards
+                  compatibility
+                </li>
+                <li>
+                  <strong>Adoption:</strong> Comprehensive training + user
+                  support
+                </li>
+                <li>
+                  <strong>Maintenance:</strong> DevOps automation + monitoring
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <div class="timeline-item" data-week="✅">
+              <h4>Low Risk</h4>
+              <ul>
+                <li>• Technology stack proven</li>
+                <li>• Team has required skills</li>
+                <li>• Clear requirements</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="⚠️">
+              <h4>Medium Risk</h4>
+              <ul>
+                <li>• Performance optimization</li>
+                <li>• User interface complexity</li>
+                <li>• Integration challenges</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="📊">
+              <h4>Monitoring</h4>
+              <ul>
+                <li>• Real-time metrics</li>
+                <li>• Performance alerts</li>
+                <li>• Quality assurance</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <h3>🎯 Risk Management Framework</h3>
+            <div
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 1.5rem;
+                margin-top: 1rem;
+              "
+            >
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(3, 1fr);
+                  gap: 1.5rem;
+                "
+              >
+                <div style="text-align: center">
+                  <div style="font-size: 2rem; margin-bottom: 0.5rem">🔍</div>
+                  <strong>Identify</strong><br />
+                  <small>Early risk detection</small>
+                </div>
+                <div style="text-align: center">
+                  <div style="font-size: 2rem; margin-bottom: 0.5rem">⚡</div>
+                  <strong>Respond</strong><br />
+                  <small>Quick mitigation</small>
+                </div>
+                <div style="text-align: center">
+                  <div style="font-size: 2rem; margin-bottom: 0.5rem">📈</div>
+                  <strong>Learn</strong><br />
+                  <small>Continuous improvement</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 15: COMPETITIVE ADVANTAGES -->
+        <section>
+          <h2>🏆 Competitive Advantages</h2>
+
+          <div class="benefits-grid">
+            <div class="benefit-card">
+              <h4>🎛️ Pełna Kontrola</h4>
+              <ul>
+                <li>
+                  <strong>Własne algorytmy:</strong> Kontrola nad całym procesem
+                  porównywania
+                </li>
+                <li>
+                  <strong>Custom features:</strong> Dopasowanie do specific
+                  workflow
+                </li>
+                <li>
+                  <strong>Data security:</strong> Pełna kontrola nad sensitive
+                  content
+                </li>
+                <li>
+                  <strong>No vendor lock-in:</strong> Niezależność od
+                  zewnętrznych systemów
+                </li>
+                <li>
+                  <strong>Rapid iteration:</strong> Szybkie wprowadzanie nowych
+                  features
+                </li>
+              </ul>
+            </div>
+
+            <div class="benefit-card">
+              <h4>⚡ Superior Performance</h4>
+              <ul>
+                <li>
+                  <strong>Hardware optimization:</strong> Native acceleration
+                  wykorzystanie
+                </li>
+                <li>
+                  <strong>Smart algorithms:</strong> Inteligentne optymalizacje
+                  processing
+                </li>
+                <li>
+                  <strong>Parallel processing:</strong> Multi-threaded
+                  porównania
+                </li>
+                <li>
+                  <strong>Caching strategies:</strong> Reuse processed data
+                </li>
+                <li>
+                  <strong>Scalable architecture:</strong> Auto-scaling based on
+                  demand
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>📊 Porównanie z istniejącymi rozwiązaniami</h3>
+            <div style="overflow-x: auto; margin-top: 1rem">
+              <table
+                style="
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 0.75rem;
+                "
+              >
+                <thead>
+                  <tr style="background: var(--bg-light)">
+                    <th
+                      style="
+                        padding: 0.8rem;
+                        border: 1px solid var(--border);
+                        text-align: left;
+                      "
+                    >
+                      Feature
+                    </th>
+                    <th
+                      style="
+                        padding: 0.8rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      Cradle
+                    </th>
+                    <th
+                      style="
+                        padding: 0.8rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      Manual Process
+                    </th>
+                    <th
+                      style="
+                        padding: 0.8rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      <strong>New Video Compare</strong>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      style="padding: 0.6rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Processing Speed</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟡 Moderate
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 Very Slow
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      🟢 <strong>3x Realtime</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.6rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Accuracy</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟡 Good
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 Human Error
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      🟢 <strong>99.9%</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.6rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Audio Analysis</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 Limited
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 Basic
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      🟢 <strong>Advanced Spectral</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.6rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Automation</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟡 Partial
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 None
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      🟢 <strong>Full Automation</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.6rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Scalability</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 Limited
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🔴 No Scale
+                    </td>
+                    <td
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        background: #e6fffa;
+                      "
+                    >
+                      🟢 <strong>Cloud Native</strong>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 16: INVESTMENT & ROI -->
+        <section data-transition="slide">
+          <h2 style="color: #2d5aa0; margin-bottom: 2rem">
+            💰 Investment & Return Analysis
+          </h2>
+
+          <div
+            class="card-grid"
+            style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 2rem;
+              margin-bottom: 2rem;
+            "
+          >
+            <div
+              class="card"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1.5rem;
+              "
+            >
+              <h3 style="color: #e74c3c; margin-bottom: 1rem">
+                💸 Development Investment
+              </h3>
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(2, 1fr);
+                  gap: 1rem;
+                  margin-top: 1rem;
+                "
+              >
+                <div>
+                  <h4
+                    style="
+                      color: #3498db;
+                      font-size: 0.9rem;
+                      margin-bottom: 0.8rem;
+                    "
+                  >
+                    Phase 1 (8 weeks)
+                  </h4>
+                  <ul style="font-size: 0.75rem; list-style: none; padding: 0">
+                    <li style="margin-bottom: 0.3rem">
+                      • Senior Developer: 8 weeks
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • Frontend Developer: 6 weeks
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • DevOps Engineer: 2 weeks
+                    </li>
+                    <li>• Infrastructure costs</li>
+                  </ul>
+                </div>
+                <div>
+                  <h4
+                    style="
+                      color: #3498db;
+                      font-size: 0.9rem;
+                      margin-bottom: 0.8rem;
+                    "
+                  >
+                    Ongoing Costs
+                  </h4>
+                  <ul style="font-size: 0.75rem; list-style: none; padding: 0">
+                    <li style="margin-bottom: 0.3rem">
+                      • Cloud infrastructure: €200/month
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • Maintenance: 0.2 FTE
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • Monitoring & support
+                    </li>
+                    <li>• Feature development</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="card"
+              style="
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 1.5rem;
+              "
+            >
+              <h3 style="color: #27ae60; margin-bottom: 1rem">
+                📈 Expected Returns
+              </h3>
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(2, 1fr);
+                  gap: 1rem;
+                  margin-top: 1rem;
+                "
+              >
+                <div>
+                  <h4
+                    style="
+                      color: #e67e22;
+                      font-size: 0.9rem;
+                      margin-bottom: 0.8rem;
+                    "
+                  >
+                    Time Savings
+                  </h4>
+                  <ul style="font-size: 0.75rem; list-style: none; padding: 0">
+                    <li style="margin-bottom: 0.3rem">
+                      • 80% reduction w manual work
+                    </li>
+                    <li style="margin-bottom: 0.3rem">• 120h saved monthly</li>
+                    <li style="margin-bottom: 0.3rem">
+                      • €6,000/month w labor costs
+                    </li>
+                    <li>• €72,000/year savings</li>
+                  </ul>
+                </div>
+                <div>
+                  <h4
+                    style="
+                      color: #e67e22;
+                      font-size: 0.9rem;
+                      margin-bottom: 0.8rem;
+                    "
+                  >
+                    Quality Improvements
+                  </h4>
+                  <ul style="font-size: 0.75rem; list-style: none; padding: 0">
+                    <li style="margin-bottom: 0.3rem">
+                      • 95% fewer missed errors
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • Reduced rework costs
+                    </li>
+                    <li style="margin-bottom: 0.3rem">
+                      • Improved client satisfaction
+                    </li>
+                    <li>• Brand reputation benefits</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="metrics"
+            style="
+              background: rgba(255, 255, 255, 0.1);
+              border-radius: 12px;
+              padding: 1.5rem;
+            "
+          >
+            <h3
+              style="color: #3498db; margin-bottom: 1.5rem; text-align: center"
+            >
+              🎯 ROI Calculation
+            </h3>
+            <div
+              class="metrics-grid"
+              style="
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 1.5rem;
+              "
+            >
+              <div
+                class="metric-item"
+                style="
+                  text-align: center;
+                  background: rgba(52, 152, 219, 0.2);
+                  border-radius: 10px;
+                  padding: 1.2rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <div
+                  class="metric-value"
+                  style="
+                    font-size: 2rem;
+                    font-weight: bold;
+                    color: #3498db;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  €85k
+                </div>
+                <div
+                  class="metric-label"
+                  style="font-size: 0.9rem; opacity: 0.9"
+                >
+                  Initial Investment
+                </div>
+              </div>
+              <div
+                class="metric-item"
+                style="
+                  text-align: center;
+                  background: rgba(52, 152, 219, 0.2);
+                  border-radius: 10px;
+                  padding: 1.2rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <div
+                  class="metric-value"
+                  style="
+                    font-size: 2rem;
+                    font-weight: bold;
+                    color: #3498db;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  €72k
+                </div>
+                <div
+                  class="metric-label"
+                  style="font-size: 0.9rem; opacity: 0.9"
+                >
+                  Annual Savings
+                </div>
+              </div>
+              <div
+                class="metric-item"
+                style="
+                  text-align: center;
+                  background: rgba(52, 152, 219, 0.2);
+                  border-radius: 10px;
+                  padding: 1.2rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <div
+                  class="metric-value"
+                  style="
+                    font-size: 2rem;
+                    font-weight: bold;
+                    color: #3498db;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  14 months
+                </div>
+                <div
+                  class="metric-label"
+                  style="font-size: 0.9rem; opacity: 0.9"
+                >
+                  Payback Period
+                </div>
+              </div>
+              <div
+                class="metric-item"
+                style="
+                  text-align: center;
+                  background: rgba(52, 152, 219, 0.2);
+                  border-radius: 10px;
+                  padding: 1.2rem;
+                  border-left: 4px solid #3498db;
+                "
+              >
+                <div
+                  class="metric-value"
+                  style="
+                    font-size: 2rem;
+                    font-weight: bold;
+                    color: #3498db;
+                    margin-bottom: 0.5rem;
+                  "
+                >
+                  180%
+                </div>
+                <div
+                  class="metric-label"
+                  style="font-size: 0.9rem; opacity: 0.9"
+                >
+                  3-Year ROI
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 17: TEAM & RESOURCES -->
+        <section>
+          <h2>👥 Team & Resource Requirements</h2>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3>🛠️ Development Team</h3>
+              <div style="margin-top: 1rem">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin: 0.8rem 0;
+                    padding: 0.8rem;
+                    background: var(--bg-light);
+                    border-radius: 8px;
+                  "
+                >
+                  <div style="font-size: 2rem; margin-right: 1rem">👨‍💻</div>
+                  <div>
+                    <strong>Senior Backend Developer</strong><br />
+                    <small>Python/FastAPI, video processing, algorithms</small>
+                  </div>
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin: 0.8rem 0;
+                    padding: 0.8rem;
+                    background: var(--bg-light);
+                    border-radius: 8px;
+                  "
+                >
+                  <div style="font-size: 2rem; margin-right: 1rem">👩‍💻</div>
+                  <div>
+                    <strong>Frontend Developer</strong><br />
+                    <small>React/TypeScript, video players, UI/UX</small>
+                  </div>
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    margin: 0.8rem 0;
+                    padding: 0.8rem;
+                    background: var(--bg-light);
+                    border-radius: 8px;
+                  "
+                >
+                  <div style="font-size: 2rem; margin-right: 1rem">⚙️</div>
+                  <div>
+                    <strong>DevOps Engineer</strong><br />
+                    <small>Docker, CI/CD, infrastructure, monitoring</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>🏗️ Infrastructure Needs</h3>
+              <ul style="font-size: 0.8rem; line-height: 1.6">
+                <li><strong>Development Environment:</strong></li>
+                <li>• Docker containers for consistent development</li>
+                <li>• GitHub repository z automated testing</li>
+                <li>• Development/staging environments</li>
+                <li><br /><strong>Production Environment:</strong></li>
+                <li>• Cloud hosting (AWS/Azure/GCP)</li>
+                <li>• Load balancers + auto-scaling</li>
+                <li>• Database clusters + backup strategies</li>
+                <li>• Monitoring + alerting systems</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <div class="timeline-item" data-week="📋">
+              <h4>Planning Phase</h4>
+              <ul>
+                <li>• Requirements finalization</li>
+                <li>• Team assignment</li>
+                <li>• Environment setup</li>
+                <li>• Sprint planning</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="🏗️">
+              <h4>Development</h4>
+              <ul>
+                <li>• Daily standups</li>
+                <li>• Weekly sprint reviews</li>
+                <li>• Continuous integration</li>
+                <li>• User feedback loops</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="🧪">
+              <h4>Testing & QA</h4>
+              <ul>
+                <li>• Unit tests (90% coverage)</li>
+                <li>• Integration testing</li>
+                <li>• Performance benchmarks</li>
+                <li>• User acceptance testing</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="🚀">
+              <h4>Deployment</h4>
+              <ul>
+                <li>• Production environment</li>
+                <li>• Monitoring setup</li>
+                <li>• Team training</li>
+                <li>• Go-live support</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 18: DECISION FRAMEWORK -->
+        <section>
+          <h2>⚖️ Decision Framework</h2>
+
+          <div class="benefits-grid">
+            <div class="benefit-card">
+              <h4>✅ Arguments FOR New Video Compare</h4>
+              <ul>
+                <li>
+                  <strong>Strategic Independence:</strong> Kontrola nad critical
+                  business process
+                </li>
+                <li>
+                  <strong>Performance Gains:</strong> 3x faster processing,
+                  99.9% accuracy
+                </li>
+                <li>
+                  <strong>Cost Efficiency:</strong> €72k annual savings,
+                  14-month payback
+                </li>
+                <li>
+                  <strong>Scalability:</strong> Future-proof architecture,
+                  AI-ready
+                </li>
+                <li>
+                  <strong>Team Satisfaction:</strong> Eliminate tedious manual
+                  work
+                </li>
+                <li>
+                  <strong>Quality Assurance:</strong> Consistent, reliable
+                  results
+                </li>
+              </ul>
+            </div>
+
+            <div class="benefit-card">
+              <h4>⚠️ Considerations & Challenges</h4>
+              <ul>
+                <li>
+                  <strong>Initial Investment:</strong> €85k development cost +
+                  resources
+                </li>
+                <li>
+                  <strong>Development Time:</strong> 8-week implementation
+                  timeline
+                </li>
+                <li>
+                  <strong>Change Management:</strong> Team training + workflow
+                  adaptation
+                </li>
+                <li>
+                  <strong>Technical Risk:</strong> New system integration
+                  challenges
+                </li>
+                <li>
+                  <strong>Maintenance:</strong> Ongoing support + feature
+                  development
+                </li>
+                <li>
+                  <strong>Dependency:</strong> Internal system maintenance
+                  responsibility
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🎯 Decision Criteria Matrix</h3>
+            <div style="overflow-x: auto; margin-top: 1rem">
+              <table
+                style="
+                  width: 100%;
+                  border-collapse: collapse;
+                  font-size: 0.75rem;
+                "
+              >
+                <thead>
+                  <tr style="background: var(--bg-light)">
+                    <th
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: left;
+                      "
+                    >
+                      Criterion
+                    </th>
+                    <th
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      Weight
+                    </th>
+                    <th
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      Current State
+                    </th>
+                    <th
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      New Video Compare
+                    </th>
+                    <th
+                      style="
+                        padding: 0.6rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      Impact
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      style="padding: 0.5rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Processing Speed</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      25%
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      3/10
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        color: var(--accent-color);
+                      "
+                    >
+                      <strong>9/10</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟢 High
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.5rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Accuracy</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      30%
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      5/10
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        color: var(--accent-color);
+                      "
+                    >
+                      <strong>10/10</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟢 High
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.5rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Cost Efficiency</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      20%
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      4/10
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        color: var(--accent-color);
+                      "
+                    >
+                      <strong>8/10</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟢 High
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.5rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Scalability</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      15%
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      2/10
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        color: var(--accent-color);
+                      "
+                    >
+                      <strong>9/10</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟢 High
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding: 0.5rem; border: 1px solid var(--border)"
+                    >
+                      <strong>Implementation Risk</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      10%
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      8/10
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                        color: #f59e0b;
+                      "
+                    >
+                      <strong>6/10</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 0.5rem;
+                        border: 1px solid var(--border);
+                        text-align: center;
+                      "
+                    >
+                      🟡 Medium
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 19: FINAL SUMMARY -->
+        <section>
+          <h2>📋 Executive Summary</h2>
+
+          <div class="card">
+            <h3>🎯 Strategic Recommendation: PROCEED with New Video Compare</h3>
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 2rem;
+                margin-top: 1.5rem;
+              "
+            >
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem">
+                  Why Now?
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>• Current process bottlenecks limit growth</li>
+                  <li>• Technology stack is mature and proven</li>
+                  <li>• Team has bandwidth for 8-week project</li>
+                  <li>• ROI justifies investment (14-month payback)</li>
+                  <li>• Competitive advantage opportunity</li>
+                </ul>
+              </div>
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem">
+                  Key Benefits
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>• 80% reduction w manual comparison time</li>
+                  <li>• 99.9% accuracy vs human errors</li>
+                  <li>• 3x faster processing než realtime</li>
+                  <li>• Full control over critical workflow</li>
+                  <li>• AI-ready architecture for future</li>
+                </ul>
+              </div>
+              <div>
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem">
+                  Success Factors
+                </h4>
+                <ul style="font-size: 0.8rem; line-height: 1.6">
+                  <li>• Experienced development team</li>
+                  <li>• Clear requirements + user feedback</li>
+                  <li>• Proven technology choices</li>
+                  <li>• Incremental delivery approach</li>
+                  <li>• Strong business case + ROI</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <div class="timeline-item" data-week="1">
+              <h4>Immediate Actions</h4>
+              <ul>
+                <li>• Management approval</li>
+                <li>• Team assignment</li>
+                <li>• Budget allocation</li>
+                <li>• Project kickoff</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="2">
+              <h4>Week 1 Deliverables</h4>
+              <ul>
+                <li>• Development environment</li>
+                <li>• Architecture documentation</li>
+                <li>• Sprint 1 planning</li>
+                <li>• Stakeholder alignment</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="8">
+              <h4>8-Week Target</h4>
+              <ul>
+                <li>• Production-ready system</li>
+                <li>• Team training completed</li>
+                <li>• Performance benchmarks met</li>
+                <li>• Go-live support ready</li>
+              </ul>
+            </div>
+
+            <div class="timeline-item" data-week="6M">
+              <h4>6-Month Vision</h4>
+              <ul>
+                <li>• 500+ comparisons processed</li>
+                <li>• €45k cost savings realized</li>
+                <li>• Team productivity 3x improved</li>
+                <li>• AI enhancement planning</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- SLAJD 20: FINAL CALL TO ACTION -->
+<section class="final-slide" data-background="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;">
+  <div class="final-content" style="text-align: center; color: #2c3e50; padding: 2rem;">
+    <h1 style="color: #2c3e50; font-size: 3rem; margin-bottom: 1rem; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+      🚀 Ready to Transform Video QA?
+    </h1>
+
+    <div style="margin: 3rem 0">
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3rem;">
+        <div style="text-align: center">
+          <div style="font-size: 4rem; margin-bottom: 1rem">⚡</div>
+          <h3 style="color: #34495e; margin-bottom: 0.5rem">
+            Lightning Fast
+          </h3>
+          <p style="color: #7f8c8d">
+            8-week implementation<br />Immediate ROI impact
+          </p>
+        </div>
+        <div style="text-align: center">
+          <div style="font-size: 4rem; margin-bottom: 1rem">🎯</div>
+          <h3 style="color: #34495e; margin-bottom: 0.5rem">
+            Proven Success
+          </h3>
+          <p style="color: #7f8c8d">
+            Battle-tested technology<br />Clear business case
+          </p>
+        </div>
+        <div style="text-align: center">
+          <div style="font-size: 4rem; margin-bottom: 1rem">🚀</div>
+          <h3 style="color: #34495e; margin-bottom: 0.5rem">
+            Future-Ready
+          </h3>
+          <p style="color: #7f8c8d">
+            AI-enhanced platform<br />Scalable architecture
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: rgba(255, 255, 255, 0.8); border-radius: 15px; padding: 2rem; margin: 2rem 0; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+      <h2 style="color: #2c3e50; margin-bottom: 1.5rem">
+        Next Steps - Decision Required
+      </h2>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem;">
+        <div style="text-align: left">
+          <h4 style="color: #34495e; margin-bottom: 1rem">This Week:</h4>
+          <ul style="color: #2c3e50; line-height: 1.8;">
+            <li>
+              ✅ <strong>Management decision:</strong> Approve project
+              scope + budget
+            </li>
+            <li>
+              ✅ <strong>Team assignment:</strong> Allocate developers +
+              PM
+            </li>
+            <li>
+              ✅ <strong>Environment setup:</strong> Infrastructure +
+              repositories
+            </li>
+            <li>
+              ✅ <strong>Kickoff meeting:</strong> Project planning +
+              sprint 1
+            </li>
+          </ul>
+        </div>
+        <div style="text-align: left">
+          <h4 style="color: #34495e; margin-bottom: 1rem">
+            Success Guarantee:
+          </h4>
+          <ul style="color: #2c3e50; line-height: 1.8;">
+            <li>
+              🎯 <strong>Performance targets:</strong> 3x realtime
+              processing
+            </li>
+            <li>
+              📊 <strong>Quality metrics:</strong> 99.9% accuracy
+              guarantee
+            </li>
+            <li>
+              💰 <strong>ROI commitment:</strong> 14-month payback or
+              less
+            </li>
+            <li>
+              🚀 <strong>Delivery promise:</strong> Production-ready in
+              8 weeks
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 3rem">
+      <h2 style="color: #2c3e50; font-size: 2.5rem; margin-bottom: 1rem">
+        🎬 Transform Your Video Workflow Today!
+      </h2>
+      <h3 style="color: #7f8c8d; font-weight: 400; margin-bottom: 2rem;">
+        Questions? Concerns? Ready to Start?
+      </h3>
+      <div style="background: #34495e; color: white; padding: 1rem 2rem; border-radius: 25px; display: inline-block; font-size: 1.2rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(52,73,94,0.3);">
+        Let's Build the Future! 🚀
+      </div>
+    </div>
+
+    <div style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid rgba(127, 140, 141, 0.3); text-align: center;">
+      <p style="color: #95a5a6; font-size: 0.9rem">
+        New Video Compare | Cardle Video Automation Project<br />
+        Prezentacja przygotowana: Wrzesień 2024
+      </p>
+    </div>
+  </div>
+</section>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/notes/notes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/markdown/markdown.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/highlight.js"></script>
+
+    <script>
+      Reveal.initialize({
+        hash: true,
+        transition: "slide",
+        transitionSpeed: "default",
+        backgroundTransition: "fade",
+        controls: true,
+        progress: true,
+        center: false,
+        touch: true,
+        keyboard: true,
+        overview: true,
+        margin: 0.1,
+        minScale: 0.4,
+        maxScale: 1.2,
+        width: 1280,
+        height: 900,
+        plugins: [RevealMarkdown, RevealHighlight, RevealNotes],
+
+        // Keyboard shortcuts
+        keyboard: {
+          13: "next", // Enter
+          27: "overview", // ESC
+          32: "next", // Space
+        },
+      });
+
+      // Custom navigation enhancements
+      Reveal.addEventListener("slidechanged", function (event) {
+        // Update slide counter
+        const current = event.indexh + 1;
+        const total = Reveal.getTotalSlides();
+        console.log(`Slide ${current} of ${total}`);
+      });
+
+      // Add slide numbers to slides
+      Reveal.addEventListener("ready", function (event) {
+        const slides = document.querySelectorAll(".reveal .slides section");
+        slides.forEach((slide, index) => {
+          if (index > 0) {
+            // Skip title slide
+            const slideNumber = document.createElement("div");
+            slideNumber.style.position = "absolute";
+            slideNumber.style.bottom = "20px";
+            slideNumber.style.right = "30px";
+            slideNumber.style.fontSize = "0.7rem";
+            slideNumber.style.color = "#94a3b8";
+            slideNumber.style.fontFamily = "Inter, sans-serif";
+            slideNumber.textContent = `${index + 1} / ${slides.length}`;
+            slide.appendChild(slideNumber);
+          }
+        });
+      });
+
+      // Add presentation metadata
+      document.addEventListener("DOMContentLoaded", function () {
+        // Add meta tags for better SEO
+        const metaDescription = document.createElement("meta");
+        metaDescription.name = "description";
+        metaDescription.content =
+          "New Video Compare - Professional Video & Audio Comparison Platform for Cardle Video Automation Project";
+        document.head.appendChild(metaDescription);
+
+        // Add meta keywords
+        const metaKeywords = document.createElement("meta");
+        metaKeywords.name = "keywords";
+        metaKeywords.content =
+          "video comparison, audio analysis, automation, AI, FastAPI, React, FFmpeg";
+        document.head.appendChild(metaKeywords);
+
+        // Add favicon if available
+        const favicon = document.createElement("link");
+        favicon.rel = "icon";
+        favicon.type = "image/x-icon";
+        favicon.href =
+          'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🎬</text></svg>';
+        document.head.appendChild(favicon);
+      });
+
+      // Print optimization
+      window.addEventListener("beforeprint", function () {
+        // Optimize for print mode
+        document.body.classList.add("print-mode");
+      });
+
+      window.addEventListener("afterprint", function () {
+        // Remove print optimizations
+        document.body.classList.remove("print-mode");
+      });
+
+      // Performance monitoring
+      if (typeof performance !== "undefined" && performance.mark) {
+        performance.mark("presentation-start");
+
+        Reveal.addEventListener("ready", function () {
+          performance.mark("presentation-ready");
+          performance.measure(
+            "presentation-load-time",
+            "presentation-start",
+            "presentation-ready"
+          );
+
+          const loadTime = performance.getEntriesByName(
+            "presentation-load-time"
+          )[0];
+          console.log(
+            `Presentation loaded in ${Math.round(loadTime.duration)}ms`
+          );
+        });
+      }
+
+      // Add smooth scrolling for better UX
+      document.documentElement.style.scrollBehavior = "smooth";
+
+      // Presentation analytics (optional)
+      let slideViewTimes = {};
+      let currentSlideStart = Date.now();
+
+      Reveal.addEventListener("slidechanged", function (event) {
+        // Track time spent on previous slide
+        const slideIndex = event.previousSlide
+          ? Reveal.getIndices(event.previousSlide).h
+          : 0;
+        const timeSpent = Date.now() - currentSlideStart;
+        slideViewTimes[slideIndex] =
+          (slideViewTimes[slideIndex] || 0) + timeSpent;
+
+        // Start timer for current slide
+        currentSlideStart = Date.now();
+      });
+
+      // Export analytics data (for debugging/optimization)
+      window.getPresentationAnalytics = function () {
+        return {
+          slideViewTimes: slideViewTimes,
+          totalSlides: Reveal.getTotalSlides(),
+          currentSlide: Reveal.getIndices().h + 1,
+        };
+      };
+    </script>
+
+    <!-- Additional CSS for print mode -->
+    <style media="print">
+      @page {
+        size: A4 landscape;
+        margin: 1cm;
+      }
+
+      .reveal .slides section {
+        page-break-after: always;
+        page-break-inside: avoid;
+      }
+
+      .reveal .progress,
+      .reveal .controls {
+        display: none !important;
+      }
+
+      body {
+        background: white !important;
+      }
+
+      .reveal .slides section {
+        color: #333 !important;
+      }
+
+      .hero-slide,
+      .final-slide {
+        background: #f8fafc !important;
+        color: #333 !important;
+      }
+
+      .hero-title,
+      .final-slide h1,
+      .final-slide h2,
+      .final-slide h3 {
+        color: #333 !important;
+      }
+    </style>
+  </body>
+</html>
