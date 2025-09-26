@@ -6,7 +6,7 @@ Handles background task processing for video/audio comparison
 from celery import Celery
 from kombu import Queue
 import os
-from backend.config import settings  # ← Fixed import
+from config import settings  # ← Fixed import
 
 # Celery application instance
 celery_app = Celery(
