@@ -54,3 +54,10 @@ httpx==0.25.2
 black==23.11.0
 isort==5.12.0
 flake8==6.1.0
+
+# Video Processing Dependencies
+opencv-python==4.8.1.78
+numpy>=1.24.0
+scikit-image>=0.21.0
+pillow>=10.0.0
+imagehash>=4.3.1
