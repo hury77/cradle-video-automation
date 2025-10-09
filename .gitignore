@@ -154,3 +154,22 @@ echo "**/*.mp4" >> .gitignore
 echo "**/*.mov" >> .gitignore
 echo "**/*.avi" >> .gitignore
 echo "**/*.mxf" >> .gitignore
+
+# Media files (large test files)
+media/
+*/media/
+**/*.mp4
+**/*.mov
+**/*.avi
+**/*.mxf
+**/*.wav
+**/*.mp3
+
+# macOS files
+.DS_Store
+**/.DS_Store
+
+# Large files
+*.log
+temp/
+*/temp/
