@@ -173,3 +173,4 @@ media/
 *.log
 temp/
 */temp/
+new_video_compare/media/downloads/
