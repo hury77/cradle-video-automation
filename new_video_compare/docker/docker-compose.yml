@@ -1,6 +1,28 @@
 version: "3.8"
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: new_video_compare_postgres
+    environment:
+      POSTGRES_DB: new_video_compare
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d new_video_compare"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - celery_network
+    restart: unless-stopped
+
   # Redis for Celery message broker
   redis:
     image: redis:7-alpine
@@ -17,6 +39,7 @@ services:
       retries: 3
     networks:
       - celery_network
+    restart: unless-stopped
 
   # Celery Worker - Video Processing
   celery-worker-video:
@@ -29,19 +52,20 @@ services:
       - shared_media:/app/media
       - temp_processing:/app/temp
     environment:
-      - REDIS_URL=redis://localhost:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/new_video_compare
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/new_video_compare
       - PYTHONPATH=/app
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A backend.celery_config worker --loglevel=info --queues=video_processing --concurrency=2 --hostname=video_worker@%h
     networks:
       - celery_network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
   # Celery Worker - Audio Processing
   celery-worker-audio:
@@ -54,19 +78,20 @@ services:
       - shared_media:/app/media
       - temp_processing:/app/temp
     environment:
-      - REDIS_URL=redis://localhost:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/new_video_compare
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/new_video_compare
       - PYTHONPATH=/app
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A backend.celery_config worker --loglevel=info --queues=audio_processing --concurrency=2 --hostname=audio_worker@%h
     networks:
       - celery_network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
   # Celery Worker - General Tasks (comparison, cleanup, etc.)
   celery-worker-general:
@@ -79,19 +104,20 @@ services:
       - shared_media:/app/media
       - temp_processing:/app/temp
     environment:
-      - REDIS_URL=redis://localhost:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/new_video_compare
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/new_video_compare
       - PYTHONPATH=/app
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A backend.celery_config worker --loglevel=info --queues=comparison,default,priority --concurrency=3 --hostname=general_worker@%h
     networks:
       - celery_network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
   # Celery Flower - Task Monitoring
   flower:
@@ -110,6 +136,7 @@ services:
     command: celery -A backend.celery_config flower --port=5555 --broker=redis://redis:6379/0 --basic_auth=admin:admin123
     networks:
       - celery_network
+    restart: unless-stopped
 
 volumes:
   redis_data:
@@ -117,6 +144,8 @@ volumes:
   shared_media:
     driver: local
   temp_processing:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:
