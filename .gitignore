@@ -146,3 +146,11 @@ new_video_compare/backend/.env
 new_video_compare/frontend/node_modules/
 new_video_compare/frontend/dist/
 new_video_compare/frontend/.env.local
+
+echo "# Media files (large test files)" >> .gitignore
+echo "media/" >> .gitignore
+echo "*/media/" >> .gitignore
+echo "**/*.mp4" >> .gitignore
+echo "**/*.mov" >> .gitignore
+echo "**/*.avi" >> .gitignore
+echo "**/*.mxf" >> .gitignore
