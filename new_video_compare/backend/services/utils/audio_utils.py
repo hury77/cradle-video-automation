@@ -10,7 +10,6 @@ import os
 import tempfile
 from typing import Tuple, Dict, List, Optional, Any
 import logging
-from .ffmpeg_utils import FFmpegHandler
 from ..exceptions import VideoProcessingError
 
 logger = logging.getLogger(__name__)
@@ -21,14 +20,12 @@ class AudioProcessor:
     Audio processing utilities using FFmpeg and numpy
     """
 
-    def __init__(self, ffmpeg_handler: Optional[FFmpegHandler] = None):
+    def __init__(self):
         """
         Initialize audio processor
-
-        Args:
-            ffmpeg_handler: Optional FFmpeg handler instance
         """
-        self.ffmpeg = ffmpeg_handler or FFmpegHandler()
+        # FFmpeg commands are executed directly via subprocess
+        pass
 
     def extract_audio(
         self,

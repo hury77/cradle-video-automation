@@ -21,6 +21,7 @@ from models.models import (
     JobStatus,
     ComparisonType,
     FileType,
+    SensitivityLevel,
 )
 from models.schemas import (
     ComparisonJobCreate,
@@ -77,11 +78,35 @@ def validate_files_for_comparison(
 
 
 async def start_comparison_processing(job_id: int):
-    """Start background comparison processing (placeholder)"""
-    # This will be implemented with Celery task queue
+    """Start background comparison processing"""
     logger.info(f"🔄 Starting comparison processing for job {job_id}")
-    # TODO: Queue Celery task for video/audio analysis
-    pass
+    
+    try:
+        # Import here to avoid circular imports
+        from services.comparison_service import process_comparison_job
+        
+        # Process the comparison (synchronous for prototype)
+        result = await process_comparison_job(job_id)
+        
+        if result.get("success"):
+            logger.info(f"✅ Comparison job {job_id} completed successfully")
+        else:
+            logger.error(f"❌ Comparison job {job_id} failed: {result.get('error')}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error processing job {job_id}: {str(e)}")
+        
+        # Update job status to failed
+        db = next(get_db())
+        try:
+            job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
+            if job:
+                job.status = JobStatus.FAILED
+                job.error_message = str(e)
+                job.completed_at = datetime.now(timezone.utc)
+                db.commit()
+        finally:
+            db.close()
 
 
 # =============================================================================
@@ -122,12 +147,17 @@ async def create_comparison_job(
         validate_files_for_comparison(acceptance_file, emission_file)
 
         # Create comparison job
+        # Convert sensitivity level from value (e.g. "medium") to enum member
+        sensitivity_value = job_data.sensitivity_level.value.upper()  # "medium" -> "MEDIUM"
+        sensitivity_enum = SensitivityLevel[sensitivity_value]  # Get by name
+        
         comparison_job = ComparisonJobModel(
             job_name=job_data.job_name,
             job_description=job_data.job_description,
             acceptance_file_id=job_data.acceptance_file_id,
             emission_file_id=job_data.emission_file_id,
             comparison_type=ComparisonType(job_data.comparison_type.value),
+            sensitivity_level=sensitivity_enum,
             processing_config=job_data.processing_config,
             cradle_id=job_data.cradle_id,
             created_by=job_data.created_by,
@@ -457,3 +487,191 @@ async def auto_pair_files_for_comparison(
 
     # Create and start job
     return await create_comparison_job(job_data, background_tasks, db)
+
+
+# =============================================================================
+# COMPARISON RESULTS ENDPOINT
+# =============================================================================
+
+
+@router.get("/{job_id}/results")
+async def get_comparison_results(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Get detailed comparison results for a job
+    
+    Returns video and audio analysis results from the ComparisonResult,
+    VideoComparisonResult, and AudioComparisonResult tables.
+    """
+    from models.models import ComparisonResult, VideoComparisonResult, AudioComparisonResult, DifferenceTimestamp
+    
+    # Get job
+    job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job not completed yet. Status: {job.status.value}"
+        )
+    
+    # Get comparison result
+    comparison_result = db.query(ComparisonResult).filter(
+        ComparisonResult.job_id == job_id
+    ).first()
+    
+    # Get video result
+    video_result = db.query(VideoComparisonResult).filter(
+        VideoComparisonResult.job_id == job_id
+    ).first()
+    
+    # Get audio result
+    audio_result = db.query(AudioComparisonResult).filter(
+        AudioComparisonResult.job_id == job_id
+    ).first()
+    
+    # Get difference timestamps
+    differences = db.query(DifferenceTimestamp).filter(
+        DifferenceTimestamp.job_id == job_id
+    ).all()
+    
+    # Build response
+    response = {
+        "job_id": job_id,
+        "job_name": job.job_name,
+        "status": job.status.value,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "acceptance_file": {
+            "id": job.acceptance_file.id,
+            "filename": job.acceptance_file.filename,
+            "duration": job.acceptance_file.duration,
+            "width": job.acceptance_file.width,
+            "height": job.acceptance_file.height,
+            "fps": job.acceptance_file.fps,
+        },
+        "emission_file": {
+            "id": job.emission_file.id,
+            "filename": job.emission_file.filename,
+            "duration": job.emission_file.duration,
+            "width": job.emission_file.width,
+            "height": job.emission_file.height,
+            "fps": job.emission_file.fps,
+        },
+        "overall_result": None,
+        "video_result": None,
+        "audio_result": None,
+        "differences": [],
+    }
+    
+    # Add overall result if exists
+    if comparison_result:
+        response["overall_result"] = {
+            "overall_similarity": comparison_result.overall_similarity,
+            "is_match": comparison_result.is_match,
+            "video_similarity": comparison_result.video_similarity,
+            "audio_similarity": comparison_result.audio_similarity,
+            "video_differences_count": comparison_result.video_differences_count,
+            "audio_differences_count": comparison_result.audio_differences_count,
+            "report_data": comparison_result.report_data,  # Contains OCR results
+        }
+    
+    # Add video result if exists
+    if video_result:
+        response["video_result"] = {
+            "similarity_score": video_result.similarity_score,
+            "total_frames": video_result.total_frames,
+            "different_frames": video_result.different_frames,
+            "ssim_score": video_result.ssim_score,
+            "histogram_similarity": video_result.histogram_similarity,
+            "algorithm_used": video_result.algorithm_used,
+        }
+    
+    # Add audio result if exists
+    if audio_result:
+        response["audio_result"] = {
+            "similarity_score": audio_result.similarity_score,
+            "spectral_similarity": audio_result.spectral_similarity,
+            "mfcc_similarity": audio_result.mfcc_similarity,
+            "cross_correlation": audio_result.cross_correlation,
+            "sync_offset_ms": audio_result.sync_offset_ms,
+        }
+    
+    # Add differences
+    for diff in differences:
+        response["differences"].append({
+            "timestamp_seconds": diff.timestamp_seconds,
+            "duration_seconds": diff.duration_seconds,
+            "difference_type": diff.difference_type.value,
+            "severity": diff.severity.value,
+            "confidence": diff.confidence,
+            "description": diff.description,
+        })
+    
+    logger.info(f"📊 Returning results for job {job_id}")
+    return response
+
+
+@router.post("/{job_id}/reanalyze")
+async def reanalyze_job(
+    job_id: int,
+    sensitivity_level: str = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-analyze an existing comparison with a different sensitivity level.
+    Creates a new job with the same files but different settings.
+    """
+    from services.comparison_service import get_comparison_service
+    
+    # Get original job
+    original_job = db.query(ComparisonJobModel).filter(
+        ComparisonJobModel.id == job_id
+    ).first()
+    
+    if not original_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Map sensitivity string to enum
+    sensitivity_map = {
+        "low": SensitivityLevel.LOW,
+        "medium": SensitivityLevel.MEDIUM,
+        "high": SensitivityLevel.HIGH,
+    }
+    new_sensitivity = sensitivity_map.get(sensitivity_level.lower())
+    if not new_sensitivity:
+        raise HTTPException(status_code=400, detail=f"Invalid sensitivity level: {sensitivity_level}")
+    
+    # Create new job with same files but new sensitivity
+    new_job = ComparisonJobModel(
+        job_name=f"{original_job.job_name} (re-analyzed: {sensitivity_level})",
+        job_description=f"Re-analysis of job #{job_id} with {sensitivity_level} sensitivity",
+        acceptance_file_id=original_job.acceptance_file_id,
+        emission_file_id=original_job.emission_file_id,
+        comparison_type=original_job.comparison_type,
+        sensitivity_level=new_sensitivity,
+        processing_config=original_job.processing_config,
+        cradle_id=original_job.cradle_id,
+        created_by=original_job.created_by,
+        status=JobStatus.PENDING,
+    )
+    
+    db.add(new_job)
+    db.commit()
+    db.refresh(new_job)
+    
+    logger.info(f"🔄 Created re-analysis job {new_job.id} from job {job_id} with sensitivity {sensitivity_level}")
+    
+    # Start processing in background
+    service = get_comparison_service()
+    background_tasks.add_task(service.process_job, new_job.id)
+    
+    return {
+        "message": "Re-analysis started",
+        "original_job_id": job_id,
+        "new_job_id": new_job.id,
+        "sensitivity_level": sensitivity_level,
+    }

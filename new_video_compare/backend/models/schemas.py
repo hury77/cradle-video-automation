@@ -49,6 +49,13 @@ class ComparisonTypeEnum(str, Enum):
     FULL = "full"
 
 
+class SensitivityLevel(str, Enum):
+    """Sensitivity level for comparison thresholds"""
+    LOW = "low"      # High tolerance - quick check
+    MEDIUM = "medium"  # Recommended - with text detection
+    HIGH = "high"    # Critical QA - near-perfect match
+
+
 # =============================================================================
 # FILE SCHEMAS
 # =============================================================================
@@ -153,6 +160,10 @@ class ComparisonJobCreate(ComparisonJobBase):
 
     acceptance_file_id: int = Field(..., gt=0)
     emission_file_id: int = Field(..., gt=0)
+    sensitivity_level: SensitivityLevel = Field(
+        default=SensitivityLevel.MEDIUM,
+        description="Comparison sensitivity: low (tolerant), medium (recommended), high (strict)"
+    )
     processing_config: Optional[Dict[str, Any]] = None
     created_by: Optional[str] = Field(None, max_length=100)
 
@@ -180,6 +191,7 @@ class ComparisonJobResponse(ComparisonJobBase):
     id: int
     acceptance_file_id: int
     emission_file_id: int
+    sensitivity_level: Optional[SensitivityLevel] = SensitivityLevel.MEDIUM
     status: JobStatusEnum
     progress: float
     error_message: Optional[str] = None

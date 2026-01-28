@@ -5,7 +5,8 @@ Advanced frequency domain analysis for audio comparison
 
 import numpy as np
 from scipy import signal
-from scipy.fft import fft, fftfreq, stft
+from scipy.fft import fft, fftfreq
+from scipy.signal import stft
 from typing import Tuple, Dict, List, Optional, Any
 import logging
 from ..exceptions import VideoProcessingError

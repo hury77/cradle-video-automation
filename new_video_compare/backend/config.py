@@ -108,6 +108,16 @@ class Settings(BaseSettings):
     )
     
     # =============================================================================
+    # COMPARISON SENSITIVITY THRESHOLDS
+    # =============================================================================
+    # Thresholds for each sensitivity level (LOW/MEDIUM/HIGH)
+    # ssim_min: Minimum SSIM score for "match" status
+    # pixel_diff_tolerance: Percentage of different pixels allowed
+    # enable_ocr: Whether to run OCR text detection
+    # ocr_region: Which part of frame to OCR ('none', 'bottom_fifth', 'full_frame')
+    # normalize_quality: Pre-normalize quality before comparison (slower but more accurate)
+    
+    # =============================================================================
     # CELERY SETTINGS
     # =============================================================================
     celery_broker_url: str = Field(default="redis://localhost:6379/1", env="CELERY_BROKER_URL")
@@ -141,5 +151,41 @@ class Settings(BaseSettings):
 # Create global settings instance
 settings = Settings()
 
+# =============================================================================
+# SENSITIVITY THRESHOLDS CONFIGURATION
+# =============================================================================
+# Thresholds for each sensitivity level (LOW/MEDIUM/HIGH)
+SENSITIVITY_THRESHOLDS = {
+    "low": {
+        "ssim_min": 0.85,           # Minimum SSIM for "match"
+        "pixel_diff_tolerance": 0.10,  # 10% different pixels allowed
+        "enable_ocr": False,
+        "ocr_region": "none",
+        "normalize_quality": False,
+        "description": "Quick check, high tolerance"
+    },
+    "medium": {
+        "ssim_min": 0.92,           # Recommended threshold
+        "pixel_diff_tolerance": 0.05,  # 5% different pixels allowed
+        "enable_ocr": True,
+        "ocr_region": "bottom_fifth",  # Focus on legal text at bottom
+        "normalize_quality": False,
+        "description": "Recommended, with text detection"
+    },
+    "high": {
+        "ssim_min": 0.98,           # Strict threshold
+        "pixel_diff_tolerance": 0.01,  # 1% different pixels allowed  
+        "enable_ocr": True,
+        "ocr_region": "full_frame",    # OCR entire frame
+        "normalize_quality": True,     # Normalize quality before comparison
+        "enable_source_separation": True,  # Demucs source separation + voiceover comparison
+        "description": "Critical QA, near-perfect match required"
+    }
+}
+
+def get_sensitivity_config(level: str) -> dict:
+    """Get threshold configuration for a sensitivity level"""
+    return SENSITIVITY_THRESHOLDS.get(level.lower(), SENSITIVITY_THRESHOLDS["medium"])
+
 # Export for easy import
-__all__ = ["settings", "Settings"]
+__all__ = ["settings", "Settings", "SENSITIVITY_THRESHOLDS", "get_sensitivity_config"]

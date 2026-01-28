@@ -19,13 +19,23 @@ from config import settings
 # Database URL from config
 DATABASE_URL = settings.database_url
 
+# SQLite requires special handling
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
 # Create SQLAlchemy engine
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    echo=settings.debug  # Log SQL queries in debug mode
-)
+if is_sqlite:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},  # SQLite specific
+        echo=settings.debug
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        echo=settings.debug
+    )
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

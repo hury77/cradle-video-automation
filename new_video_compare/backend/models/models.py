@@ -67,6 +67,14 @@ class ComparisonType(enum.Enum):
     FULL = "full"  # Both video and audio
 
 
+class SensitivityLevel(enum.Enum):
+    """Sensitivity level for comparison thresholds"""
+    
+    LOW = "low"      # High tolerance - quick check, SSIM >= 0.85
+    MEDIUM = "medium"  # Recommended with OCR - SSIM >= 0.92
+    HIGH = "high"    # Critical QA - SSIM >= 0.98
+
+
 class DifferenceType(enum.Enum):
     """Types of differences found in comparison"""
 
@@ -179,6 +187,9 @@ class ComparisonJob(Base):
     # Job configuration
     comparison_type = Column(
         Enum(ComparisonType), nullable=False, default=ComparisonType.FULL
+    )
+    sensitivity_level = Column(
+        Enum(SensitivityLevel), nullable=False, default=SensitivityLevel.MEDIUM
     )
 
     # Processing settings (JSON for flexibility)

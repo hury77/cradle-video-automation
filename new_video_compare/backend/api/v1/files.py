@@ -91,13 +91,16 @@ def is_allowed_file(filename: str) -> bool:
     ext = Path(filename).suffix.lower()
     return ext in allowed_extensions
 
+import subprocess
+import json
+
 async def process_file_metadata(file_path: Path) -> dict:
-    """Extract file metadata (basic version, will be enhanced later)"""
+    """Extract file metadata using FFprobe for immediate validation"""
     try:
         stat = file_path.stat()
-        return {
+        metadata = {
             "file_size": stat.st_size,
-            "duration": None,  # Will be extracted with FFmpeg later
+            "duration": None,
             "width": None,
             "height": None,
             "fps": None,
@@ -108,6 +111,77 @@ async def process_file_metadata(file_path: Path) -> dict:
             "audio_bitrate": None,
             "audio_codec": None,
         }
+        
+        # Run FFprobe to get detailed metadata
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            str(file_path)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            logger.warning(f"FFprobe failed for {file_path}: {result.stderr}")
+            return metadata
+        
+        probe_data = json.loads(result.stdout)
+        
+        # Extract format-level metadata
+        if "format" in probe_data:
+            fmt = probe_data["format"]
+            if "duration" in fmt:
+                metadata["duration"] = float(fmt["duration"])
+            if "bit_rate" in fmt:
+                metadata["bitrate"] = int(fmt["bit_rate"])
+        
+        # Extract stream-level metadata
+        for stream in probe_data.get("streams", []):
+            codec_type = stream.get("codec_type")
+            
+            if codec_type == "video":
+                # Video stream info
+                metadata["width"] = stream.get("width")
+                metadata["height"] = stream.get("height")
+                metadata["codec"] = stream.get("codec_name")
+                
+                # Calculate FPS from frame rate
+                if "r_frame_rate" in stream:
+                    try:
+                        num, den = map(int, stream["r_frame_rate"].split("/"))
+                        if den > 0:
+                            metadata["fps"] = round(num / den, 2)
+                    except (ValueError, ZeroDivisionError):
+                        pass
+                        
+            elif codec_type == "audio":
+                # Audio stream info
+                metadata["audio_codec"] = stream.get("codec_name")
+                metadata["audio_channels"] = stream.get("channels")
+                metadata["audio_sample_rate"] = int(stream.get("sample_rate", 0)) or None
+                if "bit_rate" in stream:
+                    metadata["audio_bitrate"] = int(stream["bit_rate"])
+        
+        logger.info(f"📊 Extracted metadata: duration={metadata['duration']:.2f}s, " +
+                   f"resolution={metadata['width']}x{metadata['height']}, " +
+                   f"fps={metadata['fps']}, codec={metadata['codec']}")
+        
+        return metadata
+        
+    except subprocess.TimeoutExpired:
+        logger.error(f"FFprobe timeout for {file_path}")
+        return {"file_size": file_path.stat().st_size}
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse FFprobe output for {file_path}: {e}")
+        return {"file_size": file_path.stat().st_size}
     except Exception as e:
         logger.error(f"Error extracting metadata from {file_path}: {e}")
         return {"file_size": 0}
@@ -351,3 +425,201 @@ async def get_file_stats(db: Session = Depends(get_db)):
         "upload_dir": str(settings.upload_dir),
         "upload_dir_size_mb": sum(f.stat().st_size for f in settings.upload_dir.glob("*") if f.is_file()) / 1024 / 1024
     }
+
+
+# =============================================================================
+# VIDEO STREAMING ENDPOINT WITH AUTO-TRANSCODING
+# =============================================================================
+
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+import subprocess
+
+# Web-compatible codecs that browsers can play natively
+WEB_COMPATIBLE_CODECS = {"h264", "h265", "hevc", "vp8", "vp9", "av1"}
+
+def needs_transcoding(file_record) -> bool:
+    """Check if file needs transcoding for web playback"""
+    codec = (file_record.codec or "").lower()
+    
+    # Handle FileFormat enum - get string value
+    file_format_obj = file_record.file_format
+    if file_format_obj:
+        file_format = file_format_obj.value.lower() if hasattr(file_format_obj, 'value') else str(file_format_obj).lower()
+    else:
+        file_format = ""
+    
+    # ProRes, DNxHD, and similar professional codecs need transcoding
+    if codec in ["prores", "dnxhd", "dnxhr", "mpeg2video", "rawvideo"]:
+        return True
+    
+    # MOV files with non-H264 codecs need transcoding
+    if file_format == "mov" and codec not in WEB_COMPATIBLE_CODECS:
+        return True
+    
+    # If codec is unknown but format is MOV, assume it needs transcoding
+    if file_format == "mov" and not codec:
+        return True
+        
+    return False
+
+def get_proxy_path(original_path: Path) -> Path:
+    """Get path for transcoded proxy file"""
+    proxy_dir = settings.upload_dir / "proxies"
+    proxy_dir.mkdir(exist_ok=True)
+    return proxy_dir / f"{original_path.stem}_proxy.mp4"
+
+def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
+    """Transcode video to web-compatible H.264 MP4"""
+    if output_path.exists():
+        logger.info(f"✅ Proxy already exists: {output_path}")
+        return True
+    
+    logger.info(f"🔄 Transcoding {input_path.name} to web-compatible MP4...")
+    
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(input_path),
+        "-c:v", "libx264",           # H.264 codec
+        "-preset", "fast",            # Fast encoding
+        "-crf", "23",                # Good quality
+        "-c:a", "aac",               # AAC audio
+        "-b:a", "128k",              # Audio bitrate
+        "-movflags", "+faststart",   # Enable fast web playback
+        "-pix_fmt", "yuv420p",       # Compatible pixel format
+        str(output_path)
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 min timeout
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"✅ Transcoding complete: {output_path}")
+            return True
+        else:
+            logger.error(f"❌ Transcoding failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"❌ Transcoding timeout for {input_path}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Transcoding error: {e}")
+        return False
+
+
+@router.get("/stream/{file_id}")
+async def stream_video(
+    file_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Stream a video file with Range request support for seeking.
+    Automatically transcodes ProRes/MOV to H.264 MP4 for web playback.
+    
+    - **file_id**: ID of the file to stream
+    """
+    # Get file from database
+    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Get file path
+    file_path = Path(file_record.file_path)
+    if not file_path.is_absolute():
+        file_path = settings.upload_dir / file_record.filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    
+    # Check if transcoding is needed
+    if needs_transcoding(file_record):
+        proxy_path = get_proxy_path(file_path)
+        
+        if not proxy_path.exists():
+            # Transcode synchronously (for now - could be async in production)
+            success = transcode_to_mp4(file_path, proxy_path)
+            if not success:
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to transcode video for web playback"
+                )
+        
+        # Use proxy for streaming
+        file_path = proxy_path
+        content_type = "video/mp4"
+    else:
+        # Use original file
+        content_type_map = {
+            "mp4": "video/mp4",
+            "mov": "video/quicktime",
+            "avi": "video/x-msvideo",
+            "mkv": "video/x-matroska",
+            "webm": "video/webm",
+        }
+        ext = file_path.suffix.lower().lstrip(".")
+        content_type = content_type_map.get(ext, "video/mp4")
+    
+    file_size = file_path.stat().st_size
+    
+    # Handle Range requests for seeking
+    range_header = request.headers.get("range")
+    
+    if range_header:
+        # Parse range header
+        range_match = range_header.replace("bytes=", "").split("-")
+        start = int(range_match[0])
+        end = int(range_match[1]) if range_match[1] else file_size - 1
+        
+        # Limit chunk size
+        chunk_size = min(end - start + 1, 1024 * 1024 * 10)  # 10MB max chunk
+        end = start + chunk_size - 1
+        
+        def iterfile():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = f.read(min(8192, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+        
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(end - start + 1),
+            "Content-Type": content_type,
+        }
+        
+        return StreamingResponse(
+            iterfile(),
+            status_code=206,
+            headers=headers,
+            media_type=content_type,
+        )
+    else:
+        # Full file response
+        def iterfile():
+            with open(file_path, "rb") as f:
+                while chunk := f.read(8192):
+                    yield chunk
+        
+        headers = {
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+        }
+        
+        return StreamingResponse(
+            iterfile(),
+            headers=headers,
+            media_type=content_type,
+        )
+
