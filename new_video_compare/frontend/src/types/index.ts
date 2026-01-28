@@ -1,10 +1,23 @@
 // frontend/src/types/index.ts
+export interface FileInfo {
+  id: number;
+  filename: string;
+  original_name?: string;
+  file_type: string;
+  duration?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+
 export interface ComparisonJob {
   id: number;
   job_name: string;
   cradle_id: string;
   acceptance_file_id: number;
   emission_file_id: number;
+  acceptance_file?: FileInfo;
+  emission_file?: FileInfo;
+  sensitivity_level?: "low" | "medium" | "high";
   status: "pending" | "processing" | "completed" | "failed";
   created_at: string;
   updated_at: string;
