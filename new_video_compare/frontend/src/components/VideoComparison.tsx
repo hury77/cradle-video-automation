@@ -9,6 +9,7 @@ import {
   ChartBarSquareIcon,
   DocumentChartBarIcon,
   ForwardIcon,
+  ClockIcon,
 } from "@heroicons/react/24/outline";
 
 interface VideoComparisonProps {
@@ -276,14 +277,12 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
   const handleAcceptanceVolumeChange = (newVolume: number) => {
     setAcceptanceVolume(newVolume);
-    if (newVolume === 0) setIsMuted(true);
-    else if (isMuted) setIsMuted(false); // Unmute if volume is increased from 0
+    if (isMuted && newVolume > 0) setIsMuted(false); // Unmute if volume is increased
   };
 
   const handleEmissionVolumeChange = (newVolume: number) => {
     setEmissionVolume(newVolume);
-    if (newVolume === 0) setIsMuted(true);
-    else if (isMuted) setIsMuted(false); // Unmute if volume is increased from 0
+    if (isMuted && newVolume > 0) setIsMuted(false); // Unmute if volume is increased
   };
 
   const toggleMute = () => {
@@ -425,11 +424,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 type="range"
                 min="0"
                 max="1"
-                step="0.1"
+                step="0.01"
                 value={isMuted ? 0 : acceptanceVolume}
                 onChange={(e) => handleAcceptanceVolumeChange(Number(e.target.value))}
                 className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-green-600"
               />
+              <span className="text-xs text-gray-500 w-8 tabular-nums font-medium">
+                {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
+              </span>
             </div>
           </div>
 
@@ -502,11 +504,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 type="range"
                 min="0"
                 max="1"
-                step="0.1"
+                step="0.01"
                 value={isMuted ? 0 : emissionVolume}
                 onChange={(e) => handleEmissionVolumeChange(Number(e.target.value))}
                 className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-red-600"
               />
+              <span className="text-xs text-gray-500 w-8 tabular-nums font-medium">
+                {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
+              </span>
             </div>
           </div>
         </div>
@@ -514,20 +519,20 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
         {/* Synchronized Video Controls */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 flex-grow">
+            <div className="flex items-start space-x-4 flex-grow relative top-1">
               <button
                 onClick={togglePlayPause}
-                className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors flex-shrink-0"
+                className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex-shrink-0"
               >
                 {isPlaying ? (
                   <PauseIcon className="w-6 h-6" />
                 ) : (
-                  <PlayIcon className="w-6 h-6" />
+                  <PlayIcon className="w-6 h-6 ml-1" />
                 )}
               </button>
 
               <div className="flex items-center space-x-2 flex-grow mx-4">
-                <span className="text-sm text-gray-600 w-12 text-right">
+                <span className="text-sm text-gray-600 w-12 text-right font-mono">
                   {formatTime(currentTime)}
                 </span>
                 
@@ -593,7 +598,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   </div>
                 </div>
 
-                <span className="text-sm text-gray-600 w-12">
+                <span className="text-sm text-gray-600 w-12 font-mono">
                   {formatTime(duration)}
                 </span>
               </div>
@@ -815,14 +820,34 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                                 {text}
                               </div>
                             ))}
-                            {/* Only in Acceptance - highlighted green */}
-                            {ocr.only_in_acceptance.map((text, i) => (
+                            {/* Differences mapping from report_data.ocr.differences */}
+                            {ocr.differences && ocr.differences.filter(d => d.source === 'acceptance').map((diff, i) => (
+                              <div 
+                                key={`diff-a-${i}`} 
+                                className="mb-2 p-2 bg-green-100 rounded border-2 border-green-400 text-sm text-green-800 font-medium group cursor-pointer hover:bg-green-200 transition-colors"
+                                onClick={() => handleSeek(diff.timestamp)}
+                                title="Click to jump to timestamp"
+                              >
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs bg-green-500 text-white px-1 py-0.5 rounded">UNIQUE</span>
+                                  <span className="text-xs font-mono text-green-700 flex items-center">
+                                    <ClockIcon className="w-3 h-3 mr-1" />
+                                    {formatTime(diff.timestamp)}
+                                  </span>
+                                </div>
+                                {diff.text}
+                              </div>
+                            ))}
+                            
+                            {/* Fallback for legacy data without differences array */}
+                            {!ocr.differences && ocr.only_in_acceptance.map((text, i) => (
                               <div key={`only-a-${i}`} className="mb-2 p-2 bg-green-100 rounded border-2 border-green-400 text-sm text-green-800 font-medium">
                                 <span className="text-xs bg-green-500 text-white px-1 py-0.5 rounded mr-2">UNIQUE</span>
                                 {text}
                               </div>
                             ))}
-                            {ocr.common_texts.length === 0 && ocr.only_in_acceptance.length === 0 && (
+
+                            {ocr.common_texts.length === 0 && (!ocr.differences || ocr.differences.filter(d => d.source === 'acceptance').length === 0) && ocr.only_in_acceptance.length === 0 && (
                               <p className="text-gray-400 text-sm italic">Brak wykrytych tekstów</p>
                             )}
                           </div>
@@ -840,14 +865,34 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                                 {text}
                               </div>
                             ))}
-                            {/* Only in Emission - highlighted red */}
-                            {ocr.only_in_emission.map((text, i) => (
+                            {/* Differences mapping */}
+                            {ocr.differences && ocr.differences.filter(d => d.source === 'emission').map((diff, i) => (
+                              <div 
+                                key={`diff-e-${i}`} 
+                                className="mb-2 p-2 bg-red-100 rounded border-2 border-red-400 text-sm text-red-800 font-medium group cursor-pointer hover:bg-red-200 transition-colors"
+                                onClick={() => handleSeek(diff.timestamp)}
+                                title="Click to jump to timestamp"
+                              >
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs bg-red-500 text-white px-1 py-0.5 rounded">UNIQUE</span>
+                                  <span className="text-xs font-mono text-red-700 flex items-center">
+                                    <ClockIcon className="w-3 h-3 mr-1" />
+                                    {formatTime(diff.timestamp)}
+                                  </span>
+                                </div>
+                                {diff.text}
+                              </div>
+                            ))}
+
+                            {/* Fallback */}
+                            {!ocr.differences && ocr.only_in_emission.map((text, i) => (
                               <div key={`only-e-${i}`} className="mb-2 p-2 bg-red-100 rounded border-2 border-red-400 text-sm text-red-800 font-medium">
                                 <span className="text-xs bg-red-500 text-white px-1 py-0.5 rounded mr-2">UNIQUE</span>
                                 {text}
                               </div>
                             ))}
-                            {ocr.common_texts.length === 0 && ocr.only_in_emission.length === 0 && (
+
+                            {ocr.common_texts.length === 0 && (!ocr.differences || ocr.differences.filter(d => d.source === 'emission').length === 0) && ocr.only_in_emission.length === 0 && (
                               <p className="text-gray-400 text-sm italic">Brak wykrytych tekstów</p>
                             )}
                           </div>

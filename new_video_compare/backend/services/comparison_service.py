@@ -127,11 +127,17 @@ class ComparisonService:
                 db.commit()
                 
                 try:
+                    # Prepare OCR languages
+                    ocr_langs = None
+                    if processing_config.get("ocr_language"):
+                        ocr_langs = ['en', processing_config["ocr_language"]]
+
                     ocr_result = compare_video_texts(
                         acceptance_path=acceptance_path,
                         emission_path=emission_path,
                         region=sensitivity_config.get("ocr_region", "bottom_fifth"),
-                        sample_interval=2.0  # Every 2 seconds
+                        sample_interval=2.0,  # Every 2 seconds
+                        languages=ocr_langs
                     )
                     results["ocr_result"] = ocr_result
                     

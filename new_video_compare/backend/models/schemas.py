@@ -164,6 +164,7 @@ class ComparisonJobCreate(ComparisonJobBase):
         default=SensitivityLevel.MEDIUM,
         description="Comparison sensitivity: low (tolerant), medium (recommended), high (strict)"
     )
+    ocr_language: Optional[str] = Field(None, description="Language for OCR (e.g. 'pl', 'de')")
     processing_config: Optional[Dict[str, Any]] = None
     created_by: Optional[str] = Field(None, max_length=100)
 

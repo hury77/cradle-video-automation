@@ -151,6 +151,11 @@ async def create_comparison_job(
         sensitivity_value = job_data.sensitivity_level.value.upper()  # "medium" -> "MEDIUM"
         sensitivity_enum = SensitivityLevel[sensitivity_value]  # Get by name
         
+        # Prepare processing config with OCR language
+        proc_config = job_data.processing_config or {}
+        if job_data.ocr_language:
+            proc_config["ocr_language"] = job_data.ocr_language
+
         comparison_job = ComparisonJobModel(
             job_name=job_data.job_name,
             job_description=job_data.job_description,
@@ -158,7 +163,7 @@ async def create_comparison_job(
             emission_file_id=job_data.emission_file_id,
             comparison_type=ComparisonType(job_data.comparison_type.value),
             sensitivity_level=sensitivity_enum,
-            processing_config=job_data.processing_config,
+            processing_config=proc_config,
             cradle_id=job_data.cradle_id,
             created_by=job_data.created_by,
             status=JobStatus.PENDING,
@@ -221,7 +226,7 @@ async def list_comparison_jobs(
             ComparisonJobModel.comparison_type == ComparisonType(comparison_type.value)
         )
 
-    jobs = query.offset(skip).limit(limit).all()
+    jobs = query.order_by(ComparisonJobModel.created_at.desc()).offset(skip).limit(limit).all()
     return jobs
 
 
