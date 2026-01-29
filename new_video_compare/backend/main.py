@@ -46,10 +46,12 @@ app.add_middleware(
 from api.v1.compare import router as compare_router
 from api.v1.websocket import router as websocket_router
 from api.v1.files import router as files_router
+from api.v1.dashboard import router as dashboard_router
 # Dołącz routery
 app.include_router(compare_router, prefix="/api/v1", tags=["comparison"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(files_router, prefix="/api/v1/files", tags=["files"])
+app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 
 @app.get("/")
 async def root():
