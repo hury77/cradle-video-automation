@@ -675,3 +675,66 @@ async def reanalyze_job(
         "new_job_id": new_job.id,
         "sensitivity_level": sensitivity_level,
     }
+
+
+@router.post("/{job_id}/cancel", response_model=ComparisonJobResponse)
+async def cancel_comparison_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """Cancel a running comparison job"""
+    job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+        raise HTTPException(status_code=400, detail="Job is not in a cancellable state")
+
+    job.status = JobStatus.CANCELLED
+    job.error_message = "Cancelled by user"
+    job.completed_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(job)
+    
+    return job
+
+
+@router.post("/{job_id}/retry", response_model=ComparisonJobResponse)
+async def retry_comparison_job(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Retry a failed or cancelled comparison job"""
+    job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Check if files still exist
+    try:
+        validate_files_for_comparison(job.acceptance_file, job.emission_file)
+    except HTTPException as e:
+        raise HTTPException(status_code=400, detail=f"Cannot retry job (files missing): {e.detail}")
+
+    # Reset job state
+    job.status = JobStatus.PENDING
+    job.error_message = None
+    job.progress = 0.0
+    job.started_at = None
+    job.completed_at = None
+    job.processing_duration = None
+    
+    # Clear previous results
+    job.video_result = None
+    job.audio_result = None
+    job.differences = []
+    job.results = []
+    
+    db.commit()
+    db.refresh(job)
+    
+    # Start processing in background
+    background_tasks.add_task(start_comparison_processing, job.id)
+    
+    return job

@@ -76,7 +76,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Navigation Header */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
+      <nav className="bg-white shadow-sm border-b border-gray-200 print:hidden">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -190,7 +190,10 @@ function App() {
                 </ol>
               </nav>
             </div>
-            <VideoComparison job={selectedJob} />
+            <VideoComparison 
+              job={selectedJob} 
+              onJobReanalyzed={() => setSelectedJob(null)}
+            />
           </div>
         ) : (
           <Dashboard onSelectJob={setSelectedJob} />

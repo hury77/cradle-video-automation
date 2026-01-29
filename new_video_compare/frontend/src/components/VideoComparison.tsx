@@ -13,6 +13,7 @@ import {
 
 interface VideoComparisonProps {
   job: ComparisonJob;
+  onJobReanalyzed?: () => void;
 }
 
 interface ApiResults {
@@ -126,11 +127,12 @@ interface ApiResults {
   }>;
 }
 
-const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
+const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
+  const [acceptanceVolume, setAcceptanceVolume] = useState(1);
+  const [emissionVolume, setEmissionVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -259,15 +261,29 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
     setIsPlaying(false);
   };
 
-  const handleVolumeChange = (newVolume: number) => {
-    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
-    videos.forEach((video) => {
-      if (video) {
-        video.volume = newVolume;
-      }
-    });
-    setVolume(newVolume);
-    setIsMuted(newVolume === 0);
+  // Sync volume
+  useEffect(() => {
+    if (acceptanceVideoRef.current) {
+      acceptanceVideoRef.current.volume = isMuted ? 0 : acceptanceVolume;
+    }
+  }, [acceptanceVolume, isMuted]);
+
+  useEffect(() => {
+    if (emissionVideoRef.current) {
+      emissionVideoRef.current.volume = isMuted ? 0 : emissionVolume;
+    }
+  }, [emissionVolume, isMuted]);
+
+  const handleAcceptanceVolumeChange = (newVolume: number) => {
+    setAcceptanceVolume(newVolume);
+    if (newVolume === 0) setIsMuted(true);
+    else if (isMuted) setIsMuted(false); // Unmute if volume is increased from 0
+  };
+
+  const handleEmissionVolumeChange = (newVolume: number) => {
+    setEmissionVolume(newVolume);
+    if (newVolume === 0) setIsMuted(true);
+    else if (isMuted) setIsMuted(false); // Unmute if volume is increased from 0
   };
 
   const toggleMute = () => {
@@ -354,6 +370,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 </div>
                 <p className="text-xs text-gray-600 mt-1 break-all leading-tight" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
                   {job.acceptance_file?.original_name || job.acceptance_file?.filename || 'Loading...'}
+                  {job.acceptance_file?.width && job.acceptance_file?.height && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                      {job.acceptance_file.width}x{job.acceptance_file.height}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -397,6 +418,19 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 />
               </div>
             </div>
+            {/* Acceptance Volume Control */}
+            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center space-x-2">
+              <SpeakerWaveIcon className="w-4 h-4 text-gray-500" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={isMuted ? 0 : acceptanceVolume}
+                onChange={(e) => handleAcceptanceVolumeChange(Number(e.target.value))}
+                className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-green-600"
+              />
+            </div>
           </div>
 
           {/* Emission Video */}
@@ -413,6 +447,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 </div>
                 <p className="text-xs text-gray-600 mt-1 break-all leading-tight" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
                   {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
+                  {job.emission_file?.width && job.emission_file?.height && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                      {job.emission_file.width}x{job.emission_file.height}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -456,16 +495,29 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 />
               </div>
             </div>
+            {/* Emission Volume Control */}
+            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center space-x-2">
+              <SpeakerWaveIcon className="w-4 h-4 text-gray-500" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={isMuted ? 0 : emissionVolume}
+                onChange={(e) => handleEmissionVolumeChange(Number(e.target.value))}
+                className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-red-600"
+              />
+            </div>
           </div>
         </div>
 
         {/* Synchronized Video Controls */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4 flex-grow">
               <button
                 onClick={togglePlayPause}
-                className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors flex-shrink-0"
               >
                 {isPlaying ? (
                   <PauseIcon className="w-6 h-6" />
@@ -474,108 +526,115 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 )}
               </button>
 
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600 w-12">
+              <div className="flex items-center space-x-2 flex-grow mx-4">
+                <span className="text-sm text-gray-600 w-12 text-right">
                   {formatTime(currentTime)}
                 </span>
-                {/* Enhanced Timeline with Difference Markers */}
-                <div className="w-64 relative">
+                
+                <div className="flex-grow flex flex-col">
+                  {/* Main Slider */}
                   <input
                     type="range"
                     min="0"
                     max={duration || 100}
                     value={currentTime}
                     onChange={(e) => handleSeek(Number(e.target.value))}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500 relative z-10"
+                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
                   />
-                  {/* Video Difference Markers (RED) */}
-                  {duration > 0 && differences.map((diff, index) => {
-                    const position = (diff.timestamp_seconds / duration) * 100;
-                    return (
-                      <button
-                        key={`video-${index}`}
-                        onClick={() => {
-                          jumpToDifference(diff.timestamp_seconds);
-                          setSelectedDifference(diff);
-                        }}
-                        className="absolute top-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow-md hover:scale-125 transition-transform z-20 cursor-pointer"
-                        style={{ left: `calc(${position}% - 6px)`, top: '-2px' }}
-                        title={`🎬 ${formatTime(diff.timestamp_seconds)} - ${diff.difference_type}`}
-                      />
-                    );
-                  })}
-                  {/* OCR Text Difference Markers (AMBER) */}
-                  {duration > 0 && results?.overall_result?.report_data?.ocr?.differences?.map((ocrDiff, index) => {
-                    const position = (ocrDiff.timestamp / duration) * 100;
-                    return (
-                      <button
-                        key={`ocr-${index}`}
-                        onClick={() => {
-                          jumpToDifference(ocrDiff.timestamp);
-                          // Scroll to OCR section
-                          document.getElementById('ocr-results-section')?.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                        className="absolute top-0 w-3 h-3 bg-amber-500 rounded-full border-2 border-white shadow-md hover:scale-125 transition-transform z-20 cursor-pointer"
-                        style={{ left: `calc(${position}% - 6px)`, top: '-2px' }}
-                        title={`🔤 OCR @ ${formatTime(ocrDiff.timestamp)} - ${ocrDiff.text.substring(0, 30)}...`}
-                      />
-                    );
-                  })}
+                  
+                  {/* Difference Tracks Container */}
+                  <div className="mt-4 space-y-3 w-full">
+                    
+                    {/* 1. VIDEO Differences Track (RED) */}
+                    <div className="relative h-4 w-full bg-red-50 rounded border border-red-100 flex items-center">
+                      <span className="absolute -left-16 text-xs font-bold text-red-600 uppercase w-14 text-right">Video</span>
+                      {duration > 0 && differences.map((diff, index) => {
+                        const position = (diff.timestamp_seconds / duration) * 100;
+                        return (
+                          <button
+                            key={`video-${index}`}
+                            onClick={() => {
+                              jumpToDifference(diff.timestamp_seconds);
+                              setSelectedDifference(diff);
+                            }}
+                            className="absolute w-2.5 h-2.5 bg-red-500 rounded-full hover:scale-150 transition-transform cursor-pointer shadow-sm"
+                            style={{ left: `calc(${position}% - 5px)` }}
+                            title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* 2. OCR Differences Track (AMBER) */}
+                    <div className="relative h-4 w-full bg-amber-50 rounded border border-amber-100 flex items-center">
+                      <span className="absolute -left-16 text-xs font-bold text-amber-600 uppercase w-14 text-right">OCR</span>
+                      {duration > 0 && results?.overall_result?.report_data?.ocr?.differences?.map((ocrDiff, index) => {
+                        const position = (ocrDiff.timestamp / duration) * 100;
+                        return (
+                          <button
+                            key={`ocr-${index}`}
+                            onClick={() => {
+                              jumpToDifference(ocrDiff.timestamp);
+                              document.getElementById('ocr-results-section')?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="absolute w-2.5 h-2.5 bg-amber-500 rounded-full hover:scale-150 transition-transform cursor-pointer shadow-sm"
+                            style={{ left: `calc(${position}% - 5px)` }}
+                            title={`🔤 OCR Diff: ${formatTime(ocrDiff.timestamp)}`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* 3. AUDIO Differences Track (BLUE) - Placeholder for now */}
+                    <div className="relative h-4 w-full bg-blue-50 rounded border border-blue-100 flex items-center">
+                      <span className="absolute -left-16 text-xs font-bold text-blue-600 uppercase w-14 text-right">Audio</span>
+                      {/* Placeholder markers or if we had timestamps */}
+                    </div>
+                  </div>
                 </div>
+
                 <span className="text-sm text-gray-600 w-12">
                   {formatTime(duration)}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={toggleMute}
-                  className="p-2 text-gray-600 hover:text-gray-800 focus:outline-none rounded-lg transition-colors"
-                >
-                  {isMuted ? (
-                    <SpeakerXMarkIcon className="w-5 h-5" />
-                  ) : (
-                    <SpeakerWaveIcon className="w-5 h-5" />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  className="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
+            <div className="flex items-center space-x-2 ml-4 flex-shrink-0">
+              <button
+                onClick={toggleMute}
+                className={`p-2 rounded-lg transition-colors ${isMuted ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                title="Global Mute"
+              >
+                {isMuted ? (
+                  <SpeakerXMarkIcon className="w-5 h-5" />
+                ) : (
+                  <SpeakerWaveIcon className="w-5 h-5" />
+                )}
+              </button>
             </div>
           </div>
 
           {/* Timeline Legend */}
-          {(differences.length > 0 || results?.overall_result?.report_data?.ocr?.differences?.length) && (
-            <div className="flex items-center justify-center gap-4 text-xs text-gray-500 mt-2">
-              {differences.length > 0 && (
-                <div className="flex items-center">
-                  <div className="w-2.5 h-2.5 bg-red-500 rounded-full mr-1"></div>
-                  Różnica video
-                </div>
-              )}
-              {(results?.overall_result?.report_data?.ocr?.differences?.length ?? 0) > 0 && (
-                <div className="flex items-center">
-                  <div className="w-2.5 h-2.5 bg-amber-500 rounded-full mr-1"></div>
-                  Różnica OCR
-                </div>
-              )}
+          <div className="flex items-center justify-center gap-6 text-xs text-gray-500 mt-6">
+            <div className="flex items-center">
+              <div className="w-2.5 h-2.5 bg-red-500 rounded-full mr-2"></div>
+              Różnice Video
             </div>
-          )}
+            <div className="flex items-center">
+              <div className="w-2.5 h-2.5 bg-amber-500 rounded-full mr-2"></div>
+              Różnice OCR
+            </div>
+            <div className="flex items-center">
+              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full mr-2"></div>
+              Różnice Audio
+            </div>
+          </div>
 
           {/* Difference Jump Buttons */}
           {differences.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="text-sm font-medium text-gray-700 mb-2">
-                Jump to difference:
+             <div className="mt-4 pt-4 border-t border-gray-200">
+               <p className="text-sm font-medium text-gray-700 mb-2">
+                Szybki skok do różnicy:
               </p>
               <div className="flex flex-wrap gap-2">
                 {differences.slice(0, 10).map((diff, index) => (
@@ -608,8 +667,21 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                 {loading && <span className="ml-2 text-gray-500">(Loading...)</span>}
               </div>
               
+              <div className="flex items-center">
+                 {/* Print Button - visible on screen, hidden on print */}
+                 <button 
+                    onClick={() => window.print()} 
+                    className="flex items-center space-x-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 print:hidden mr-4 shadow-sm"
+                 >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    <span>Export PDF</span>
+                 </button>
+              </div>
+
               {/* Re-analyze dropdown with current level indicator */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 print:hidden">
                 <span className="text-sm text-gray-500">
                   Current: <span className="font-semibold capitalize">{job.sensitivity_level || "medium"}</span>
                 </span>
@@ -631,13 +703,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                             { method: "POST", body: formData }
                           );
                           if (response.ok) {
-                            // Auto-reload page to show new job in list
+                            // Reload to reset app state and show list
                             window.location.reload();
                           } else {
-                            console.error("Failed to start re-analysis");
+                            const errText = await response.text();
+                            console.error("Failed to start re-analysis", errText);
+                            alert("Failed to start re-analysis: " + errText);
                           }
                         } catch (err) {
-                          console.error("Error:", err);
+                          console.error("Error in re-analysis:", err);
+                          alert("Error starting re-analysis. Check console.");
                         } finally {
                           setReanalyzing(false);
                         }

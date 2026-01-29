@@ -18,9 +18,12 @@ export interface ComparisonJob {
   acceptance_file?: FileInfo;
   emission_file?: FileInfo;
   sensitivity_level?: "low" | "medium" | "high";
-  status: "pending" | "processing" | "completed" | "failed";
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled";
   created_at: string;
   updated_at: string;
+  processing_duration?: number; // seconds
+  started_at?: string;
+  completed_at?: string;
   results?: any;
 }
 

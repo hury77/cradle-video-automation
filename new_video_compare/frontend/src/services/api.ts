@@ -121,8 +121,20 @@ class CompareAPI {
       method: "POST",
     });
     if (!response.ok) {
-      throw new Error("Failed to cancel job");
+      const errorData = await response.json().catch(() => null); // Try to get error details
+      throw new Error(errorData?.detail || "Failed to cancel job");
     }
+  }
+
+  async retryJob(jobId: number): Promise<ComparisonJob> {
+    const response = await fetch(`${API_BASE_URL}/compare/${jobId}/retry`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+       const errorData = await response.json().catch(() => null);
+       throw new Error(errorData?.detail || "Failed to retry job");
+    }
+    return response.json();
   }
 
   async deleteJob(jobId: number): Promise<void> {

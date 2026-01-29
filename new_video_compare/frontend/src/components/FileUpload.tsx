@@ -1,5 +1,5 @@
 // frontend/src/components/FileUpload.tsx
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   CloudArrowUpIcon,
   FilmIcon,
@@ -101,6 +101,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
     e.stopPropagation();
     setIsDragging(false);
   }, []);
+
+  // Auto-fill Job Name from Acceptance File
+  useEffect(() => {
+    if (acceptanceFile && !jobName) {
+      // Take first 13 chars of filename (without extension if possible, or just raw string)
+      const name = acceptanceFile.filename;
+      // Simple logic: first 13 chars.
+      setJobName(name.substring(0, 13));
+    }
+  }, [acceptanceFile, jobName]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();

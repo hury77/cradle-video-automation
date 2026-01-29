@@ -237,6 +237,25 @@ class ComparisonService:
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now(timezone.utc)
             job.progress = 100.0
+            
+            # Calculate duration
+            if job.started_at:
+                try:
+                    start = job.started_at
+                    end = job.completed_at
+                    
+                    # Handle potential timezone mismatch (SQLite often returns naive datetimes)
+                    if start and end:
+                        if start.tzinfo is not None and end.tzinfo is None:
+                            start = start.replace(tzinfo=None)
+                        elif start.tzinfo is None and end.tzinfo is not None:
+                            end = end.replace(tzinfo=None)
+                            
+                        duration = (end - start).total_seconds()
+                        job.processing_duration = duration
+                except Exception as e:
+                    logger.error(f"Error calculating duration: {e}")
+            
             db.commit()
 
             logger.info(f"✅ Comparison job {job_id} completed successfully")

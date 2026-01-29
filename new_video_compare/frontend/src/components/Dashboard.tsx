@@ -116,6 +116,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
     }
   };
 
+  const handleRetryJob = async (jobId: number) => {
+    try {
+      await compareApi.retryJob(jobId);
+      fetchJobs();
+    } catch (error) {
+      console.error("Failed to retry job:", error);
+      alert("Failed to retry job. Check console for details.");
+    }
+  };
+
   const handleDeleteJob = async (jobId: number) => {
     if (!window.confirm("Are you sure you want to delete this job?")) return;
 
@@ -181,10 +191,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
     return new Date(dateString).toLocaleString();
   };
 
+  const formatDuration = (seconds?: number) => {
+    if (seconds === undefined || seconds === null) return "-";
+    return `${seconds.toFixed(2)}s`;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-[1600px] mx-auto">
           <div className="animate-pulse">
             <div className="h-8 bg-gray-200 rounded w-64 mb-4"></div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -210,7 +225,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center space-x-3 mb-2">
@@ -364,6 +379,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Created
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Duration
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -416,6 +434,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(job.created_at)}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {job.status === "processing" ? (
+                           <span className="text-blue-500 animate-pulse">Running...</span>
+                        ) : (
+                           formatDuration(job.processing_duration)
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex items-center justify-end space-x-2">
                           {job.status === "completed" && (
@@ -445,6 +470,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                               title="Stop Job"
                             >
                               <PauseIcon className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {(job.status === "failed" || job.status === "cancelled") && (
+                            <button
+                              onClick={() => handleRetryJob(job.id)}
+                              className="inline-flex items-center p-2 border border-transparent rounded-lg text-blue-600 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                              title="Retry Job"
+                            >
+                              <ArrowPathIcon className="w-4 h-4" />
                             </button>
                           )}
 

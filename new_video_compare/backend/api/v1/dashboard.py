@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import os
 from pathlib import Path
 from typing import Dict, Any
@@ -75,39 +75,56 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
     deleted_count = 0
     freed_space_bytes = 0
     
+
     for job in jobs_to_delete:
-        # Delete associated files if they exist
-        # Note: In a real system, check if file is used by other jobs. 
-        # For this prototype/MVP, we assume 1 job = 2 unique files (upload per job)
-        
+        # 1. Identify files to potentially delete
         files_to_check = [job.acceptance_file, job.emission_file]
         
+        # 2. Delete the job first (this removes dependencies on files)
+        # Note: SQLAlchemy handles cascading delete for results due to cascade="all, delete-orphan" in model
+        try:
+            db.delete(job)
+            db.flush() # Ensure job deletion is registered in session for subsequent queries
+            deleted_count += 1
+        except Exception as e:
+            print(f"Error deleting job {job.id}: {e}")
+            continue # Skip file deletion if job deletion failed
+
+        # 3. Check if files are orphaned and delete them
         for file_model in files_to_check:
             if file_model:
                 try:
-                    file_path = Path(file_model.file_path)
-                    if file_path.exists():
-                        size = file_path.stat().st_size
-                        freed_space_bytes += size
-                        os.remove(file_path)
-                        
-                    # Also try to remove parent directory if it was created for this file (uuid based)
-                    # Implementation detail: generic upload saves to uploads/filename or uploads/uuid/filename
-                    # check structure
-                    if file_path.parent.name != "uploads" and file_path.parent.exists():
-                        try:
-                            os.rmdir(file_path.parent) # Only removes if empty
-                        except:
-                            pass
+                    # Check if file is used by ANY other job
+                    # (The current job is already marked for deletion in this session)
+                    usage_count = db.query(ComparisonJob).filter(
+                        or_(
+                            ComparisonJob.acceptance_file_id == file_model.id,
+                            ComparisonJob.emission_file_id == file_model.id
+                        )
+                    ).count()
+                    
+                    if usage_count == 0:
+                        # File is orphan, safe to delete
+                        file_path = Path(file_model.file_path)
+                        if file_path.exists():
+                            size = file_path.stat().st_size
+                            freed_space_bytes += size
+                            os.remove(file_path)
                             
-                    db.delete(file_model)
+                        # Also try to remove parent directory if it was created for this file (uuid based)
+                        if file_path.parent.name != "uploads" and file_path.parent.exists():
+                            try:
+                                os.rmdir(file_path.parent) # Only removes if empty
+                            except:
+                                pass
+                                
+                        db.delete(file_model)
                 except Exception as e:
                     print(f"Error deleting file {file_model.id}: {e}")
-        
-        db.delete(job)
-        deleted_count += 1
     
     db.commit()
+    
+
     
     return {
         "message": f"Cleanup finished. Deleted {deleted_count} jobs.",
