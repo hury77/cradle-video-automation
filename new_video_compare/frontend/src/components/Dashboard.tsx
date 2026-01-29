@@ -12,9 +12,11 @@ import {
   FilmIcon,
   DocumentTextIcon,
   ArrowPathIcon,
+  CircleStackIcon, // NEW
 } from "@heroicons/react/24/outline";
+
 import { ComparisonJob } from "../types";
-import { compareApi } from "../services/api";
+import { compareApi, StorageStats } from "../services/api";
 import FileUpload from "./FileUpload";
 
 interface DashboardProps {
@@ -39,6 +41,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
     completed: 0,
     failed: 0,
   });
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
 
   useEffect(() => {
     fetchJobs();
@@ -47,8 +51,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
   const fetchJobs = async () => {
     try {
       setLoading(true);
-      const response = await compareApi.getJobs();
-      setJobs(response);
+
+      const [jobsResponse, statsResponse] = await Promise.all([
+        compareApi.getJobs(),
+        compareApi.getDashboardStats().catch(err => null)
+      ]);
+      
+      setJobs(jobsResponse);
+      if (statsResponse) setStorageStats(statsResponse);
+      
+      const response = jobsResponse; // keeping existing logic variable name
 
       // ✅ UPROSZONY KOD - bez reduce, z forEach
       const newStats: JobStats = {
@@ -112,6 +124,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
       fetchJobs();
     } catch (error) {
       console.error("Failed to delete job:", error);
+    }
+
+  };
+
+  const handleCleanup = async () => {
+    if (!window.confirm("Are you sure you want to delete the 10 oldest jobs and their associated files? This cannot be undone.")) return;
+    
+    setCleaningUp(true);
+    try {
+      const result = await compareApi.cleanupOldJobs(10);
+      alert(`Cleanup complete!\n${result.message}\nFreed: ${result.freed_space_mb} MB`);
+      fetchJobs();
+    } catch (error) {
+      console.error("Cleanup failed:", error);
+      alert("Cleanup failed.");
+    } finally {
+      setCleaningUp(false);
     }
   };
 
@@ -198,7 +227,39 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+          {/* Storage Card (NEW) */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow relative overflow-hidden group">
+            <div className={`absolute top-0 right-0 p-4 transition-transform ${cleaningUp ? 'animate-pulse' : ''}`}>
+              <CircleStackIcon className="w-16 h-16 text-gray-100 -mr-4 -mt-4 transform rotate-12 group-hover:rotate-0 transition-transform" />
+            </div>
+            
+            <div className="relative z-10">
+              <p className="text-sm font-medium text-gray-600 mb-1">Storage Usage</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {storageStats ? `${storageStats.storage.total_size_gb} GB` : '...'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1 mb-3">
+                {storageStats ? `${storageStats.storage.file_count} files` : 'Calculating...'}
+              </p>
+              
+              <button
+                onClick={handleCleanup}
+                disabled={cleaningUp}
+                className="w-full py-1.5 px-3 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 text-gray-600 hover:text-red-600 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1"
+                title="Delete 10 oldest jobs"
+              >
+                {cleaningUp ? (
+                  <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                ) : (
+                  <TrashIcon className="w-3 h-3" />
+                )}
+                {cleaningUp ? "Cleaning..." : "Delete 10 Oldest"}
+              </button>
+            </div>
+             {/* Progress bar background hint */}
+             <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-20 w-full"></div>
+          </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>

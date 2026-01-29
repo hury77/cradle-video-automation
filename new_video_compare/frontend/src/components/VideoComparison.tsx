@@ -979,6 +979,66 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job }) => {
                           </div>
                         </div>
                       )}
+                      
+                      {/* Transcript Comparison (HIGH sensitivity only) */}
+                      {audio.speech_to_text && (
+                        <div className="mt-4 p-4 bg-teal-50 rounded-lg border border-teal-200">
+                          <h4 className="flex items-center text-sm font-semibold text-gray-700 mb-3">
+                            📝 Transcript Comparison (Whisper)
+                            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${audio.speech_to_text.is_text_match ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                              {Math.round(audio.speech_to_text.text_similarity * 100)}% match
+                            </span>
+                          </h4>
+                          
+                          <div className="space-y-4">
+                            {/* Comparison View */}
+                            {audio.speech_to_text.comparison && audio.speech_to_text.comparison.total_differences > 0 ? (
+                              <div className="bg-white p-3 rounded border border-gray-200 max-h-40 overflow-y-auto">
+                                <div className="text-xs text-gray-500 mb-2 font-medium">Word Differences Detected:</div>
+                                {audio.speech_to_text.comparison.word_differences.map((diff, idx) => (
+                                  <div key={idx} className="mb-2 text-sm pl-2 border-l-2 border-red-300">
+                                    <div className="flex gap-2">
+                                      <span className="text-gray-400 w-16 text-xs uppercase">{diff.type}</span>
+                                      <div className="flex-1">
+                                        {diff.acceptance && (
+                                          <div className="text-green-700 bg-green-50 px-1 rounded inline-block mr-1">
+                                            {diff.acceptance}
+                                          </div>
+                                        )}
+                                        {diff.emission && (
+                                          <div className="text-red-700 bg-red-50 px-1 rounded inline-block decoration-slice">
+                                            {diff.emission}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="bg-green-50 p-3 rounded text-green-700 text-sm flex items-center">
+                                <span className="mr-2">✓</span> No text differences found
+                              </div>
+                            )}
+
+                            {/* Full Texts */}
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">Acceptance Text</div>
+                                <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
+                                  "{audio.speech_to_text.acceptance_text}"
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 mb-1">Emission Text</div>
+                                <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
+                                  "{audio.speech_to_text.emission_text}"
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

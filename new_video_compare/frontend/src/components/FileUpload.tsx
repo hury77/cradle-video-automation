@@ -7,6 +7,9 @@ import {
   XCircleIcon,
   ArrowPathIcon,
   PlusIcon,
+  SpeakerWaveIcon,
+  VideoCameraIcon,
+  Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 
 interface UploadedFile {
@@ -32,6 +35,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
   const [jobName, setJobName] = useState("");
   const [creatingJob, setCreatingJob] = useState(false);
   const [sensitivityLevel, setSensitivityLevel] = useState<"low" | "medium" | "high">("medium");
+  const [comparisonType, setComparisonType] = useState<"video_only" | "audio_only" | "full">("full");
 
   const acceptanceInputRef = useRef<HTMLInputElement>(null);
   const emissionInputRef = useRef<HTMLInputElement>(null);
@@ -140,7 +144,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
       job_name: jobName || `Comparison ${new Date().toLocaleString()}`,
       acceptance_file_id: acceptanceFile.id,
       emission_file_id: emissionFile.id,
-      comparison_type: "full",
+
+      comparison_type: comparisonType,
       sensitivity_level: sensitivityLevel,
     };
 
@@ -179,7 +184,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
     setAcceptanceFile(null);
     setEmissionFile(null);
     setJobName("");
+    setJobName("");
     setSensitivityLevel("medium");
+    setComparisonType("full");
     setError(null);
   };
 
@@ -337,6 +344,68 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                   placeholder="e.g., Client XYZ - TV Spot"
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
+              </div>
+
+
+              
+              {/* Comparison Mode */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Comparison Mode
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setComparisonType("video_only")}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      comparisonType === "video_only"
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="flex items-center mb-1">
+                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "video_only" ? "bg-blue-200 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
+                        <VideoCameraIcon className="w-4 h-4" />
+                      </span>
+                      <span className="font-medium text-gray-900">Video Only</span>
+                    </div>
+                    <p className="text-xs text-gray-500">Visuals only</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setComparisonType("audio_only")}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      comparisonType === "audio_only"
+                        ? "border-purple-500 bg-purple-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="flex items-center mb-1">
+                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "audio_only" ? "bg-purple-200 text-purple-700" : "bg-gray-100 text-gray-500"}`}>
+                        <SpeakerWaveIcon className="w-4 h-4" />
+                      </span>
+                      <span className="font-medium text-gray-900">Audio Only</span>
+                    </div>
+                    <p className="text-xs text-gray-500">Sound & Loudness</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setComparisonType("full")}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      comparisonType === "full"
+                        ? "border-indigo-500 bg-indigo-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="flex items-center mb-1">
+                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "full" ? "bg-indigo-200 text-indigo-700" : "bg-gray-100 text-gray-500"}`}>
+                        <Squares2X2Icon className="w-4 h-4" />
+                      </span>
+                      <span className="font-medium text-gray-900">Full Check</span>
+                    </div>
+                    <p className="text-xs text-gray-500">Video + Audio</p>
+                  </button>
+                </div>
               </div>
 
               {/* Sensitivity Level */}

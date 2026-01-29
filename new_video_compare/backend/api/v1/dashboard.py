@@ -8,7 +8,7 @@ from typing import Dict, Any
 from models.database import get_db
 from models.models import ComparisonJob, File, JobStatus
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(tags=["Dashboard"])
 
 def get_dir_size(path: str) -> int:
     """Calculate total size of a directory in bytes"""

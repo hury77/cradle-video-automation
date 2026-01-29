@@ -56,6 +56,26 @@ export interface ComparisonResults {
     confidence: number;
     description: string | null;
   }>;
+
+}
+
+export interface StorageStats {
+  jobs: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
+  storage: {
+    total_size_bytes: number;
+    total_size_gb: number;
+    file_count: number;
+  };
+}
+
+export interface CleanupResult {
+  message: string;
+  deleted_jobs: number;
+  freed_space_mb: number;
 }
 
 class CompareAPI {
@@ -115,14 +135,32 @@ class CompareAPI {
   }
 
   async autoPairJob(cradleId: string): Promise<ComparisonJob> {
-    const response = await fetch(
-      `${API_BASE_URL}/compare/auto-pair/${cradleId}`,
-      {
-        method: "POST",
-      }
-    );
+    const response = await fetch(`${API_BASE_URL}/compare/auto-pair/${cradleId}`, {
+      method: "POST",
+    });
+    
     if (!response.ok) {
-      throw new Error("Failed to create auto-pair job");
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "Failed to auto-pair job");
+    }
+    
+    return response.json();
+  }
+
+  async getDashboardStats(): Promise<StorageStats> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/stats`);
+    if (!response.ok) {
+        throw new Error("Failed to fetch dashboard stats");
+    }
+    return response.json();
+  }
+
+  async cleanupOldJobs(count: number = 10): Promise<CleanupResult> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/cleanup?count=${count}`, {
+        method: "DELETE"
+    });
+    if (!response.ok) {
+        throw new Error("Failed to cleanup jobs");
     }
     return response.json();
   }
