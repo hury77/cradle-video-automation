@@ -32,6 +32,19 @@ export interface ComparisonResults {
     audio_similarity: number | null;
     video_differences_count: number | null;
     audio_differences_count: number | null;
+    report_data?: {
+      ocr?: {
+        timeline?: Array<{
+          timestamp: number;
+          text: string;
+          source: string;
+          confidence: number;
+          is_difference: boolean;
+        }>;
+        only_in_acceptance?: string[];
+        only_in_emission?: string[];
+      };
+    };
   } | null;
   video_result: {
     similarity_score: number | null;

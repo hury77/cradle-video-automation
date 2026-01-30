@@ -318,6 +318,7 @@ class ComparisonService:
                 "text_similarity": ocr_result.get("text_similarity"),
                 "has_differences": ocr_result.get("has_text_differences", False),
                 "differences": ocr_result.get("differences", []),
+                "timeline": ocr_result.get("timeline", []),  # Fix: Save timeline to DB
                 "only_in_acceptance": ocr_result.get("only_in_acceptance", []),
                 "only_in_emission": ocr_result.get("only_in_emission", []),
                 "common_texts": ocr_result.get("common_texts", []),
@@ -346,6 +347,18 @@ class ComparisonService:
             report_data=report_data if report_data else None,
         )
         db.add(comparison_result)
+        
+        # Save processing duration to job
+        # Determine processing time from results or calculate it
+        processing_duration = 0.0
+        if video_result and hasattr(video_result, "processing_time"):
+             processing_duration = video_result.processing_time
+        
+        # Fallback if 0
+        if processing_duration <= 0 and job.started_at:
+             processing_duration = (datetime.now(timezone.utc) - job.started_at).total_seconds()
+             
+        job.processing_duration = processing_duration
 
         # Save video results
         if video_result:
@@ -396,10 +409,29 @@ def get_comparison_service() -> ComparisonService:
     return _comparison_service
 
 
+def _run_job_in_process(job_id: int) -> Dict[str, Any]:
+    """
+    Standalone function to run job in a separate process.
+    Must be at module level to be picklable.
+    """
+    # Create a fresh service instance for the new process
+    service = ComparisonService()
+    return service.process_job(job_id)
+
+
 async def process_comparison_job(job_id: int) -> Dict[str, Any]:
     """
     Async wrapper for processing comparison job
-    This is called from the API endpoint as a background task
+    Uses ProcessPoolExecutor to guarantee non-blocking execution
+    by running the heavy lifting in a completely separate process.
     """
-    service = get_comparison_service()
-    return service.process_job(job_id)
+    import asyncio
+    from concurrent.futures import ProcessPoolExecutor
+    
+    loop = asyncio.get_running_loop()
+    
+    # Run in a separate process to avoid GIL/CPU blocking
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        result = await loop.run_in_executor(pool, _run_job_in_process, job_id)
+        
+    return result

@@ -330,6 +330,47 @@ def compare_video_texts(
     else:
         text_similarity = 1.0
     
+    # Prepare SRT-style timeline (all detected texts with timestamps)
+    timeline = []
+    
+    # Add all Acceptance texts
+    for text, occurrences in acc_map.items():
+        for ts, conf in occurrences:
+            timeline.append({
+                "timestamp": ts,
+                "text": text,
+                "source": "acceptance",
+                "confidence": conf,
+                "is_difference": False # Default, updated below
+            })
+            
+    # Add all Emission texts
+    for text, occurrences in emm_map.items():
+        for ts, conf in occurrences:
+            timeline.append({
+                "timestamp": ts,
+                "text": text,
+                "source": "emission",
+                "confidence": conf,
+                "is_difference": False
+            })
+    
+    # Mark differences in timeline
+    # Create a set of difference signatures for fast lookup
+    diff_signatures = set()
+    for diff in differences:
+        # Match roughly by timestamp and text
+        sig = (diff["text"], diff["source"], round(diff["timestamp"], 1))
+        diff_signatures.add(sig)
+        
+    for item in timeline:
+        sig = (item["text"], item["source"], round(item["timestamp"], 1))
+        if sig in diff_signatures:
+            item["is_difference"] = True
+            
+    # Sort timeline by timestamp
+    timeline.sort(key=lambda x: x["timestamp"])
+
     result = {
         "text_similarity": round(text_similarity, 3),
         "acceptance_text_count": len(acceptance_texts),
@@ -338,6 +379,7 @@ def compare_video_texts(
         "only_in_acceptance": sorted(list(only_in_acceptance)), # Retain for legacy View
         "only_in_emission": sorted(list(only_in_emission)),     # Retain for legacy View
         "differences": differences,
+        "timeline": timeline, # New field for SRT-style view
         "has_text_differences": len(differences) > 0,
         "region_analyzed": region,
         "acceptance_frames": acceptance_ocr.get("frames_analyzed", 0),

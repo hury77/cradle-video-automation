@@ -32,6 +32,13 @@ interface ApiResults {
       ocr?: {
         text_similarity: number | null;
         has_differences: boolean;
+        timeline?: Array<{
+          timestamp: number;
+          text: string;
+          source: string;
+          confidence: number;
+          is_difference: boolean;
+        }>;
         differences: Array<{
           type: string;
           text: string;
@@ -532,20 +539,26 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               </button>
 
               <div className="flex items-center space-x-2 flex-grow mx-4">
-                <span className="text-sm text-gray-600 w-12 text-right font-mono">
-                  {formatTime(currentTime)}
-                </span>
+                {/* Time display moved inside slider row */}
                 
                 <div className="flex-grow flex flex-col">
-                  {/* Main Slider */}
-                  <input
-                    type="range"
-                    min="0"
-                    max={duration || 100}
-                    value={currentTime}
-                    onChange={(e) => handleSeek(Number(e.target.value))}
-                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
+                  {/* Main Slider Row */}
+                  <div className="flex items-center space-x-3 mb-2">
+                    <span className="text-sm text-gray-600 w-12 text-right font-mono">
+                      {formatTime(currentTime)}
+                    </span>
+                    <input
+                      type="range"
+                      min="0"
+                      max={duration || 100}
+                      value={currentTime}
+                      onChange={(e) => handleSeek(Number(e.target.value))}
+                      className="flex-grow h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <span className="text-sm text-gray-600 w-12 font-mono">
+                      {formatTime(duration)}
+                    </span>
+                  </div>
                   
                   {/* Difference Tracks Container */}
                   <div className="mt-4 space-y-3 w-full">
@@ -598,9 +611,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   </div>
                 </div>
 
-                <span className="text-sm text-gray-600 w-12 font-mono">
-                  {formatTime(duration)}
-                </span>
+                {/* Duration display moved inside slider row */}
               </div>
             </div>
 
@@ -1141,21 +1152,67 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                               </div>
                             )}
 
-                            {/* Full Texts */}
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <div className="text-xs text-gray-500 mb-1">Acceptance Text</div>
-                                <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
-                                  "{audio.speech_to_text.acceptance_text}"
+                            {/* OCR Timeline (SRT Style) */}
+                            {results?.overall_result?.report_data?.ocr?.timeline && results.overall_result.report_data.ocr.timeline.length > 0 ? (
+                              <div className="mt-4">
+                                <h4 className="text-sm font-semibold text-gray-700 mb-2">Detected Text Timeline</h4>
+                                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+                                  <table className="min-w-full divide-y divide-gray-200 text-xs">
+                                    <thead className="bg-gray-50 sticky top-0">
+                                      <tr>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-20">Time</th>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-24">Source</th>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Text</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                      {results.overall_result.report_data.ocr.timeline.map((item: any, idx: number) => (
+                                        <tr 
+                                          key={idx} 
+                                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${item.is_difference ? 'bg-orange-50' : ''}`}
+                                          onClick={() => jumpToDifference(item.timestamp)}
+                                        >
+                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-gray-500">
+                                            {formatTime(item.timestamp)}
+                                          </td>
+                                          <td className="px-3 py-2 whitespace-nowrap">
+                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                                              item.source === 'acceptance' 
+                                                ? 'bg-green-100 text-green-800' 
+                                                : 'bg-red-100 text-red-800'
+                                            }`}>
+                                              {item.source === 'acceptance' ? 'Acceptance' : 'Emission'}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-2 text-gray-900 break-words max-w-lg">
+                                            {item.text}
+                                            {item.is_difference && (
+                                              <span className="ml-2 text-orange-600 font-bold" title="Missing in other video at this time">⚠️</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
                               </div>
-                              <div>
-                                <div className="text-xs text-gray-500 mb-1">Emission Text</div>
-                                <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
-                                  "{audio.speech_to_text.emission_text}"
+                            ) : (
+                              /* Legacy Fallback if timeline missing */
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <div className="text-xs text-gray-500 mb-1">Unique Acceptance Text</div>
+                                  <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
+                                    {results?.overall_result?.report_data?.ocr?.only_in_acceptance?.join('\n') || "None"}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-500 mb-1">Unique Emission Text</div>
+                                  <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
+                                     {results?.overall_result?.report_data?.ocr?.only_in_emission?.join('\n') || "None"}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                         </div>
                       )}

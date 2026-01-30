@@ -77,7 +77,9 @@ def extract_audio_from_video(
     
     # FFmpeg command to extract audio
     cmd = [
-        'ffmpeg', '-y',  # Overwrite output
+        'ffmpeg',
+        '-nostdin',  # Fix: Prevent hanging when running in background
+        '-y',  # Overwrite output
         '-i', str(video_path),
         '-vn',  # No video
         '-acodec', 'pcm_s16le',  # 16-bit PCM

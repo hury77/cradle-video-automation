@@ -469,6 +469,8 @@ def get_proxy_path(original_path: Path) -> Path:
     proxy_dir.mkdir(exist_ok=True)
     return proxy_dir / f"{original_path.stem}_proxy.mp4"
 
+from starlette.concurrency import run_in_threadpool
+
 def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
     """Transcode video to web-compatible H.264 MP4"""
     if output_path.exists():
@@ -478,7 +480,9 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
     logger.info(f"🔄 Transcoding {input_path.name} to web-compatible MP4...")
     
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg",
+        "-nostdin",  # Prevent hanging
+        "-y",
         "-i", str(input_path),
         "-c:v", "libx264",           # H.264 codec
         "-preset", "fast",            # Fast encoding
@@ -543,8 +547,8 @@ async def stream_video(
         proxy_path = get_proxy_path(file_path)
         
         if not proxy_path.exists():
-            # Transcode synchronously (for now - could be async in production)
-            success = transcode_to_mp4(file_path, proxy_path)
+            # Transcode asynchronously in thread pool to avoid blocking event loop
+            success = await run_in_threadpool(transcode_to_mp4, file_path, proxy_path)
             if not success:
                 raise HTTPException(
                     status_code=500, 

@@ -23,6 +23,7 @@ export interface ComparisonJob {
   updated_at: string;
   processing_duration?: number; // seconds
   started_at?: string;
+  progress?: number;
   completed_at?: string;
   results?: any;
 }

@@ -19,6 +19,36 @@ import { ComparisonJob } from "../types";
 import { compareApi, StorageStats } from "../services/api";
 import FileUpload from "./FileUpload";
 
+const JobTimer: React.FC<{ startedAt?: string }> = ({ startedAt }) => {
+  const [elapsed, setElapsed] = useState<number>(0);
+
+  useEffect(() => {
+    if (!startedAt) return;
+    
+    // Backend returns UTC, but might miss 'Z'. Ensure we treat it as UTC.
+    const dateStr = startedAt.endsWith('Z') || startedAt.includes('+') ? startedAt : `${startedAt}Z`;
+    const start = new Date(dateStr).getTime();
+    
+    // Prevent negative elapsed times if clocks are slightly off
+    setElapsed(Math.max(0, Date.now() - start));
+
+    const interval = setInterval(() => {
+      setElapsed(Math.max(0, Date.now() - start));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  const formatElapsed = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  return <span className="font-mono text-xs text-blue-600 font-medium">{formatElapsed(elapsed)}</span>;
+};
+
 interface DashboardProps {
   onSelectJob: (job: ComparisonJob) => void;
 }
@@ -157,7 +187,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "pending":
-        return <ClockIcon className="w-5 h-5 text-yellow-500" />;
       case "processing":
         return <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-spin" />;
       case "completed":
@@ -175,7 +204,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
 
     switch (status) {
       case "pending":
-        return `${baseClasses} bg-yellow-100 text-yellow-800`;
       case "processing":
         return `${baseClasses} bg-blue-100 text-blue-800`;
       case "completed":
@@ -394,14 +422,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                       className="hover:bg-gray-50 transition-colors"
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
+                        <div 
+                          className="flex items-center cursor-pointer group"
+                          onClick={() => job.status === "completed" && onSelectJob(job)}
+                        >
                           <div className="flex-shrink-0 h-10 w-10">
-                            <div className="h-10 w-10 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                            <div className="h-10 w-10 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center group-hover:scale-105 transition-transform duration-200">
                               <FilmIcon className="w-5 h-5 text-white" />
                             </div>
                           </div>
                           <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
                               {job.job_name}
                             </div>
                             <div className="text-sm text-gray-500">
@@ -414,8 +445,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                         <div className="flex items-center space-x-2">
                           {getStatusIcon(job.status)}
                           <span className={getStatusBadge(job.status)}>
-                            {job.status.charAt(0).toUpperCase() +
-                              job.status.slice(1)}
+                            {(job.status === "pending" || job.status === "processing") 
+                              ? "Processing" 
+                              : job.status.charAt(0).toUpperCase() + job.status.slice(1)}
                           </span>
                         </div>
                       </td>
@@ -435,8 +467,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                         {formatDate(job.created_at)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {job.status === "processing" ? (
-                           <span className="text-blue-500 animate-pulse">Running...</span>
+                        {job.status === "processing" || job.status === "pending" ? (
+                           <div className="w-full max-w-[140px]">
+                             <div className="flex justify-between text-xs mb-1">
+                               <span className="text-blue-600 font-medium">{Math.round(job.progress || 0)}%</span>
+                               {job.started_at && <JobTimer startedAt={job.started_at} />}
+                             </div>
+                             <div className="w-full bg-gray-200 rounded-full h-2">
+                               <div 
+                                 className="bg-blue-600 h-2 rounded-full transition-all duration-500 ease-out"
+                                 style={{ width: `${job.progress || 0}%` }}
+                               ></div>
+                             </div>
+                           </div>
                         ) : (
                            formatDuration(job.processing_duration)
                         )}

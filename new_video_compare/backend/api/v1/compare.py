@@ -670,9 +670,8 @@ async def reanalyze_job(
     
     logger.info(f"🔄 Created re-analysis job {new_job.id} from job {job_id} with sensitivity {sensitivity_level}")
     
-    # Start processing in background
-    service = get_comparison_service()
-    background_tasks.add_task(service.process_job, new_job.id)
+    # Start processing in background (using ProcessPoolExecutor wrapper)
+    background_tasks.add_task(process_comparison_job, new_job.id)
     
     return {
         "message": "Re-analysis started",

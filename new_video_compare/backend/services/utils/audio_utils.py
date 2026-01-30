@@ -63,6 +63,7 @@ class AudioProcessor:
             # FFmpeg command for audio extraction
             cmd = [
                 "ffmpeg",
+                "-nostdin",
                 "-y",  # Overwrite output
                 "-i",
                 video_path,
@@ -116,6 +117,7 @@ class AudioProcessor:
             # Use FFmpeg to convert audio to raw PCM data
             cmd = [
                 "ffmpeg",
+                "-nostdin",
                 "-y",
                 "-i",
                 audio_path,
