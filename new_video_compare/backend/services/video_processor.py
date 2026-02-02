@@ -58,6 +58,7 @@ class ProcessingResult:
     # Analysis details
     frame_similarities: List[float] = None
     difference_timestamps: List[float] = None
+    diff_image_paths: Dict[str, str] = None
 
 
 class VideoProcessor:
@@ -181,6 +182,7 @@ class VideoProcessor:
                 emission_metadata=emission_info.metadata,
                 frame_similarities=comparison_results["frame_similarities"],
                 difference_timestamps=comparison_results["difference_timestamps"],
+                diff_image_paths=comparison_results["diff_image_paths"],
             )
 
             logger.info(f"✅ Processing complete: {processing_time:.2f}s")
@@ -345,6 +347,11 @@ class VideoProcessor:
 
         logger.info(f"🔍 Comparing {len(acceptance_frames)} frame pairs...")
 
+        # Prepare diff frames directory
+        diff_frames_dir = Path(acceptance_frames[0]).parent.parent / "diff_frames"
+        diff_frames_dir.mkdir(exist_ok=True)
+        diff_image_paths = {}
+
         for i, (acc_frame_path, em_frame_path) in enumerate(
             zip(acceptance_frames, emission_frames)
         ):
@@ -353,12 +360,15 @@ class VideoProcessor:
                 acc_frame = self.frame_utils.load_frame(acc_frame_path)
                 em_frame = self.frame_utils.load_frame(em_frame_path)
 
+                # Ensure dimensions match for diff
+                if acc_frame.shape != em_frame.shape:
+                    em_frame = self.frame_utils.resize_frame(em_frame, (acc_frame.shape[1], acc_frame.shape[0]))
+
                 # Calculate frame difference (MSE)
                 mse = self.frame_utils.calculate_frame_difference(acc_frame, em_frame)
 
                 # Convert MSE to similarity score (0-1)
-                # This is a simple conversion - will be improved with advanced algorithms
-                max_possible_mse = 255.0**2 * 3  # Max MSE for RGB
+                max_possible_mse = 255.0**2 * 3
                 similarity = 1.0 - min(mse / max_possible_mse, 1.0)
 
                 frame_similarities.append(similarity)
@@ -366,21 +376,43 @@ class VideoProcessor:
                 # Check if frame has significant difference
                 if similarity < similarity_threshold:
                     frames_with_differences += 1
-                    # Calculate timestamp (assuming 1fps extraction)
                     timestamp = float(i)
                     difference_timestamps.append(timestamp)
 
-                    logger.debug(
-                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s"
-                    )
+                    # Generate and save diff image (Heatmap)
+                    # Calculate absolute difference
+                    diff = cv2.absdiff(acc_frame, em_frame)
+                    
+                    # Convert to grayscale to get intensity
+                    diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+                    
+                    # Threshold to remove noise (optional, but cleaner)
+                    _, diff_thresh = cv2.threshold(diff_gray, 30, 255, cv2.THRESH_BINARY)
+                    
+                    # Create a red overlay: B=0, G=0, R=Intensity
+                    # Create a blank BGR image
+                    heatmap = np.zeros_like(acc_frame)
+                    heatmap[:, :, 2] = diff_thresh  # Set Red channel only
 
+                    # Save the heatmap
+                    diff_filename = f"diff_{timestamp:.1f}.jpg"
+                    diff_path = diff_frames_dir / diff_filename
+                    cv2.imwrite(str(diff_path), heatmap)
+                    
+                    # Store relative path for API
+                    diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
+
+                    logger.debug(
+                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap."
+                    )
+            
                 # Progress logging
                 if (i + 1) % 50 == 0:
                     logger.info(f"Progress: {i + 1}/{len(acceptance_frames)} frames")
 
             except Exception as e:
                 logger.warning(f"Frame comparison failed for frame {i}: {e}")
-                frame_similarities.append(0.0)  # Assume different if comparison fails
+                frame_similarities.append(0.0)
                 frames_with_differences += 1
 
         # Calculate overall similarity
@@ -395,6 +427,7 @@ class VideoProcessor:
             "frame_similarities": frame_similarities,
             "frames_with_differences": frames_with_differences,
             "difference_timestamps": difference_timestamps,
+            "diff_image_paths": diff_image_paths,
             "total_frames": len(acceptance_frames),
         }
 

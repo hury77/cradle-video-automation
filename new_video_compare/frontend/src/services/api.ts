@@ -1,7 +1,7 @@
 // frontend/src/services/api.ts
 import { ComparisonJob, FileUpload } from "../types"; // ✅ FileInfo → FileUpload
 
-const API_BASE_URL = "http://localhost:8001/api/v1";
+const API_BASE_URL = "/api/v1";
 
 // Types for comparison results
 export interface ComparisonResults {

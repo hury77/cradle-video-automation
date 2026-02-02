@@ -4,6 +4,8 @@ import { ComparisonJob } from "../types";
 import {
   PlayIcon,
   PauseIcon,
+  EyeIcon,
+  EyeSlashIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   ChartBarSquareIcon,
@@ -29,6 +31,9 @@ interface ApiResults {
     video_differences_count: number | null;
     audio_differences_count: number | null;
     report_data?: {
+      video?: {
+        diff_frames?: Record<string, string>;
+      };
       ocr?: {
         text_similarity: number | null;
         has_differences: boolean;
@@ -142,6 +147,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [acceptanceVolume, setAcceptanceVolume] = useState(1);
   const [emissionVolume, setEmissionVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+
+  // Sync heatmap with playback
+  const [currentDiffImage, setCurrentDiffImage] = useState<string | null>(null);
+
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<ApiResults | null>(null);
@@ -190,6 +200,36 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
     loadResults();
   }, [job.id, job.status]);
+
+  // Sync heatmap with playback
+  useEffect(() => {
+    if (!showHeatmap || !results?.overall_result?.report_data?.video?.diff_frames) {
+      setCurrentDiffImage(null);
+      return;
+    }
+
+    const diffFrames = results.overall_result.report_data.video.diff_frames;
+    // Find closest frame (timeline is float seconds)
+    // We check if current time is close to any diff timestamp (within 0.5s)
+    const time = Math.floor(currentTime); // 1fps, so integer part is enough usually
+    
+    // Check key directly first
+    let foundImage = diffFrames[time.toString()] || diffFrames[time.toFixed(1)];
+    
+    if (!foundImage) {
+        // Fallback: search keys
+        const keys = Object.keys(diffFrames).map(Number);
+        const closest = keys.reduce((prev, curr) => 
+            Math.abs(curr - currentTime) < Math.abs(prev - currentTime) ? curr : prev
+        , keys[0]);
+        
+        if (Math.abs(closest - currentTime) < 0.6) {
+           foundImage = diffFrames[closest.toString()];
+        }
+    }
+    
+    setCurrentDiffImage(foundImage || null);
+  }, [currentTime, showHeatmap, results]);
 
   // Get values from API results with fallbacks
   const overallScore = results?.overall_result?.overall_similarity ?? 0;
@@ -454,14 +494,32 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     ID: {job.emission_file_id}
                   </span>
                 </div>
-                <p className="text-xs text-gray-600 mt-1 break-all leading-tight" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
-                  {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
-                  {job.emission_file?.width && job.emission_file?.height && (
-                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                      {job.emission_file.width}x{job.emission_file.height}
-                    </span>
-                  )}
-                </p>
+                <div className="flex items-center space-x-2 mt-2">
+                    <p className="text-xs text-gray-600 break-all flex-grow leading-tight" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
+                    {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
+                    {job.emission_file?.width && job.emission_file?.height && (
+                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                        {job.emission_file.width}x{job.emission_file.height}
+                        </span>
+                    )}
+                    </p>
+                    
+                    {/* Heatmap Toggle */}
+                    {results?.overall_result?.report_data?.video?.diff_frames && (
+                        <button
+                            onClick={() => setShowHeatmap(!showHeatmap)}
+                            className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                showHeatmap 
+                                ? 'bg-red-100 text-red-700 border border-red-200' 
+                                : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
+                            }`}
+                            title="Toggle Visual Difference Overlay (Heatmap)"
+                        >
+                            {showHeatmap ? <EyeIcon className="w-3.5 h-3.5" /> : <EyeSlashIcon className="w-3.5 h-3.5" />}
+                            <span>Heatmap</span>
+                        </button>
+                    )}
+                </div>
               </div>
             </div>
             <div className="p-4">
@@ -502,6 +560,21 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     setEmissionError(true);
                   }}
                 />
+                
+                {/* Heatmap Overlay */}
+                {showHeatmap && currentDiffImage && (
+                    <div className="absolute inset-0 z-20 pointer-events-none opacity-80 mix-blend-screen">
+                        <img 
+                            src={`http://localhost:8001${currentDiffImage}`} 
+                            alt="Difference Heatmap" 
+                            className="w-full h-full object-contain"
+                        />
+                        <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-90 font-bold uppercase tracking-wider">
+                            DIFF
+                        </div>
+                    </div>
+                )}
+
               </div>
             </div>
             {/* Emission Volume Control */}

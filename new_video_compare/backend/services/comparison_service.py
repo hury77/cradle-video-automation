@@ -143,6 +143,12 @@ class ComparisonService:
                     
                     if ocr_result.get("has_text_differences"):
                         logger.warning(f"⚠️ OCR found {len(ocr_result.get('differences', []))} text differences!")
+                    
+                    # MEMORY OPTIMIZATION: Clear OCR result from local scope
+                    del ocr_result
+                    import gc
+                    gc.collect()
+                    
                 except Exception as ocr_err:
                     logger.warning(f"OCR comparison failed: {ocr_err}")
                     results["ocr_result"] = {"error": str(ocr_err)}
@@ -195,29 +201,41 @@ class ComparisonService:
                 job.progress = 80.0
                 db.commit()
                 
-                # Source separation + Voiceover comparison (HIGH sensitivity only)
+                # Source separation (Demucs) - DISABLED FOR STABILITY
+                # The Demucs model causes silent OOM kills on this environment.
+                # We skip separation and run Whisper on the full audio instead.
                 if sensitivity_config.get("enable_source_separation", False):
+                    # MEMORY OPTIMIZATION: Ensure GC
+                    import gc
+                    gc.collect()
+                    
                     try:
-                        logger.info("🎭 Running source separation (Demucs)...")
+                        logger.info("🎭 Source separation (Demucs) DISABLED for stability. Skipping...")
+                        # We pass do_source_separation=False to skip the heavy model
                         full_result = compare_audio_full(
                             acceptance_path, 
                             emission_path, 
-                            do_source_separation=True
+                            do_source_separation=False 
                         )
-                        audio_result["source_separation"] = full_result.get("source_separation")
-                        audio_result["voiceover"] = full_result.get("voiceover")
-                        logger.info("✅ Source separation complete")
+                        audio_result["source_separation"] = {"status": "skipped", "reason": "Disabled for stability (OOM prevention)"}
+                        audio_result["voiceover"] = full_result.get("voiceover") # Might be None
+                        logger.info("✅ Audio comparison continued (without separation)")
+                        
+                        del full_result
+                        gc.collect()
+                        
                     except Exception as sep_err:
-                        logger.warning(f"Source separation failed: {sep_err}")
+                        logger.warning(f"Audio comparison failed: {sep_err}")
                         audio_result["source_separation"] = {"error": str(sep_err)}
                     
                     # Speech-to-Text comparison (Whisper)
+                    # We run this on the FULL audio since we didn't separate vocals
                     try:
-                        logger.info("🎙️ Running Speech-to-Text (Whisper)...")
+                        logger.info("🎙️ Running Speech-to-Text (Whisper) on FULL audio...")
                         stt_result = compare_spoken_text(
                             acceptance_path,
                             emission_path,
-                            use_separated_vocals=True
+                            use_separated_vocals=False # Changed to False to prevent Demucs execution inside STT too
                         )
                         audio_result["speech_to_text"] = {
                             "text_similarity": stt_result.get("text_similarity"),
@@ -227,6 +245,11 @@ class ComparisonService:
                             "emission_text": stt_result.get("transcript_emission", {}).get("text", "")[:500],
                         }
                         logger.info(f"✅ Speech-to-Text complete: {stt_result.get('text_similarity', 0):.1%} match")
+                        
+                        # Clean up stt result
+                        del stt_result
+                        gc.collect()
+                        
                     except Exception as stt_err:
                         logger.warning(f"Speech-to-Text failed: {stt_err}")
                         audio_result["speech_to_text"] = {"error": str(stt_err)}
@@ -334,6 +357,12 @@ class ComparisonService:
                 "voiceover": audio_result.get("voiceover"),
                 "speech_to_text": audio_result.get("speech_to_text"),
             }
+
+        # Add video diff frames to report_data
+        if video_result and video_result.diff_image_paths:
+            if "video" not in report_data:
+                report_data["video"] = {}
+            report_data["video"]["diff_frames"] = video_result.diff_image_paths
 
         # Create main comparison result
         comparison_result = ComparisonResult(

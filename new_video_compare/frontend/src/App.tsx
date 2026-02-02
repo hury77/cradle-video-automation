@@ -28,7 +28,7 @@ function App() {
 
   const checkBackendStatus = async () => {
     try {
-      const response = await fetch("http://localhost:8001/health");
+      const response = await fetch("/health");
       if (response.ok) {
         setBackendStatus("connected");
       } else {
@@ -42,8 +42,8 @@ function App() {
   const setupWebSocket = () => {
     try {
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsHost = window.location.hostname;
-      const ws = new WebSocket(`${wsProtocol}//${wsHost}:8001/ws/connect`);
+      const wsHost = window.location.host; // Includes port if present
+      const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/connect`);
 
       ws.onopen = () => {
         setWsStatus("connected");

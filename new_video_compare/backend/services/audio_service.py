@@ -411,10 +411,10 @@ def separate_sources(
         model = get_model("htdemucs")
         model.eval()
         
-        # Use CPU for broader compatibility (GPU if available)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Use CPU for broader compatibility and stability on Mac
+        device = "cpu"
         model.to(device)
-        logger.info(f"🖥️ Using device: {device}")
+        logger.info(f"🖥️ Using device: {device} (Forced for stability)")
         
         # Load audio
         audio_file = AudioFile(audio_path)
@@ -427,10 +427,22 @@ def separate_sources(
         # Add batch dimension
         wav = wav.unsqueeze(0).to(device)
         
-        # Apply model
-        logger.info("🔄 Separating sources (this may take a moment)...")
+        # Limit threads for CPU processing
+        torch.set_num_threads(1)
+        
+        # Apply model with STRICT memory constraints
+        logger.info("🔄 Separating sources (Low Memory Mode: segment=10s, shifts=0)...")
+        import gc
+        gc.collect()
+        
         with torch.no_grad():
-            sources = apply_model(model, wav, device=device)
+            # segment=10 saves RAM (default is often 39)
+            # shifts=0 disables augmentation (faster, less RAM)
+            sources = apply_model(model, wav, device=device, shifts=0, split=True, segment=10.0)
+            
+        # Clean up input tensor immediately
+        del wav
+        gc.collect()
         
         # Sources shape: [batch, sources, channels, samples]
         # htdemucs sources: drums, bass, other, vocals

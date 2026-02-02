@@ -31,6 +31,7 @@ from models.schemas import (
     ComparisonTypeEnum,
 )
 from config import settings
+from services.comparison_service import process_comparison_job
 
 logger = logging.getLogger(__name__)
 
