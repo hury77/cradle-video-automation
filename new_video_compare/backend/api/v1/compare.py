@@ -156,6 +156,8 @@ async def create_comparison_job(
         proc_config = job_data.processing_config or {}
         if job_data.ocr_language:
             proc_config["ocr_language"] = job_data.ocr_language
+        if job_data.ocr_similarity_threshold is not None:
+            proc_config["ocr_similarity_threshold"] = job_data.ocr_similarity_threshold
 
         comparison_job = ComparisonJobModel(
             job_name=job_data.job_name,

@@ -7,10 +7,13 @@ import os
 import logging
 import tempfile
 import shutil
+import cv2
+import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+from skimage.metrics import structural_similarity as ssim
 
 from .utils.ffmpeg_utils import FFmpegUtils, VideoMetadata
 from .utils.video_utils import VideoUtils, VideoInfo
@@ -339,13 +342,16 @@ class VideoProcessor:
         if len(acceptance_frames) != len(emission_frames):
             raise InsufficientVideoDataError("Frame count mismatch between videos")
 
+        num_frames = len(acceptance_frames)
+        start_time = datetime.now(timezone.utc)
+
         frame_similarities = []
         difference_timestamps = []
         frames_with_differences = 0
 
         similarity_threshold = 0.95  # 95% similarity threshold
 
-        logger.info(f"🔍 Comparing {len(acceptance_frames)} frame pairs...")
+        logger.info(f"🔍 Comparing {num_frames} frame pairs...")
 
         # Prepare diff frames directory
         diff_frames_dir = Path(acceptance_frames[0]).parent.parent / "diff_frames"
@@ -364,22 +370,39 @@ class VideoProcessor:
                 if acc_frame.shape != em_frame.shape:
                     em_frame = self.frame_utils.resize_frame(em_frame, (acc_frame.shape[1], acc_frame.shape[0]))
 
-                # Calculate frame difference (MSE)
-                mse = self.frame_utils.calculate_frame_difference(acc_frame, em_frame)
-
-                # Convert MSE to similarity score (0-1)
-                max_possible_mse = 255.0**2 * 3
-                similarity = 1.0 - min(mse / max_possible_mse, 1.0)
+                # Calculate structural similarity (SSIM) instead of MSE
+                # SSIM is MUCH better at detecting spatial/structural differences like logo position
+                # Convert to grayscale for SSIM calculation
+                acc_gray = cv2.cvtColor(acc_frame, cv2.COLOR_BGR2GRAY)
+                em_gray = cv2.cvtColor(em_frame, cv2.COLOR_BGR2GRAY)
+                
+                # Resize for faster SSIM computation (4K is too slow)
+                max_dim = 800
+                h, w = acc_gray.shape
+                if max(h, w) > max_dim:
+                    scale = max_dim / max(h, w)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    acc_gray = cv2.resize(acc_gray, (new_w, new_h))
+                    em_gray = cv2.resize(em_gray, (new_w, new_h))
+                
+                # Calculate SSIM (returns -1 to 1, where 1 = identical)
+                similarity = ssim(acc_gray, em_gray)
+                # Clamp to 0-1 range (SSIM can be negative for very different images)
+                similarity = max(0.0, min(1.0, similarity))
 
                 frame_similarities.append(similarity)
 
-                # Check if frame has significant difference
-                if similarity < similarity_threshold:
+                # Get config options
+                diff_threshold = self.current_job.processing_config.get("similarity_threshold", 0.95)
+                frame_rate = self.current_job.processing_config.get("analysis_fps", 1.0)
+
+                # Check if frame has significant difference  
+                if similarity < diff_threshold:
                     frames_with_differences += 1
-                    timestamp = float(i)
+                    timestamp = float(i) / float(frame_rate)
                     difference_timestamps.append(timestamp)
 
-                    # Generate and save diff image (Heatmap)
+                    # Generate and save diff image (Heatmap Overlay)
                     # Calculate absolute difference
                     diff = cv2.absdiff(acc_frame, em_frame)
                     
@@ -389,38 +412,68 @@ class VideoProcessor:
                     # Threshold to remove noise (optional, but cleaner)
                     _, diff_thresh = cv2.threshold(diff_gray, 30, 255, cv2.THRESH_BINARY)
                     
-                    # Create a red overlay: B=0, G=0, R=Intensity
-                    # Create a blank BGR image
-                    heatmap = np.zeros_like(acc_frame)
-                    heatmap[:, :, 2] = diff_thresh  # Set Red channel only
+                    # Create Heatmap Overlay
+                    # 1. Create a red layer
+                    red_layer = np.zeros_like(acc_frame)
+                    red_layer[:] = [0, 0, 255]  # BGR format: Red
+                    
+                    # 2. Create the overlay by blending original with red layer
+                    # Use the original frame (acc_frame) as base
+                    overlay = acc_frame.copy()
+                    
+                    # 3. Apply the red highlight ONLY where differences exist
+                    # Create a mask where differences are detected
+                    mask_indices = diff_thresh > 0
+                    
+                    # Blend: 50% Original + 50% Red for simple visibility
+                    if np.any(mask_indices):
+                         # Vectorized blending for performance
+                         overlay[mask_indices] = cv2.addWeighted(
+                             acc_frame[mask_indices], 0.5, 
+                             red_layer[mask_indices], 0.5, 
+                             0
+                         )
 
-                    # Save the heatmap
+                    # Save the overlay heatmap
                     diff_filename = f"diff_{timestamp:.1f}.jpg"
                     diff_path = diff_frames_dir / diff_filename
-                    cv2.imwrite(str(diff_path), heatmap)
+                    cv2.imwrite(str(diff_path), overlay)
                     
                     # Store relative path for API
                     diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
 
                     logger.debug(
-                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap."
+                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap overlay."
                     )
             
                 # Progress logging
                 if (i + 1) % 50 == 0:
-                    logger.info(f"Progress: {i + 1}/{len(acceptance_frames)} frames")
+                    logger.info(f"  Processed {i + 1}/{num_frames} frames...")
 
             except Exception as e:
                 logger.warning(f"Frame comparison failed for frame {i}: {e}")
                 frame_similarities.append(0.0)
                 frames_with_differences += 1
 
-        # Calculate overall similarity
-        overall_similarity = (
-            sum(frame_similarities) / len(frame_similarities)
-            if frame_similarities
-            else 0.0
-        )
+        # Calculate results
+        # User Requirement: Similarity should be based on Frame Count Match, NOT Average SSIM
+        # 98% SSIM is misleading if 20/30 frames differ.
+        # correct_metric = (total_frames - diff_frames) / total_frames
+        
+        valid_frames_count = len(frame_similarities)
+        if valid_frames_count > 0:
+            match_count = valid_frames_count - frames_with_differences
+            overall_similarity = float(match_count) / float(valid_frames_count)
+            # Log the change for debugging
+            avg_ssim = sum(frame_similarities) / valid_frames_count
+            logger.info(f"📊 Similarity Calculation: Match Ratio={overall_similarity:.2%} (Avg SSIM was {avg_ssim:.2%})")
+        else:
+            overall_similarity = 0.0
+
+        processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        
+        logger.info("✅ Processing complete")
+        logger.info(f"📊 Overall similarity (Match Rate): {overall_similarity:.3f}")
 
         return {
             "overall_similarity": overall_similarity,

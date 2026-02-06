@@ -37,6 +37,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
   const [sensitivityLevel, setSensitivityLevel] = useState<"low" | "medium" | "high">("medium");
   const [comparisonType, setComparisonType] = useState<"video_only" | "audio_only" | "full">("full");
   const [ocrLanguage, setOcrLanguage] = useState<string>("");
+  const [ocrSimilarityThreshold, setOcrSimilarityThreshold] = useState<number>(85);  // 85% default
 
   const acceptanceInputRef = useRef<HTMLInputElement>(null);
   const emissionInputRef = useRef<HTMLInputElement>(null);
@@ -159,6 +160,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
       comparison_type: comparisonType,
       sensitivity_level: sensitivityLevel,
       ocr_language: ocrLanguage || undefined,
+      ocr_similarity_threshold: ocrSimilarityThreshold / 100,  // Convert to 0-1 range
     };
 
     console.log("Creating job with payload:", payload);
@@ -476,44 +478,30 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                 </div>
               </div>
 
-              {/* OCR Language */}
+              {/* Text Region Similarity Threshold Slider */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Text Language (OCR)
+                  Text Region Similarity Threshold
+                  <span className="ml-2 text-xs text-gray-500">(visual comparison sensitivity)</span>
                 </label>
-                <select
-                  value={ocrLanguage}
-                  onChange={(e) => setOcrLanguage(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
-                >
-                  <option value="">Auto / English (Default)</option>
-                  <optgroup label="Central Europe">
-                    <option value="pl">Polish (Polski)</option>
-                    <option value="de">German (Deutsch)</option>
-                    <option value="sk">Slovak (Slovenčina)</option>
-                    <option value="cs">Czech (Čeština)</option>
-                    <option value="hu">Hungarian (Magyar)</option>
-                  </optgroup>
-                  <optgroup label="Western Europe">
-                    <option value="fr">French (Français)</option>
-                    <option value="es">Spanish (Español)</option>
-                    <option value="it">Italian (Italiano)</option>
-                    <option value="pt">Portuguese (Português)</option>
-                    <option value="nl">Dutch (Nederlands)</option>
-                  </optgroup>
-                  <optgroup label="Scandinavia">
-                    <option value="sv">Swedish (Svenska)</option>
-                    <option value="da">Danish (Dansk)</option>
-                    <option value="no">Norwegian (Norsk)</option>
-                    <option value="fi">Finnish (Suomi)</option>
-                  </optgroup>
-                  <optgroup label="Others">
-                    <option value="ru">Russian (Русский)</option>
-                    <option value="uk">Ukrainian (Українська)</option>
-                    <option value="cyrillic">Cyrillic (Generic)</option>
-                    <option value="latin">Latin (Generic)</option>
-                  </optgroup>
-                </select>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    min="50"
+                    max="100"
+                    step="5"
+                    value={ocrSimilarityThreshold}
+                    onChange={(e) => setOcrSimilarityThreshold(parseInt(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <span className="w-16 text-center font-mono text-sm bg-gray-100 px-2 py-1 rounded-lg border">
+                    {ocrSimilarityThreshold}%
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  <span className="font-semibold">Lower = more tolerant</span> (ignores compression artifacts), 
+                  <span className="font-semibold"> Higher = stricter</span> (pixel-perfect match required)
+                </p>
               </div>
 
               {/* Upload Areas */}

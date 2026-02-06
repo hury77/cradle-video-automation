@@ -401,7 +401,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
         </div>
 
         {/* Video Players - Side by Side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Acceptance Video */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-green-50">
@@ -599,7 +599,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
         {/* Synchronized Video Controls */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-start space-x-4 flex-grow relative top-1">
+            <div className="flex items-start space-x-4 flex-grow">
               <button
                 onClick={togglePlayPause}
                 className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex-shrink-0"
@@ -615,8 +615,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 {/* Time display moved inside slider row */}
                 
                 <div className="flex-grow flex flex-col">
-                  {/* Main Slider Row */}
-                  <div className="flex items-center space-x-3 mb-2">
+                  {/* Main Slider Row - Height matched to button (h-12) for perfect alignment */}
+                  <div className="h-12 flex items-center space-x-3">
                     <span className="text-sm text-gray-600 w-12 text-right font-mono">
                       {formatTime(currentTime)}
                     </span>
@@ -637,44 +637,30 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   <div className="mt-4 space-y-3 w-full">
                     
                     {/* 1. VIDEO Differences Track (RED) */}
-                    <div className="relative h-4 w-full bg-red-50 rounded border border-red-100 flex items-center">
+                    <div className="relative h-4 w-full bg-red-50 rounded border border-red-100 flex items-center overflow-hidden">
                       <span className="absolute -left-16 text-xs font-bold text-red-600 uppercase w-14 text-right">Video</span>
                       {duration > 0 && differences.map((diff, index) => {
                         const position = (diff.timestamp_seconds / duration) * 100;
                         return (
-                          <button
+                          <div
                             key={`video-${index}`}
                             onClick={() => {
                               jumpToDifference(diff.timestamp_seconds);
                               setSelectedDifference(diff);
                             }}
-                            className="absolute w-2.5 h-2.5 bg-red-500 rounded-full hover:scale-150 transition-transform cursor-pointer shadow-sm"
-                            style={{ left: `calc(${position}% - 5px)` }}
+                            className="absolute bg-red-600 hover:bg-red-700 cursor-pointer z-10"
+                            style={{ 
+                                left: `${position}%`, 
+                                width: '2px', 
+                                height: '100%' 
+                            }}
                             title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
                           />
                         );
                       })}
                     </div>
 
-                    {/* 2. OCR Differences Track (AMBER) */}
-                    <div className="relative h-4 w-full bg-amber-50 rounded border border-amber-100 flex items-center">
-                      <span className="absolute -left-16 text-xs font-bold text-amber-600 uppercase w-14 text-right">OCR</span>
-                      {duration > 0 && results?.overall_result?.report_data?.ocr?.differences?.map((ocrDiff, index) => {
-                        const position = (ocrDiff.timestamp / duration) * 100;
-                        return (
-                          <button
-                            key={`ocr-${index}`}
-                            onClick={() => {
-                              jumpToDifference(ocrDiff.timestamp);
-                              document.getElementById('ocr-results-section')?.scrollIntoView({ behavior: 'smooth' });
-                            }}
-                            className="absolute w-2.5 h-2.5 bg-amber-500 rounded-full hover:scale-150 transition-transform cursor-pointer shadow-sm"
-                            style={{ left: `calc(${position}% - 5px)` }}
-                            title={`🔤 OCR Diff: ${formatTime(ocrDiff.timestamp)}`}
-                          />
-                        );
-                      })}
-                    </div>
+
 
                     {/* 3. AUDIO Differences Track (BLUE) - Placeholder for now */}
                     <div className="relative h-4 w-full bg-blue-50 rounded border border-blue-100 flex items-center">
@@ -709,39 +695,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               <div className="w-2.5 h-2.5 bg-red-500 rounded-full mr-2"></div>
               Różnice Video
             </div>
+
             <div className="flex items-center">
-              <div className="w-2.5 h-2.5 bg-amber-500 rounded-full mr-2"></div>
-              Różnice OCR
-            </div>
-            <div className="flex items-center">
-              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full mr-2"></div>
+              <div className="w-1 h-4 bg-blue-500 mr-2"></div>
               Różnice Audio
             </div>
           </div>
 
-          {/* Difference Jump Buttons */}
-          {differences.length > 0 && (
-             <div className="mt-4 pt-4 border-t border-gray-200">
-               <p className="text-sm font-medium text-gray-700 mb-2">
-                Szybki skok do różnicy:
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {differences.slice(0, 10).map((diff, index) => (
-                  <button
-                    key={index}
-                    onClick={() => jumpToDifference(diff.timestamp_seconds)}
-                    className="inline-flex items-center px-3 py-1.5 bg-orange-100 text-orange-800 text-sm rounded-full hover:bg-orange-200 transition-colors"
-                  >
-                    <ForwardIcon className="w-3 h-3 mr-1" />
-                    {formatTime(diff.timestamp_seconds)}
-                    <span className="ml-1 text-xs opacity-75">
-                      ({diff.difference_type.replace("_", " ")})
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Difference Jump Buttons Removed as requested */}
         </div>
 
         {/* Results Panel */}
@@ -862,145 +823,6 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   </div>
                 </div>
 
-                {/* OCR Text Detection Results - Two Panel View */}
-                {results.overall_result?.report_data?.ocr && (() => {
-                  const ocr = results.overall_result.report_data.ocr;
-                  const totalTexts = ocr.common_texts.length + ocr.only_in_acceptance.length + ocr.only_in_emission.length;
-                  const mismatchCount = ocr.only_in_acceptance.length + ocr.only_in_emission.length;
-                  const mismatchPercent = totalTexts > 0 ? Math.round((mismatchCount / totalTexts) * 100) : 0;
-                  
-                  return (
-                    <div id="ocr-results-section" className="mb-8">
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-4 p-4 bg-amber-50 rounded-t-xl border border-amber-200">
-                        <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                          🔤 OCR Text Detection
-                          {ocr.has_differences ? (
-                            <span className="ml-2 px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium">
-                              {mismatchPercent}% niezgodności ({mismatchCount} różnic)
-                            </span>
-                          ) : (
-                            <span className="ml-2 px-3 py-1 bg-green-100 text-green-700 text-sm rounded-full font-medium">
-                              ✓ 100% zgodności
-                            </span>
-                          )}
-                        </h3>
-                        <span className="text-2xl font-bold text-amber-600">
-                          {Math.round((ocr.text_similarity || 1) * 100)}% match
-                        </span>
-                      </div>
-                      
-                      {/* Two Panel View */}
-                      <div className="grid grid-cols-2 gap-0 border border-gray-200 rounded-b-xl overflow-hidden">
-                        {/* Acceptance Panel */}
-                        <div className="border-r border-gray-200">
-                          <div className="bg-green-500 text-white px-4 py-2 font-semibold text-center">
-                            📄 Acceptance
-                          </div>
-                          <div className="p-4 bg-gray-50 min-h-[200px] max-h-[400px] overflow-y-auto">
-                            {/* Common texts */}
-                            {ocr.common_texts.map((text, i) => (
-                              <div key={`common-a-${i}`} className="mb-2 p-2 bg-white rounded border border-gray-200 text-sm text-gray-700">
-                                {text}
-                              </div>
-                            ))}
-                            {/* Differences mapping from report_data.ocr.differences */}
-                            {ocr.differences && ocr.differences.filter(d => d.source === 'acceptance').map((diff, i) => (
-                              <div 
-                                key={`diff-a-${i}`} 
-                                className="mb-2 p-2 bg-green-100 rounded border-2 border-green-400 text-sm text-green-800 font-medium group cursor-pointer hover:bg-green-200 transition-colors"
-                                onClick={() => handleSeek(diff.timestamp)}
-                                title="Click to jump to timestamp"
-                              >
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="text-xs bg-green-500 text-white px-1 py-0.5 rounded">UNIQUE</span>
-                                  <span className="text-xs font-mono text-green-700 flex items-center">
-                                    <ClockIcon className="w-3 h-3 mr-1" />
-                                    {formatTime(diff.timestamp)}
-                                  </span>
-                                </div>
-                                {diff.text}
-                              </div>
-                            ))}
-                            
-                            {/* Fallback for legacy data without differences array */}
-                            {!ocr.differences && ocr.only_in_acceptance.map((text, i) => (
-                              <div key={`only-a-${i}`} className="mb-2 p-2 bg-green-100 rounded border-2 border-green-400 text-sm text-green-800 font-medium">
-                                <span className="text-xs bg-green-500 text-white px-1 py-0.5 rounded mr-2">UNIQUE</span>
-                                {text}
-                              </div>
-                            ))}
-
-                            {ocr.common_texts.length === 0 && (!ocr.differences || ocr.differences.filter(d => d.source === 'acceptance').length === 0) && ocr.only_in_acceptance.length === 0 && (
-                              <p className="text-gray-400 text-sm italic">Brak wykrytych tekstów</p>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Emission Panel */}
-                        <div>
-                          <div className="bg-red-500 text-white px-4 py-2 font-semibold text-center">
-                            📄 Emission
-                          </div>
-                          <div className="p-4 bg-gray-50 min-h-[200px] max-h-[400px] overflow-y-auto">
-                            {/* Common texts */}
-                            {ocr.common_texts.map((text, i) => (
-                              <div key={`common-e-${i}`} className="mb-2 p-2 bg-white rounded border border-gray-200 text-sm text-gray-700">
-                                {text}
-                              </div>
-                            ))}
-                            {/* Differences mapping */}
-                            {ocr.differences && ocr.differences.filter(d => d.source === 'emission').map((diff, i) => (
-                              <div 
-                                key={`diff-e-${i}`} 
-                                className="mb-2 p-2 bg-red-100 rounded border-2 border-red-400 text-sm text-red-800 font-medium group cursor-pointer hover:bg-red-200 transition-colors"
-                                onClick={() => handleSeek(diff.timestamp)}
-                                title="Click to jump to timestamp"
-                              >
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="text-xs bg-red-500 text-white px-1 py-0.5 rounded">UNIQUE</span>
-                                  <span className="text-xs font-mono text-red-700 flex items-center">
-                                    <ClockIcon className="w-3 h-3 mr-1" />
-                                    {formatTime(diff.timestamp)}
-                                  </span>
-                                </div>
-                                {diff.text}
-                              </div>
-                            ))}
-
-                            {/* Fallback */}
-                            {!ocr.differences && ocr.only_in_emission.map((text, i) => (
-                              <div key={`only-e-${i}`} className="mb-2 p-2 bg-red-100 rounded border-2 border-red-400 text-sm text-red-800 font-medium">
-                                <span className="text-xs bg-red-500 text-white px-1 py-0.5 rounded mr-2">UNIQUE</span>
-                                {text}
-                              </div>
-                            ))}
-
-                            {ocr.common_texts.length === 0 && (!ocr.differences || ocr.differences.filter(d => d.source === 'emission').length === 0) && ocr.only_in_emission.length === 0 && (
-                              <p className="text-gray-400 text-sm italic">Brak wykrytych tekstów</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Legend */}
-                      <div className="flex items-center justify-center gap-6 mt-3 text-xs text-gray-500">
-                        <div className="flex items-center">
-                          <div className="w-3 h-3 bg-white border border-gray-300 rounded mr-1"></div>
-                          Tekst wspólny
-                        </div>
-                        <div className="flex items-center">
-                          <div className="w-3 h-3 bg-green-100 border-2 border-green-400 rounded mr-1"></div>
-                          Tylko w Acceptance
-                        </div>
-                        <div className="flex items-center">
-                          <div className="w-3 h-3 bg-red-100 border-2 border-red-400 rounded mr-1"></div>
-                          Tylko w Emission
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
 
                 {/* Audio Results Section */}
                 {results.overall_result?.report_data?.audio?.loudness && (() => {

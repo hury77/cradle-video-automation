@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .video_processor import VideoProcessor, ProcessingResult
 from .audio_processor import AudioProcessor
-from .ocr_service import compare_video_texts
+from .ocr_service import compare_video_texts, compare_text_regions_hash
 from .audio_service import compare_loudness, compare_audio_similarity, compare_audio_full, separate_sources, compare_spoken_text
 
 # Database imports
@@ -85,12 +85,9 @@ class ComparisonService:
             logger.info(f"📄 Acceptance: {acceptance_path}")
             logger.info(f"📄 Emission: {emission_path}")
 
-            # Processing config from job
-            processing_config = job.processing_config or {
-                "analysis_fps": 1.0,  # 1 frame per second
-                "max_frames": 300,    # Max 5 minutes
-                "similarity_threshold": 0.95,
-            }
+            # Get sensitivity configuration
+            sensitivity = job.sensitivity_level.value if job.sensitivity_level else "medium"
+            logger.info(f"🎚️ Sensitivity Level: {sensitivity}")
 
             results = {
                 "video_result": None,
@@ -99,50 +96,93 @@ class ComparisonService:
                 "success": True,
             }
             
-            # Get sensitivity configuration
-            sensitivity = job.sensitivity_level.value if job.sensitivity_level else "medium"
+            # Define sensitivity-based processing defaults
+            fps_map = {
+                "low": 1.0,      # 1 frame/sec
+                "medium": 2.0,   # 2 frames/sec
+                "high": 5.0      # 5 frames/sec (Detailed check)
+            }
+            max_frames_map = {
+                "low": 300,
+                "medium": 900,
+                "high": 3000
+            }
+            threshold_map = {
+                "low": 0.95,
+                "medium": 0.98,
+                "high": 0.99   # Extremely strict
+            }
+            
+            target_fps = fps_map.get(sensitivity.lower(), 1.0)
+            target_max_frames = max_frames_map.get(sensitivity.lower(), 300)
+            target_threshold = threshold_map.get(sensitivity.lower(), 0.95)
+
+            # Processing config - Merge defaults with job config, but enforce sensitivity FPS
+            base_config = job.processing_config or {}
+            processing_config = {
+                "analysis_fps": target_fps,
+                "max_frames": target_max_frames,
+                "similarity_threshold": target_threshold,
+                **base_config  # Keep other settings like OCR options
+            }
+            # Enforce FPS and Max Frames again to override any stale job config (e.g. from re-analyze copy)
+            # Also enforce threshold if not explicitly overridden by "custom" (which we assume isn't set yet)
+            # Actually, let's prefer sensitivity defaults unless base_config has it EXPLICITLY set? 
+            # Re-analyze copies old config, so it HAS threshold: 0.95. We must OVERRIDE it for High Sensitivity fix.
+            processing_config["analysis_fps"] = target_fps
+            processing_config["max_frames"] = target_max_frames
+            processing_config["similarity_threshold"] = target_threshold
+            
+            logger.info(f"⚙️ Analysis Config: {processing_config['analysis_fps']} FPS, {processing_config['max_frames']} Frames Max")
+            
             sensitivity_config = get_sensitivity_config(sensitivity)
 
             # Process based on comparison type
+            logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
+            
             if job.comparison_type in [ComparisonType.FULL, ComparisonType.VIDEO_ONLY]:
-                logger.info("🎬 Starting video comparison...")
+                logger.info("🎬 Starting video comparison logic...")
                 job.progress = 10.0
                 db.commit()
                 
-                video_result = self.video_processor.process_comparison(
-                    job_id=job_id,
-                    acceptance_file=acceptance_path,
-                    emission_file=emission_path,
-                    processing_config=processing_config,
-                )
-                results["video_result"] = video_result
+                try:
+                    video_result = self.video_processor.process_comparison(
+                        job_id=job_id,
+                        acceptance_file=acceptance_path,
+                        emission_file=emission_path,
+                        processing_config=processing_config,
+                    )
+                    logger.info(f"💾 Video Result Obtained: {video_result}")
+                    results["video_result"] = video_result
+                except Exception as e:
+                    logger.error(f"❌ CRITICAL ERROR in process_comparison: {e}", exc_info=True)
+                    results["video_result"] = None
                 
                 job.progress = 50.0
                 db.commit()
+            else:
+                logger.warning(f"⚠️ Skipping video comparison (Type mismatch: {job.comparison_type})")
 
             # OCR text comparison (for medium/high sensitivity only)
             if sensitivity_config.get("enable_ocr", False):
-                logger.info(f"🔤 Starting OCR text comparison (region: {sensitivity_config.get('ocr_region')})...")
+                logger.info(f"📊 Starting Text Region Hash Comparison (region: {sensitivity_config.get('ocr_region')})...")
                 job.progress = 55.0
                 db.commit()
                 
                 try:
-                    # Prepare OCR languages
-                    ocr_langs = None
-                    if processing_config.get("ocr_language"):
-                        ocr_langs = ['en', processing_config["ocr_language"]]
-
-                    ocr_result = compare_video_texts(
+                    # Use hash-based comparison instead of OCR (more reliable!)
+                    ocr_result = compare_text_regions_hash(
                         acceptance_path=acceptance_path,
                         emission_path=emission_path,
                         region=sensitivity_config.get("ocr_region", "bottom_fifth"),
-                        sample_interval=2.0,  # Every 2 seconds
-                        languages=ocr_langs
+                        sample_interval=0.5,  # 2 FPS
+                        # Use user's threshold from processing_config (slider)
+                        similarity_threshold=processing_config.get("ocr_similarity_threshold", 0.95)
                     )
                     results["ocr_result"] = ocr_result
                     
                     if ocr_result.get("has_text_differences"):
-                        logger.warning(f"⚠️ OCR found {len(ocr_result.get('differences', []))} text differences!")
+                        logger.warning(f"⚠️ Found {len(ocr_result.get('differences', []))} visual text differences!")
                     
                     # MEMORY OPTIMIZATION: Clear OCR result from local scope
                     del ocr_result
