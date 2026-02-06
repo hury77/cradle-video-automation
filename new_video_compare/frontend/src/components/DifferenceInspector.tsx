@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { XMarkIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, ChevronLeftIcon, ChevronRightIcon, EyeIcon, EyeSlashIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
 interface DifferenceInspectorProps {
     isOpen: boolean;
@@ -35,9 +35,14 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(false);
     
+    // Heatmap Controls
+    const [heatmapOpacity, setHeatmapOpacity] = useState(0.7);
+    const [showContext, setShowContext] = useState(true);
+    
     // ... refs ...
     const accVideoRef = useRef<HTMLVideoElement>(null);
     const emVideoRef = useRef<HTMLVideoElement>(null);
+    const contextVideoRef = useRef<HTMLVideoElement>(null);
 
     // Filter unique timestamps to avoid duplicates in the navigator
     // Sorted by timestamp
@@ -63,12 +68,9 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
         if (currentDiff) {
             const time = currentDiff.timestamp_seconds;
             
-            if (accVideoRef.current) {
-                accVideoRef.current.currentTime = time;
-            }
-            if (emVideoRef.current) {
-                emVideoRef.current.currentTime = time;
-            }
+            if (accVideoRef.current) accVideoRef.current.currentTime = time;
+            if (emVideoRef.current) emVideoRef.current.currentTime = time;
+            if (contextVideoRef.current) contextVideoRef.current.currentTime = time;
         }
     }, [selectedIndex, isOpen, sortedDiffs]);
 
@@ -85,12 +87,12 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
     
     // Fallback search if exact key missing
     if (!diffImagePath && Object.keys(diffFrames).length > 0) {
-       const keys = Object.keys(diffFrames).map(Number);
-       const closest = keys.reduce((prev, curr) => 
-           Math.abs(curr - timestamp) < Math.abs(prev - timestamp) ? curr : prev
+       const keys = Object.keys(diffFrames);
+       const closestKey = keys.reduce((prev, curr) => 
+           Math.abs(Number(curr) - timestamp) < Math.abs(Number(prev) - timestamp) ? curr : prev
        );
-       if (Math.abs(closest - timestamp) < 1.0) {
-           diffImagePath = diffFrames[closest.toString()];
+       if (Math.abs(Number(closestKey) - timestamp) < 1.0) {
+           diffImagePath = diffFrames[closestKey];
        }
     }
     
@@ -186,25 +188,59 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                     </div>
                 </div>
 
-                {/* 3. Difference */}
+                {/* 3. Difference (Composite View) */}
                 <div className="flex flex-col bg-gray-800 rounded-xl overflow-hidden border border-red-900/30">
                     <div className="p-3 bg-gray-900 border-b border-gray-700 flex justify-between items-center">
-                        <span className="text-red-400 font-medium text-sm">Difference Heatmap</span>
-                         <span className="text-xs text-red-900 px-2 py-0.5 rounded bg-red-100/10">DIFF DETECTED</span>
+                        <span className="text-red-400 font-medium text-sm">Difference Layer</span>
+                        <div className="flex items-center space-x-2">
+                             <div className="flex items-center space-x-1 bg-gray-800 rounded px-2 py-0.5">
+                                <span className="text-[10px] text-gray-400">OPACITY</span>
+                                <input 
+                                    type="range" 
+                                    min="0" max="1" step="0.1" 
+                                    value={heatmapOpacity}
+                                    onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
+                                    className="w-16 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                />
+                             </div>
+                             <button
+                                onClick={() => setShowContext(!showContext)}
+                                className={`p-1 rounded transition-colors ${showContext ? 'bg-gray-700 text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
+                                title={showContext ? "Hide Context (Black BG)" : "Show Context (Video)"}
+                             >
+                                {showContext ? <EyeIcon className="w-4 h-4" /> : <EyeSlashIcon className="w-4 h-4" />}
+                             </button>
+                        </div>
                     </div>
-                    <div className="flex-grow relative bg-gray-950 flex items-center justify-center">
-                        {fullDiffUrl ? (
-                            <img 
-                                src={fullDiffUrl} 
-                                alt="Difference" 
-                                className="max-w-full max-h-full object-contain"
+                    <div className="flex-grow relative bg-black flex items-center justify-center overflow-hidden">
+                        {/* Layer 1: Context Video (Underlay) */}
+                        <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${showContext ? 'opacity-100' : 'opacity-0'}`}>
+                             <video 
+                                ref={contextVideoRef}
+                                src={videoUrls.acceptance}
+                                className="max-w-full max-h-full object-contain filter grayscale-[50%] brightness-75" // Dimmed specifically for better contrast
+                                muted
                             />
-                        ) : (
-                            <div className="text-gray-500 text-sm flex flex-col items-center">
-                                <span>No difference image for this timestamp</span>
-                                <span className="text-xs mt-1 opacity-50">(Try checking neighboring frames)</span>
-                            </div>
-                        )}
+                        </div>
+
+                        {/* Layer 2: Heatmap Mask (Overlay) */}
+                        <div className="relative z-10 w-full h-full flex items-center justify-center pointer-events-none">
+                            {fullDiffUrl ? (
+                                <img 
+                                    src={fullDiffUrl} 
+                                    alt="Difference Mask" 
+                                    className="max-w-full max-h-full object-contain"
+                                    style={{ 
+                                        mixBlendMode: 'screen', // Magic: Black becomes transparent, Red stays
+                                        opacity: heatmapOpacity 
+                                    }}
+                                />
+                            ) : (
+                                <div className="text-gray-500 text-sm flex flex-col items-center">
+                                    <span>No difference mask</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 

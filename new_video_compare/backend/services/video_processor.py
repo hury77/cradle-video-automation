@@ -417,32 +417,30 @@ class VideoProcessor:
                     # Threshold to remove noise (optional, but cleaner)
                     _, diff_thresh = cv2.threshold(diff_gray, 30, 255, cv2.THRESH_BINARY)
                     
-                    # Create Heatmap Overlay
-                    # 1. Create a red layer
-                    red_layer = np.zeros_like(acc_frame)
-                    red_layer[:] = [0, 0, 255]  # BGR format: Red
+                    # Create Heatmap Overlay (Pure Mask)
+                    # 1. Start with a black image (same size as original)
+                    diff_overlay = np.zeros_like(acc_frame)
                     
-                    # 2. Create the overlay by blending original with red layer
-                    # Use the original frame (acc_frame) as base
-                    overlay = acc_frame.copy()
+                    # 2. Create the red color layer
+                    red_color = [0, 0, 255]  # BGR format: Red
                     
                     # 3. Apply the red highlight ONLY where differences exist
                     # Create a mask where differences are detected
                     mask_indices = diff_thresh > 0
                     
-                    # Blend: 50% Original + 50% Red for simple visibility
+                    # 4. Fill differences with Red on the black background
                     if np.any(mask_indices):
-                         # Vectorized blending for performance
-                         overlay[mask_indices] = cv2.addWeighted(
-                             acc_frame[mask_indices], 0.5, 
-                             red_layer[mask_indices], 0.5, 
-                             0
-                         )
+                         diff_overlay[mask_indices] = red_color
 
-                    # Save the overlay heatmap
+                    # Save the pure mask
                     diff_filename = f"diff_{timestamp:.1f}.jpg"
                     diff_path = diff_frames_dir / diff_filename
-                    cv2.imwrite(str(diff_path), overlay)
+                    cv2.imwrite(str(diff_path), diff_overlay)
+
+                    # Save the pure mask
+                    diff_filename = f"diff_{timestamp:.1f}.jpg"
+                    diff_path = diff_frames_dir / diff_filename
+                    cv2.imwrite(str(diff_path), diff_overlay)
                     
                     # Store relative path for API
                     diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
