@@ -275,6 +275,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
   // Synchronized play/pause
   const togglePlayPause = () => {
+    console.log("Toggle Play/Pause clicked! Is Playing:", isPlaying);
     const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
 
     if (isPlaying) {
@@ -602,7 +603,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
             <div className="flex items-start space-x-4 flex-grow">
               <button
                 onClick={togglePlayPause}
-                className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex-shrink-0"
+                style={{ zIndex: 9999, position: 'relative' }}
+                className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex-shrink-0 shadow-lg relative z-50"
               >
                 {isPlaying ? (
                   <PauseIcon className="w-6 h-6" />
