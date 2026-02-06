@@ -77,10 +77,32 @@ class ComparisonService:
             emission_path = job.emission_file.file_path
             
             # Ensure absolute paths
+            # Ensure absolute paths (with fallback logic)
             if not Path(acceptance_path).is_absolute():
-                acceptance_path = str(Path(__file__).parent.parent / acceptance_path)
+                # Try backend-relative first (legacy)
+                backend_rel = Path(__file__).parent.parent / acceptance_path
+                if backend_rel.exists():
+                    acceptance_path = str(backend_rel.resolve())
+                else:
+                    # Try CWD-relative (modern/root uploads)
+                    cwd_rel = Path(acceptance_path)
+                    if cwd_rel.exists():
+                         acceptance_path = str(cwd_rel.resolve())
+                    else:
+                         acceptance_path = str(backend_rel.resolve()) # Default to what it was, to fail explicitly usually
+
             if not Path(emission_path).is_absolute():
-                emission_path = str(Path(__file__).parent.parent / emission_path)
+                # Try backend-relative first (legacy)
+                backend_rel = Path(__file__).parent.parent / emission_path
+                if backend_rel.exists():
+                    emission_path = str(backend_rel.resolve())
+                else:
+                    # Try CWD-relative (modern/root uploads)
+                    cwd_rel = Path(emission_path)
+                    if cwd_rel.exists():
+                         emission_path = str(cwd_rel.resolve())
+                    else:
+                         emission_path = str(backend_rel.resolve())
 
             logger.info(f"📄 Acceptance: {acceptance_path}")
             logger.info(f"📄 Emission: {emission_path}")
@@ -484,7 +506,23 @@ def _run_job_in_process(job_id: int) -> Dict[str, Any]:
     Must be at module level to be picklable.
     """
     # Create a fresh service instance for the new process
-    service = ComparisonService()
+    # Create a fresh service instance for the new process
+    # Fix: Use the same 'uploads' directory that main.py serves statically
+    # comparison_service.py is in backend/services, so uploads is ../uploads
+    uploads_dir = Path(__file__).parent.parent / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+    
+    # We append "temp" because VideoProcessor appends "job_{id}", resulting in backend/uploads/temp/job_{id}
+    # which matches strict static mounting logic if we want to organize it
+    # Actually, VideoProcessor logic is: self.temp_dir / f"job_{job_id}"
+    # If we pass uploads_dir as temp_dir, it becomes backend/uploads/job_{id}
+    # But URL construction is: /uploads/temp/job_{id}
+    # So we need to match that.
+    
+    temp_dir = uploads_dir / "temp"
+    temp_dir.mkdir(exist_ok=True)
+
+    service = ComparisonService(temp_dir=str(temp_dir))
     return service.process_job(job_id)
 
 

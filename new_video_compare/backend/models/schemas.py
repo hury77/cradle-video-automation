@@ -16,6 +16,8 @@ from .models import DifferenceType, SeverityLevel
 # =============================================================================
 
 
+
+
 class FileTypeEnum(str, Enum):
     ACCEPTANCE = "acceptance"
     EMISSION = "emission"
@@ -54,6 +56,8 @@ class SensitivityLevel(str, Enum):
     LOW = "low"      # High tolerance - quick check
     MEDIUM = "medium"  # Recommended - with text detection
     HIGH = "high"    # Critical QA - near-perfect match
+
+
 
 
 # =============================================================================

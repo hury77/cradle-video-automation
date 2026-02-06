@@ -216,7 +216,7 @@ class VideoProcessor:
             # Cleanup
             self.is_processing = False
             self.current_job = None
-            self._cleanup_processing_files(job_id)
+            # self._cleanup_processing_files(job_id)  # DISABLED: We need to keep diff images for the UI!
 
     def _validate_input_files(
         self, acceptance_file: str, emission_file: str
@@ -402,6 +402,11 @@ class VideoProcessor:
                     timestamp = float(i) / float(frame_rate)
                     difference_timestamps.append(timestamp)
 
+                    logger.debug(
+                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap overlay."
+                    )
+
+                    # START HEATMAP GENERATION (ENABLED)
                     # Generate and save diff image (Heatmap Overlay)
                     # Calculate absolute difference
                     diff = cv2.absdiff(acc_frame, em_frame)
@@ -441,10 +446,7 @@ class VideoProcessor:
                     
                     # Store relative path for API
                     diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
-
-                    logger.debug(
-                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap overlay."
-                    )
+                    # END HEATMAP GENERATION
             
                 # Progress logging
                 if (i + 1) % 50 == 0:

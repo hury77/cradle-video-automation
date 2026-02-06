@@ -539,7 +539,26 @@ async def stream_video(
     if not file_path.is_absolute():
         file_path = settings.upload_dir / file_record.filename
     
+    
+    # Check if file exists at stored path
     if not file_path.exists():
+        # Fallback 1: Check in settings.upload_dir
+        fallback_path = settings.upload_dir / file_record.filename
+        if fallback_path.exists():
+            file_path = fallback_path
+        else:
+             # Fallback 2: Check in new_video_compare/backend/uploads (where we know they are)
+             backend_upload_path = Path("new_video_compare/backend/uploads") / file_record.filename
+             if backend_upload_path.exists():
+                 file_path = backend_upload_path
+             else:
+                 # Fallback 3: Check relative to backend dir logic
+                 relative_backend_upload = Path("uploads") / file_record.filename
+                 if relative_backend_upload.exists():
+                     file_path = relative_backend_upload
+
+    if not file_path.exists():
+        logger.error(f"❌ File not found on disk: {file_record.file_path}")
         raise HTTPException(status_code=404, detail="File not found on disk")
     
     # Check if transcoding is needed

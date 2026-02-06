@@ -39,7 +39,10 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     
     # Also count files in upload directory directly to be accurate about disk usage
     # Assuming standard upload path structure
-    upload_dir = Path("uploads")
+    upload_dir = Path("new_video_compare/backend/uploads")
+    if not upload_dir.exists():
+        # Fallback if running from backend dir
+        upload_dir = Path("uploads")
     if upload_dir.exists():
         total_size_bytes = get_dir_size(str(upload_dir))
     

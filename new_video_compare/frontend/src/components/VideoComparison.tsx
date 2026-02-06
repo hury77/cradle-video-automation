@@ -13,6 +13,7 @@ import {
   ForwardIcon,
   ClockIcon,
 } from "@heroicons/react/24/outline";
+import DifferenceInspector from "./DifferenceInspector";
 
 interface VideoComparisonProps {
   job: ComparisonJob;
@@ -155,12 +156,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<ApiResults | null>(null);
-  const [selectedDifference, setSelectedDifference] = useState<{
-    timestamp_seconds: number;
-    difference_type: string;
-    confidence: number;
-  } | null>(null);
+  // Inspector Modal State
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [showInspector, setShowInspector] = useState(false);
+  const [inspectorInitialTimestamp, setInspectorInitialTimestamp] = useState<number | null>(null);
+
   
   // Video loading states
   const [acceptanceLoading, setAcceptanceLoading] = useState(true);
@@ -397,9 +397,42 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 <ChartBarSquareIcon className="w-4 h-4 mr-2" />
                 {showResults ? "Hide Results" : "Show Results"}
               </button>
+              
+               {/* Inspect Button */}
+               {differencesFound && (
+                <button
+                    onClick={() => {
+                        setShowInspector(true);
+                        setIsPlaying(false); // Pause main players
+                    }}
+                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                >
+                    <EyeIcon className="w-4 h-4 mr-2" />
+                    Inspect Differences
+                </button>
+               )}
             </div>
           </div>
         </div>
+
+        {/* Difference Inspector Modal */}
+        <DifferenceInspector 
+            isOpen={showInspector}
+            onClose={() => setShowInspector(false)}
+            differences={differences || []}
+            diffFrames={results?.overall_result?.report_data?.video?.diff_frames || {}}
+            videoUrls={{
+                acceptance: acceptanceVideoUrl,
+                emission: emissionVideoUrl
+            }}
+            metadata={{
+                acceptanceName: job.acceptance_file?.original_name || job.acceptance_file?.filename || 'Acceptance',
+                emissionName: job.emission_file?.original_name || job.emission_file?.filename || 'Emission',
+                acceptanceDims: { width: job.acceptance_file?.width || 0, height: job.acceptance_file?.height || 0 },
+                emissionDims: { width: job.emission_file?.width || 0, height: job.emission_file?.height || 0 },
+            }}
+            initialTimestamp={inspectorInitialTimestamp}
+        />
 
         {/* Video Players - Side by Side */}
         <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -415,14 +448,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     ID: {job.acceptance_file_id}
                   </span>
                 </div>
-                <p className="text-xs text-gray-600 mt-1 break-all leading-tight" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
-                  {job.acceptance_file?.original_name || job.acceptance_file?.filename || 'Loading...'}
+                <div className="flex items-center mt-1 space-x-2">
+                  <p className="text-xs text-gray-600 truncate min-w-0" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
+                    {job.acceptance_file?.original_name || job.acceptance_file?.filename || 'Loading...'}
+                  </p>
                   {job.acceptance_file?.width && job.acceptance_file?.height && (
-                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
                       {job.acceptance_file.width}x{job.acceptance_file.height}
                     </span>
                   )}
-                </p>
+                </div>
               </div>
             </div>
             <div className="p-4">
@@ -495,21 +530,23 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     ID: {job.emission_file_id}
                   </span>
                 </div>
-                <div className="flex items-center space-x-2 mt-2">
-                    <p className="text-xs text-gray-600 break-all flex-grow leading-tight" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
-                    {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
-                    {job.emission_file?.width && job.emission_file?.height && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                        {job.emission_file.width}x{job.emission_file.height}
-                        </span>
-                    )}
-                    </p>
+                <div className="flex items-center space-x-2 mt-1">
+                    <div className="flex items-center space-x-2 flex-grow min-w-0">
+                      <p className="text-xs text-gray-600 truncate" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
+                      {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
+                      </p>
+                      {job.emission_file?.width && job.emission_file?.height && (
+                          <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          {job.emission_file.width}x{job.emission_file.height}
+                          </span>
+                      )}
+                    </div>
                     
                     {/* Heatmap Toggle */}
                     {results?.overall_result?.report_data?.video?.diff_frames && (
                         <button
                             onClick={() => setShowHeatmap(!showHeatmap)}
-                            className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                            className={`flex items-center space-x-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
                                 showHeatmap 
                                 ? 'bg-red-100 text-red-700 border border-red-200' 
                                 : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
@@ -648,7 +685,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             key={`video-${index}`}
                             onClick={() => {
                               jumpToDifference(diff.timestamp_seconds);
-                              setSelectedDifference(diff);
+                              setInspectorInitialTimestamp(diff.timestamp_seconds);
+                              setShowInspector(true);
                             }}
                             className="absolute bg-red-600 hover:bg-red-700 cursor-pointer z-10"
                             style={{ 
@@ -1161,108 +1199,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
         )}
       </div>
 
-      {/* Frame Comparison Modal */}
-      {selectedDifference && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-6xl max-h-[90vh] overflow-hidden">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold">🔍 Porównanie klatek</h2>
-                <p className="text-blue-100 text-sm">
-                  Czas: {formatTime(selectedDifference.timestamp_seconds)} | 
-                  Typ: {selectedDifference.difference_type.replace("_", " ")} | 
-                  Pewność: {Math.round(selectedDifference.confidence * 100)}%
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedDifference(null)}
-                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            {/* Side-by-side videos */}
-            <div className="grid grid-cols-2 gap-0 border-b border-gray-200">
-              {/* Acceptance Frame */}
-              <div className="border-r border-gray-200">
-                <div className="bg-green-500 text-white px-4 py-2 text-center font-semibold">
-                  📄 Acceptance
-                </div>
-                <div className="p-4 bg-gray-100">
-                  <video
-                    ref={acceptanceVideoRef}
-                    src={acceptanceVideoUrl}
-                    className="w-full rounded-lg shadow-md"
-                    muted
-                  />
-                </div>
-              </div>
-              
-              {/* Emission Frame */}
-              <div>
-                <div className="bg-red-500 text-white px-4 py-2 text-center font-semibold">
-                  📄 Emission
-                </div>
-                <div className="p-4 bg-gray-100">
-                  <video
-                    ref={emissionVideoRef}
-                    src={emissionVideoUrl}
-                    className="w-full rounded-lg shadow-md"
-                    muted
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Navigation */}
-            <div className="px-6 py-4 bg-gray-50 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  const currentIndex = differences.findIndex(
-                    d => d.timestamp_seconds === selectedDifference.timestamp_seconds
-                  );
-                  if (currentIndex > 0) {
-                    const prevDiff = differences[currentIndex - 1];
-                    setSelectedDifference(prevDiff);
-                    jumpToDifference(prevDiff.timestamp_seconds);
-                  }
-                }}
-                disabled={differences.findIndex(d => d.timestamp_seconds === selectedDifference.timestamp_seconds) === 0}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
-              >
-                ← Poprzednia różnica
-              </button>
-              
-              <div className="text-center">
-                <span className="text-sm text-gray-500">
-                  Różnica {differences.findIndex(d => d.timestamp_seconds === selectedDifference.timestamp_seconds) + 1} z {differences.length}
-                </span>
-              </div>
-              
-              <button
-                onClick={() => {
-                  const currentIndex = differences.findIndex(
-                    d => d.timestamp_seconds === selectedDifference.timestamp_seconds
-                  );
-                  if (currentIndex < differences.length - 1) {
-                    const nextDiff = differences[currentIndex + 1];
-                    setSelectedDifference(nextDiff);
-                    jumpToDifference(nextDiff.timestamp_seconds);
-                  }
-                }}
-                disabled={differences.findIndex(d => d.timestamp_seconds === selectedDifference.timestamp_seconds) === differences.length - 1}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
-              >
-                Następna różnica →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Frame Comparison Modal (REMOVED: Replaced by DifferenceInspector) */}
     </div>
   );
 };
