@@ -52,7 +52,7 @@ def get_soundfile():
 def extract_audio_from_video(
     video_path: str,
     output_path: Optional[str] = None,
-    sample_rate: int = 48000
+    sample_rate: int = 44100  # Default to 44.1kHz for AI compatibility (Demucs/Whisper)
 ) -> str:
     """
     Extract audio track from video file using FFmpeg
@@ -386,7 +386,7 @@ def separate_sources(
     output_dir: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Separate audio into vocals, drums, bass, and other using Demucs
+    Separate audio into vocals, drums, bass, and other using Demucs CLI
     
     Args:
         audio_path: Path to audio file (WAV)
@@ -396,115 +396,129 @@ def separate_sources(
         Dict with paths to separated sources and metadata
     """
     import os
-    import torch
+    import shutil
+    import glob
     
-    logger.info(f"🎭 Separating audio sources: {Path(audio_path).name}")
+    logger.info(f"🎭 Separating audio sources (CLI): {Path(audio_path).name}")
     
     try:
-        # Import demucs modules
-        from demucs.pretrained import get_model
-        from demucs.audio import AudioFile, save_audio
-        from demucs.apply import apply_model
-        
-        # Load pre-trained model (htdemucs is faster and good quality)
-        logger.info("📥 Loading Demucs model (htdemucs)...")
-        model = get_model("htdemucs")
-        model.eval()
-        
-        # Use CPU for broader compatibility and stability on Mac
-        device = "cpu"
-        model.to(device)
-        logger.info(f"🖥️ Using device: {device} (Forced for stability)")
-        
-        # Load audio
-        audio_file = AudioFile(audio_path)
-        wav = audio_file.read(
-            streams=0,
-            samplerate=model.samplerate,
-            channels=model.audio_channels
-        )
-        
-        # Add batch dimension
-        wav = wav.unsqueeze(0).to(device)
-        
-        # Limit threads for CPU processing
-        torch.set_num_threads(1)
-        
-        # Apply model with STRICT memory constraints
-        logger.info("🔄 Separating sources (Low Memory Mode: segment=10s, shifts=0)...")
-        import gc
-        gc.collect()
-        
-        with torch.no_grad():
-            # segment=10 saves RAM (default is often 39)
-            # shifts=0 disables augmentation (faster, less RAM)
-            sources = apply_model(model, wav, device=device, shifts=0, split=True, segment=10.0)
-            
-        # Clean up input tensor immediately
-        del wav
-        gc.collect()
-        
-        # Sources shape: [batch, sources, channels, samples]
-        # htdemucs sources: drums, bass, other, vocals
-        source_names = model.sources
-        
-        # Create output directory
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix="demucs_")
         os.makedirs(output_dir, exist_ok=True)
         
-        # Save separated sources
-        result = {
-            "source_dir": output_dir,
-            "sources": {},
-            "model": "htdemucs",
-            "sample_rate": model.samplerate,
-        }
+        # Construct Demucs command
+        # We use -n htdemucs (fast, high quality)
+        # --two-stems=vocals limits output to vocals + other (faster, less disk) -> Actually we want full separation for stats, but 'vocals' is critical.
+        # --int24 is better quality? Default output is float32 or int16.
+        # -d cpu forces CPU usage.
         
-        for i, name in enumerate(source_names):
-            source_audio = sources[0, i]  # [channels, samples]
-            output_path = os.path.join(output_dir, f"{name}.wav")
-            
-            # Save audio
-            save_audio(source_audio.cpu(), output_path, model.samplerate)
-            
-            # Compute energy/presence
-            energy = float(torch.mean(source_audio ** 2).item())
-            result["sources"][name] = {
-                "path": output_path,
-                "energy": round(float(energy), 6),
-                "present": bool(energy > 1e-6),
-            }
-            
-            logger.info(f"  {name}: energy={energy:.6f}")
+        # Resolve 'demucs' executable path relative to current python interpreter
+        import sys
+        venv_bin = Path(sys.executable).parent
+        demucs_exec = venv_bin / "demucs"
         
-        # Calculate proportions
-        total_energy = sum(s["energy"] for s in result["sources"].values())
-        for name in result["sources"]:
-            if total_energy > 0:
-                proportion = result["sources"][name]["energy"] / total_energy
-                result["sources"][name]["proportion"] = round(proportion, 4)
-            else:
-                result["sources"][name]["proportion"] = 0.0
+        # Fallback to just "demucs" if not found (e.g. strict system path)
+        cmd_exec = str(demucs_exec) if demucs_exec.exists() else "demucs"
         
-        # Extract key info
-        vocals = result["sources"].get("vocals", {})
-        music_energy = (
-            result["sources"].get("drums", {}).get("energy", 0) +
-            result["sources"].get("bass", {}).get("energy", 0) +
-            result["sources"].get("other", {}).get("energy", 0)
+        cmd = [
+            cmd_exec,
+            "-n", "htdemucs",
+            "-d", "cpu",
+            "-o", str(output_dir),
+            "--filename", "{track}/{stem}.{ext}", # Organize by track/stem
+            str(audio_path)
+        ]
+        
+        logger.info(f"🚀 Running Demucs: {' '.join(cmd)}")
+        
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600 # 10 minutes max
         )
         
+        if process.returncode != 0:
+            logger.error(f"Demucs CLI failed: {process.stderr}")
+            raise RuntimeError(f"Demucs execution failed: {process.stderr}")
+            
+        logger.info("✅ Demucs CLI completed successfully")
+        
+        # Output structure: <output_dir>/htdemucs/<filename>/...
+        # We need to find where it saved.
+        # The --filename format above puts it in output_dir/htdemucs/<stem>.wav? or output_dir/htdemucs/filename/stem.wav?
+        # Default demucs behavior is output_dir / model_name / track_name / stem.wav
+        
+        # Let's find the files.
+        track_name = Path(audio_path).stem
+        model_name = "htdemucs"
+        result_dir = Path(output_dir) / model_name / track_name
+        
+        # Handle case where track name might be truncated or normalized by Demucs
+        if not result_dir.exists():
+            # Try to find any directory inside output_dir/htdemucs
+            possible_dirs = list((Path(output_dir) / model_name).glob("*"))
+            if possible_dirs:
+                result_dir = possible_dirs[0]
+            else:
+                 raise FileNotFoundError(f"Could not find Demucs output in {Path(output_dir) / model_name}")
+        
+        result = {
+            "source_dir": str(output_dir),
+            "sources": {},
+            "model": "htdemucs",
+            "sample_rate": 44100, # htdemucs default
+        }
+        
+        stems = ["vocals", "drums", "bass", "other"]
+        total_energy = 0.0
+        
+        import librosa
+        
+        for stem in stems:
+            stem_path = result_dir / f"{stem}.wav"
+            
+            if stem_path.exists():
+                # Measure energy for stats
+                try:
+                    y, sr = librosa.load(str(stem_path), sr=None, mono=True)
+                    energy = float(np.mean(y ** 2))
+                except Exception:
+                    energy = 0.0
+                    
+                total_energy += energy
+                
+                result["sources"][stem] = {
+                    "path": str(stem_path),
+                    "energy": round(energy, 6),
+                    "present": energy > 1e-6
+                }
+            else:
+                result["sources"][stem] = {
+                    "path": None,
+                    "energy": 0.0,
+                    "present": False
+                }
+
+        # Calculate proportions
+        for stem in result["sources"]:
+            if total_energy > 0:
+                result["sources"][stem]["proportion"] = round(result["sources"][stem]["energy"] / total_energy, 4)
+            else:
+                result["sources"][stem]["proportion"] = 0.0
+                
+        # Extract key info
+        vocals = result["sources"].get("vocals", {})
         result["summary"] = {
             "vocals_proportion": float(vocals.get("proportion", 0)),
             "music_proportion": round(float(1 - vocals.get("proportion", 0)), 4),
             "has_vocals": bool(vocals.get("present", False)),
         }
         
-        logger.info(f"✅ Source separation complete: vocals={result['summary']['vocals_proportion']:.1%}")
+        logger.info(f"✅ Source separation stats: vocals={result['summary']['vocals_proportion']:.1%}")
         
         return result
-        
+
     except Exception as e:
         logger.error(f"❌ Source separation failed: {e}")
         return {"error": str(e)}
@@ -740,10 +754,23 @@ def transcribe_audio(
     
     try:
         # Load model (cached after first load)
-        model = whisper.load_model(model_name)
+        import os
+        config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
+        # Override only if model_name was explicitly passed as something other than default "base"
+        # If default "base" was passed, prefer the env var "small"
+        target_model = config_model if model_name == "base" else model_name
         
-        # Transcribe
-        options = {}
+        logger.info(f"🤖 Loading Whisper model: {target_model} (fp16=False)")
+        model = whisper.load_model(target_model)
+        
+        # Transcribe with robust parameters for noisy audio (commercials)
+        options = {
+            "fp16": False,                # CPU safety
+            "beam_size": 5,               # Better search accuracy
+            "condition_on_previous_text": False, # Prevent hallucination loops
+            "no_speech_threshold": 0.8,   # Relax silence detection (default 0.6)
+            "logprob_threshold": None     # Disable skipping low-confidence segments
+        }
         if language:
             options["language"] = language
         
@@ -898,17 +925,23 @@ def compare_transcripts(
                 "text_b": segments_b[i]["text"],
             })
     
+    
     result = {
         "text_similarity": round(float(similarity), 4),
         "is_text_match": bool(similarity > 0.95),  # 95% threshold
         "word_count_a": len(words_a),
         "word_count_b": len(words_b),
-        "word_differences": differences[:20],  # Limit to first 20
-        "segment_differences": segment_diffs[:10],  # Limit to first 10
+        "word_differences": differences,  # Return all differences
+        "segment_differences": segment_diffs,  # Return all segment differences
         "total_differences": len(differences),
         "acceptance_text": text_a[:500],  # First 500 chars
         "emission_text": text_b[:500],
+        "timeline_data": {
+            "acceptance_segments": segments_a,
+            "emission_segments": segments_b,
+        }
     }
+    
     
     if similarity > 0.95:
         logger.info(f"✅ Transcripts match: {similarity:.1%}")
@@ -916,6 +949,129 @@ def compare_transcripts(
         logger.warning(f"⚠️ Transcript differences: {similarity:.1%}, {len(differences)} word changes")
     
     return result
+
+# ==============================================================================
+# Phase 6: Independent File Transcription Pipeline
+# ==============================================================================
+
+def transcribe_single_file(
+    file_path: str,
+    language: Optional[str] = None,
+    use_source_separation: bool = True,
+    label: str = "file"
+) -> Dict[str, Any]:
+    """
+    Process a SINGLE file end-to-end:
+    1. Extract audio from video (FFmpeg → WAV 44.1kHz stereo)
+    2. Optionally run Demucs CLI → separate vocals
+    3. Verify vocals.wav exists and has content
+    4. Transcribe vocals (or mixed audio as fallback) with Whisper
+    5. Return structured result
+    
+    Args:
+        file_path: Path to video or audio file
+        language: Optional language code for Whisper
+        use_source_separation: If True, run Demucs before Whisper
+        label: Human-readable label for logging (e.g., "acceptance", "emission")
+    
+    Returns:
+        Dict with transcription, segments, language, and separation stats
+    """
+    import os
+    import shutil
+    
+    logger.info(f"🎬 [{label.upper()}] Starting independent transcription pipeline: {Path(file_path).name}")
+    
+    temp_files = []
+    temp_dirs = []
+    
+    try:
+        # Step 1: Extract audio from video
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
+        file_ext = Path(file_path).suffix.lower()
+        
+        if file_ext in video_extensions:
+            audio_path = tempfile.mktemp(suffix=f'_{label}.wav')
+            temp_files.append(audio_path)
+            extract_audio_from_video(file_path, audio_path)
+            logger.info(f"  [{label.upper()}] Audio extracted: {Path(audio_path).name}")
+        else:
+            audio_path = file_path
+        
+        # Step 2: Source separation (Demucs) — extract clean vocals
+        vocals_path = audio_path  # fallback: use mixed audio
+        separation_stats = None
+        
+        if use_source_separation:
+            logger.info(f"  [{label.upper()}] Running Demucs source separation...")
+            sep_dir = tempfile.mkdtemp(prefix=f"demucs_{label}_")
+            temp_dirs.append(sep_dir)
+            
+            sep_result = separate_sources(audio_path, sep_dir)
+            
+            if "error" in sep_result:
+                logger.warning(f"  [{label.upper()}] Demucs failed: {sep_result['error']}. Using mixed audio.")
+                separation_stats = {"status": "failed", "error": sep_result["error"]}
+            else:
+                # Step 3: Verify vocals exist and have content
+                vocals_info = sep_result.get("sources", {}).get("vocals", {})
+                
+                if vocals_info.get("present") and vocals_info.get("path"):
+                    vocals_file = vocals_info["path"]
+                    
+                    if os.path.exists(vocals_file) and os.path.getsize(vocals_file) > 1000:
+                        vocals_path = vocals_file
+                        logger.info(f"  [{label.upper()}] ✅ Using separated vocals: {Path(vocals_file).name} (energy={vocals_info.get('energy', 0):.6f})")
+                    else:
+                        logger.warning(f"  [{label.upper()}] Vocals file missing or empty. Using mixed audio.")
+                else:
+                    logger.warning(f"  [{label.upper()}] No vocals detected. Using mixed audio.")
+                
+                separation_stats = {
+                    "status": "success",
+                    "used_vocals": vocals_path != audio_path,
+                    "summary": sep_result.get("summary", {}),
+                }
+        
+        # Step 4: Transcribe with Whisper
+        logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if vocals_path != audio_path else 'mixed'})...")
+        transcript = transcribe_audio(vocals_path, language=language)
+        
+        if transcript.get("error"):
+            logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")
+        else:
+            logger.info(f"  [{label.upper()}] ✅ Transcribed: {transcript.get('word_count', 0)} words, {len(transcript.get('segments', []))} segments")
+        
+        # Step 5: Return structured result
+        return {
+            "transcript": transcript,
+            "source_separation": separation_stats,
+            "input_file": str(file_path),
+            "used_vocals": vocals_path != audio_path,
+        }
+        
+    except Exception as e:
+        logger.error(f"  [{label.upper()}] Pipeline failed: {e}")
+        return {
+            "transcript": {"error": str(e), "text": "", "segments": []},
+            "source_separation": {"status": "error", "error": str(e)},
+            "input_file": str(file_path),
+            "used_vocals": False,
+        }
+    finally:
+        # Cleanup temp files (but keep Demucs dirs alive until we're done)
+        for f in temp_files:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except:
+                    pass
+        for d in temp_dirs:
+            if os.path.exists(d):
+                try:
+                    shutil.rmtree(d)
+                except:
+                    pass
 
 
 def compare_spoken_text(
@@ -926,99 +1082,79 @@ def compare_spoken_text(
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
-    1. Optionally separate vocals from music using Demucs
-    2. Transcribe both audio tracks with Whisper
+    1. Process acceptance file independently (extract → Demucs → Whisper)
+    2. Process emission file independently (extract → Demucs → Whisper)
     3. Compare transcriptions
+    
+    Each file is processed completely independently via transcribe_single_file(),
+    eliminating duplicate Demucs runs and ensuring clean separation.
     
     Args:
         acceptance_path: Path to acceptance video/audio
         emission_path: Path to emission video/audio
         language: Optional language code
-        use_separated_vocals: If True, first separate vocals from music
+        use_separated_vocals: If True, use Demucs before Whisper
     
     Returns:
-        Complete comparison results
+        Complete comparison results with both transcripts and diff
     """
-    import os
-    import shutil
+    import gc
     
-    logger.info("🎙️ Starting spoken text comparison...")
+    logger.info("🎙️ Starting spoken text comparison (independent pipeline)...")
     
-    temp_files = []
-    temp_dirs = []
+    # Process acceptance file
+    logger.info("=" * 60)
+    logger.info("📗 ACCEPTANCE FILE")
+    logger.info("=" * 60)
+    result_a = transcribe_single_file(
+        acceptance_path,
+        language=language,
+        use_source_separation=use_separated_vocals,
+        label="acceptance"
+    )
     
-    try:
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
-        
-        # Extract audio if video
-        acceptance_ext = Path(acceptance_path).suffix.lower()
-        emission_ext = Path(emission_path).suffix.lower()
-        
-        if acceptance_ext in video_extensions:
-            acceptance_audio = tempfile.mktemp(suffix='_a.wav')
-            temp_files.append(acceptance_audio)
-            extract_audio_from_video(acceptance_path, acceptance_audio)
-        else:
-            acceptance_audio = acceptance_path
-        
-        if emission_ext in video_extensions:
-            emission_audio = tempfile.mktemp(suffix='_e.wav')
-            temp_files.append(emission_audio)
-            extract_audio_from_video(emission_path, emission_audio)
-        else:
-            emission_audio = emission_path
-        
-        # Optionally separate vocals for cleaner transcription
-        if use_separated_vocals:
-            logger.info("🎭 Separating vocals for cleaner transcription...")
-            
-            # Separate acceptance
-            sep_dir_a = tempfile.mkdtemp(prefix="stt_a_")
-            temp_dirs.append(sep_dir_a)
-            sep_a = separate_sources(acceptance_audio, sep_dir_a)
-            
-            if sep_a.get("sources", {}).get("vocals", {}).get("present"):
-                acceptance_audio = sep_a["sources"]["vocals"]["path"]
-            
-            # Separate emission
-            sep_dir_e = tempfile.mkdtemp(prefix="stt_e_")
-            temp_dirs.append(sep_dir_e)
-            sep_e = separate_sources(emission_audio, sep_dir_e)
-            
-            if sep_e.get("sources", {}).get("vocals", {}).get("present"):
-                emission_audio = sep_e["sources"]["vocals"]["path"]
-        
-        # Transcribe both
-        logger.info("📝 Transcribing acceptance audio...")
-        transcript_a = transcribe_audio(acceptance_audio, language=language)
-        
-        logger.info("📝 Transcribing emission audio...")
-        transcript_b = transcribe_audio(emission_audio, language=language)
-        
-        # Compare transcripts
-        comparison = compare_transcripts(transcript_a, transcript_b)
-        
-        result = {
-            "transcript_acceptance": transcript_a,
-            "transcript_emission": transcript_b,
-            "comparison": comparison,
-            "text_similarity": comparison["text_similarity"],
-            "is_text_match": comparison["is_text_match"],
+    # Free memory between heavy processing
+    gc.collect()
+    
+    # Process emission file  
+    logger.info("=" * 60)
+    logger.info("📕 EMISSION FILE")
+    logger.info("=" * 60)
+    result_b = transcribe_single_file(
+        emission_path,
+        language=language,
+        use_source_separation=use_separated_vocals,
+        label="emission"
+    )
+    
+    gc.collect()
+    
+    # Compare transcripts
+    transcript_a = result_a.get("transcript", {"text": "", "segments": []})
+    transcript_b = result_b.get("transcript", {"text": "", "segments": []})
+    
+    logger.info("📊 Comparing transcripts...")
+    comparison = compare_transcripts(transcript_a, transcript_b)
+    
+    result = {
+        "transcript_acceptance": transcript_a,
+        "transcript_emission": transcript_b,
+        "comparison": comparison,
+        "text_similarity": comparison.get("text_similarity", 0),
+        "is_text_match": comparison.get("is_text_match", False),
+        "pipeline_info": {
+            "acceptance_used_vocals": result_a.get("used_vocals", False),
+            "emission_used_vocals": result_b.get("used_vocals", False),
+            "acceptance_separation": result_a.get("source_separation"),
+            "emission_separation": result_b.get("source_separation"),
         }
-        
-        return result
-        
-    finally:
-        # Cleanup
-        for d in temp_dirs:
-            if os.path.exists(d):
-                try:
-                    shutil.rmtree(d)
-                except:
-                    pass
-        for f in temp_files:
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except:
-                    pass
+    }
+    
+    similarity = result["text_similarity"]
+    if similarity > 0.95:
+        logger.info(f"✅ Transcripts match: {similarity:.1%}")
+    else:
+        logger.warning(f"⚠️ Transcript differences: {similarity:.1%}")
+    
+    return result
+

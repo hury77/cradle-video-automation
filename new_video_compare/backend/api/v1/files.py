@@ -518,6 +518,7 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
 
 
 @router.get("/stream/{file_id}")
+@router.head("/stream/{file_id}")
 async def stream_video(
     file_id: int,
     request: Request,

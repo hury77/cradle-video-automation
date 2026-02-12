@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+import numpy as np
 
 from .video_processor import VideoProcessor, ProcessingResult
 from .audio_processor import AudioProcessor
@@ -162,7 +163,30 @@ class ComparisonService:
             # Process based on comparison type
             logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
             
-            if job.comparison_type in [ComparisonType.FULL, ComparisonType.VIDEO_ONLY]:
+            # Helper to check comparison type robustly (handles String vs Enum mismatch)
+            def check_comp_type(job_type, target_types):
+                # If it's a single type, make it a list
+                if not isinstance(target_types, list):
+                    target_types = [target_types]
+                
+                # Normalize job_type to string lower
+                job_type_str = ""
+                if hasattr(job_type, "value"):
+                     job_type_str = str(job_type.value).lower()
+                else:
+                     job_type_str = str(job_type).lower()
+                
+                # Check against targets
+                for t in target_types:
+                    t_str = t.value.lower() if hasattr(t, "value") else str(t).lower()
+                    if job_type_str == t_str:
+                        return True
+                return False
+
+            # Process based on comparison type
+            logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Type: {type(job.comparison_type)})")
+            
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY]):
                 logger.info("🎬 Starting video comparison logic...")
                 job.progress = 10.0
                 db.commit()
@@ -218,7 +242,7 @@ class ComparisonService:
                 job.progress = 60.0
                 db.commit()
 
-            if job.comparison_type in [ComparisonType.FULL, ComparisonType.AUDIO_ONLY]:
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY]):
                 logger.info("🔊 Starting audio comparison...")
                 job.progress = 65.0
                 db.commit()
@@ -263,58 +287,67 @@ class ComparisonService:
                 job.progress = 80.0
                 db.commit()
                 
-                # Source separation (Demucs) - DISABLED FOR STABILITY
-                # The Demucs model causes silent OOM kills on this environment.
-                # We skip separation and run Whisper on the full audio instead.
-                if sensitivity_config.get("enable_source_separation", False):
-                    # MEMORY OPTIMIZATION: Ensure GC
+                # Extended Audio Analysis (Demucs + Whisper)
+                # Only run in AUDIO_ONLY mode to save resources in FULL mode
+                if check_comp_type(job.comparison_type, ComparisonType.AUDIO_ONLY):
+                    logger.info("🎧 Audio-Only Mode: Running enhanced analysis...")
+                    
                     import gc
                     gc.collect()
                     
+                    # Speech-to-Text (Whisper + Demucs)
+                    # The new pipeline handles Demucs internally per-file:
+                    # acceptance → extract → Demucs → Whisper → result_a
+                    # emission   → extract → Demucs → Whisper → result_b
+                    # Then compares both transcripts
                     try:
-                        logger.info("🎭 Source separation (Demucs) DISABLED for stability. Skipping...")
-                        # We pass do_source_separation=False to skip the heavy model
-                        full_result = compare_audio_full(
-                            acceptance_path, 
-                            emission_path, 
-                            do_source_separation=False 
-                        )
-                        audio_result["source_separation"] = {"status": "skipped", "reason": "Disabled for stability (OOM prevention)"}
-                        audio_result["voiceover"] = full_result.get("voiceover") # Might be None
-                        logger.info("✅ Audio comparison continued (without separation)")
-                        
-                        del full_result
-                        gc.collect()
-                        
-                    except Exception as sep_err:
-                        logger.warning(f"Audio comparison failed: {sep_err}")
-                        audio_result["source_separation"] = {"error": str(sep_err)}
-                    
-                    # Speech-to-Text comparison (Whisper)
-                    # We run this on the FULL audio since we didn't separate vocals
-                    try:
-                        logger.info("🎙️ Running Speech-to-Text (Whisper) on FULL audio...")
+                        logger.info("🎙️ Running Speech-to-Text pipeline (independent per file)...")
                         stt_result = compare_spoken_text(
                             acceptance_path,
                             emission_path,
-                            use_separated_vocals=False # Changed to False to prevent Demucs execution inside STT too
+                            use_separated_vocals=True
                         )
+                        
+                        # Extract pipeline info (source separation stats)
+                        pipeline_info = stt_result.get("pipeline_info", {})
+                        
+                        audio_result["source_separation"] = {
+                            "acceptance": pipeline_info.get("acceptance_separation"),
+                            "emission": pipeline_info.get("emission_separation"),
+                        }
+                        
                         audio_result["speech_to_text"] = {
                             "text_similarity": stt_result.get("text_similarity"),
                             "is_text_match": stt_result.get("is_text_match"),
                             "comparison": stt_result.get("comparison"),
                             "acceptance_text": stt_result.get("transcript_acceptance", {}).get("text", "")[:500],
                             "emission_text": stt_result.get("transcript_emission", {}).get("text", "")[:500],
+                            "timeline_data": {
+                                "acceptance_segments": stt_result.get("transcript_acceptance", {}).get("segments", []),
+                                "emission_segments": stt_result.get("transcript_emission", {}).get("segments", []),
+                            },
+                            "language": stt_result.get("transcript_acceptance", {}).get("language"),
                         }
+                        
+                        # Voiceover comparison is derived from source separation stats
+                        audio_result["voiceover"] = stt_result.get("voiceover")
+                        
                         logger.info(f"✅ Speech-to-Text complete: {stt_result.get('text_similarity', 0):.1%} match")
                         
-                        # Clean up stt result
                         del stt_result
                         gc.collect()
                         
                     except Exception as stt_err:
-                        logger.warning(f"Speech-to-Text failed: {stt_err}")
+                        logger.warning(f"Speech-to-Text pipeline failed: {stt_err}")
                         audio_result["speech_to_text"] = {"error": str(stt_err)}
+                        audio_result["source_separation"] = {"error": str(stt_err)}
+
+                else:
+                    # FULL / VIDEO_ONLY Mode
+                    logger.info("⏩ Standard Mode: Skipping Demucs/Whisper to optimize performance strategy.")
+                    audio_result["source_separation"] = {"status": "skipped", "reason": "Available in Audio Only mode"}
+                    audio_result["speech_to_text"] = None 
+                    audio_result["voiceover"] = None
                 
                 results["audio_result"] = audio_result
                 
@@ -372,6 +405,21 @@ class ComparisonService:
         self, db: Session, job: ComparisonJob, results: Dict[str, Any]
     ) -> None:
         """Save comparison results to database"""
+        
+        # Helper to ensure data is JSON serializable (handle numpy types)
+        def ensure_serializable(obj):
+            if isinstance(obj, dict):
+                return {k: ensure_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [ensure_serializable(v) for v in obj]
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.generic):
+                return obj.item()
+            return obj
+            
+        # Sanitize entire results dict first
+        results = ensure_serializable(results)
         
         video_result = results.get("video_result")
         audio_result = results.get("audio_result")
@@ -447,7 +495,15 @@ class ComparisonService:
         
         # Fallback if 0
         if processing_duration <= 0 and job.started_at:
-             processing_duration = (datetime.now(timezone.utc) - job.started_at).total_seconds()
+             # Handle timezone mismatch
+             start_time = job.started_at
+             end_time = datetime.now(timezone.utc)
+             
+             # Ensure start_time is aware if end_time is aware
+             if start_time.tzinfo is None:
+                 start_time = start_time.replace(tzinfo=timezone.utc)
+                 
+             processing_duration = (end_time - start_time).total_seconds()
              
         job.processing_duration = processing_duration
 
@@ -481,6 +537,7 @@ class ComparisonService:
                 similarity_score=audio_result.get("similarity_score", 0.0),
                 spectral_similarity=metadata.get("spectral_similarity"),
                 mfcc_similarity=metadata.get("mfcc_similarity"),
+                audio_analysis_data=audio_result,  # Save full audio analysis data
             )
             db.add(audio_db_result)
 

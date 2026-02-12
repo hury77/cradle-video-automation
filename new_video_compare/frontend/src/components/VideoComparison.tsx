@@ -1,5 +1,6 @@
 // frontend/src/components/VideoComparison.tsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import WaveSurfer from 'wavesurfer.js';
 import { ComparisonJob } from "../types";
 import {
   PlayIcon,
@@ -10,8 +11,6 @@ import {
   SpeakerXMarkIcon,
   ChartBarSquareIcon,
   DocumentChartBarIcon,
-  ForwardIcon,
-  ClockIcon,
 } from "@heroicons/react/24/outline";
 import DifferenceInspector from "./DifferenceInspector";
 
@@ -106,13 +105,25 @@ interface ApiResults {
           is_text_match: boolean;
           acceptance_text: string;
           emission_text: string;
+          language?: string;
           comparison?: {
             word_differences: Array<{
               type: string;
               acceptance: string;
               emission: string;
             }>;
+            segment_differences?: Array<{
+                segment_idx: number;
+                time_a: string;
+                time_b: string;
+                text_a: string;
+                text_b: string;
+            }>;
             total_differences: number;
+          };
+          timeline_data?: {
+            acceptance_segments: Array<{ start: number; end: number; text: string }>;
+            emission_segments: Array<{ start: number; end: number; text: string }>;
           };
         };
         has_loudness_differences: boolean;
@@ -150,6 +161,12 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [isMuted, setIsMuted] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
+  // Build video URLs from job data (note: double /files/ in path matches API router)
+  // Use absolute URL to prevent relative path issues in WaveSurfer fetch
+  const baseUrl = window.location.origin;
+  const acceptanceVideoUrl = `${baseUrl}/api/v1/files/files/stream/${job.acceptance_file_id}`;
+  const emissionVideoUrl = `${baseUrl}/api/v1/files/files/stream/${job.emission_file_id}`;
+
   // Sync heatmap with playback
   const [currentDiffImage, setCurrentDiffImage] = useState<string | null>(null);
 
@@ -158,6 +175,115 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [results, setResults] = useState<ApiResults | null>(null);
   // Inspector Modal State
   const [reanalyzing, setReanalyzing] = useState(false);
+
+  // Audio Visualization Refs
+  const waveformRef = useRef<HTMLDivElement>(null);
+  const emissionWaveformRef = useRef<HTMLDivElement>(null);
+  const wavesurferRef = useRef<WaveSurfer | null>(null);
+  const emissionWavesurferRef = useRef<WaveSurfer | null>(null);
+
+  const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
+  const emissionVideoRef = useRef<HTMLVideoElement>(null);
+  
+  // Waveform Error States
+  
+  // Waveform Error States
+  const [waveformError, setWaveformError] = useState<string | null>(null);
+  const [emissionWaveformError, setEmissionWaveformError] = useState<string | null>(null);
+
+  // Extract Audio Segments for Timeline
+  const audioDiffSegments = results?.overall_result?.report_data?.audio?.speech_to_text?.comparison?.segment_differences || [];
+  const detectedLanguage = results?.overall_result?.report_data?.audio?.speech_to_text?.language;
+
+  // Initialize WaveSurfer
+  useEffect(() => {
+      // Helper: Create WaveSurfer with pre-fetched blob URL for reliable audio decoding.
+      // WaveSurfer internally fetches the media element's `src` URL to decode audio.
+      // For large files (37MB+), this internal fetch can fail/timeout.
+      // Solution: pre-fetch as blob, create blob URL → WaveSurfer.load(blobUrl).
+      const blobUrlsToCleanup: string[] = [];
+      
+      const initWaveSurfer = async (
+          container: HTMLDivElement,
+          mediaEl: HTMLVideoElement,
+          videoUrl: string,
+          colors: { wave: string; progress: string },
+          label: string,
+          setError: (err: string) => void,
+      ) => {
+          try {
+              const ws = WaveSurfer.create({
+                  container,
+                  media: mediaEl,        // Sync playback with video element
+                  waveColor: colors.wave,
+                  progressColor: colors.progress,
+                  cursorColor: 'transparent',
+                  barWidth: 2,
+                  barGap: 1,
+                  height: 60,
+                  normalize: true,
+                  interact: false,
+              });
+              
+              ws.on('error', (err: any) => {
+                  console.error(`${label} WaveSurfer Error:`, err);
+                  if (err.toString().includes('AbortError')) return;
+                  setError(err.toString());
+              });
+              
+              // Pre-fetch audio as blob to bypass internal fetch issues
+              try {
+                  const response = await fetch(videoUrl);
+                  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                  const blob = await response.blob();
+                  const blobUrl = URL.createObjectURL(blob);
+                  blobUrlsToCleanup.push(blobUrl);
+                  await ws.load(blobUrl);
+                  console.log(`✅ ${label} waveform loaded via blob (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
+              } catch (fetchErr: any) {
+                  console.warn(`${label} blob fetch failed:`, fetchErr);
+                  // Fallback: let WaveSurfer try to decode from the media element
+                  // This may work for smaller files
+              }
+              
+              return ws;
+          } catch (e: any) {
+              console.error(`${label} WaveSurfer Init Error:`, e);
+              setError(e.message || "Init Error");
+              return null;
+          }
+      };
+      
+      // Initialize both waveforms
+      if (waveformRef.current && acceptanceVideoRef.current && acceptanceVideoUrl) {
+          initWaveSurfer(
+              waveformRef.current, acceptanceVideoRef.current, acceptanceVideoUrl,
+              { wave: '#93c5fd', progress: '#2563eb' },
+              'Acceptance', setWaveformError
+          ).then(ws => { wavesurferRef.current = ws; });
+      }
+      
+      if (emissionWaveformRef.current && emissionVideoRef.current && emissionVideoUrl) {
+          initWaveSurfer(
+              emissionWaveformRef.current, emissionVideoRef.current, emissionVideoUrl,
+              { wave: '#fca5a5', progress: '#dc2626' },
+              'Emission', setEmissionWaveformError
+          ).then(ws => { emissionWavesurferRef.current = ws; });
+      }
+
+      return () => {
+          if (wavesurferRef.current) {
+              wavesurferRef.current.destroy();
+              wavesurferRef.current = null;
+          }
+          if (emissionWavesurferRef.current) {
+              emissionWavesurferRef.current.destroy();
+              emissionWavesurferRef.current = null;
+          }
+          // Cleanup blob URLs to free memory
+          blobUrlsToCleanup.forEach(url => URL.revokeObjectURL(url));
+      };
+  }, [acceptanceVideoUrl, emissionVideoUrl, showResults]);
   const [showInspector, setShowInspector] = useState(false);
   const [inspectorInitialTimestamp, setInspectorInitialTimestamp] = useState<number | null>(null);
 
@@ -168,12 +294,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [acceptanceError, setAcceptanceError] = useState(false);
   const [emissionError, setEmissionError] = useState(false);
 
-  const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
-  const emissionVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Build video URLs from job data (note: double /files/ in path matches API router)
-  const acceptanceVideoUrl = `http://localhost:8001/api/v1/files/files/stream/${job.acceptance_file_id}`;
-  const emissionVideoUrl = `http://localhost:8001/api/v1/files/files/stream/${job.emission_file_id}`;
 
   // Load results from API
   useEffect(() => {
@@ -185,7 +306,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
       try {
         const response = await fetch(
-          `http://localhost:8001/api/v1/compare/${job.id}/results`
+          `/api/v1/compare/${job.id}/results`
         );
         if (response.ok) {
           const data = await response.json();
@@ -252,7 +373,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
     const handleTimeUpdate = () => {
       if (acceptanceVideoRef.current) {
-        setCurrentTime(acceptanceVideoRef.current.currentTime);
+        const time = acceptanceVideoRef.current.currentTime;
+        setCurrentTime(time);
+        
+        // Sync Waveforms - Handled by media element binding now
+        // if (wavesurferRef.current) {
+        //      wavesurferRef.current.setTime(time);
+        // }
+        // if (emissionWavesurferRef.current) {
+        //      emissionWavesurferRef.current.setTime(time);
+        // }
       }
     };
 
@@ -301,6 +431,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
       }
     });
     setCurrentTime(time);
+    
+    // Sync Waveforms explicitly - Handled by media element binding now
+    // if (wavesurferRef.current) wavesurferRef.current.setTime(time);
+    // if (emissionWavesurferRef.current) emissionWavesurferRef.current.setTime(time);
   };
 
   const jumpToDifference = (timestamp: number) => {
@@ -349,6 +483,47 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
+
+  const toggleShowResults = () => {
+    setShowResults(!showResults);
+  };
+
+  // Process Dialog Timeline (Whisper)
+  const dialogTimeline = useMemo(() => {
+    const timelineData = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data;
+    if (!timelineData) return [];
+
+    const segmentsA = timelineData.acceptance_segments || [];
+    const segmentsB = timelineData.emission_segments || [];
+
+    // Sort both by start time
+    const sortedA = [...segmentsA].sort((a: any, b: any) => a.start - b.start);
+    const sortedB = [...segmentsB].sort((a: any, b: any) => a.start - b.start);
+
+    // Sequential pairing: segment N from acceptance ↔ segment N from emission.
+    // This works because identical VO produces the same segments in the same order,
+    // even when Whisper assigns different timestamps due to different audio processing.
+    const events: Array<{ timestamp: number; acceptance?: string; emission?: string }> = [];
+    const maxLen = Math.max(sortedA.length, sortedB.length);
+
+    for (let i = 0; i < maxLen; i++) {
+        const segA = i < sortedA.length ? sortedA[i] : null;
+        const segB = i < sortedB.length ? sortedB[i] : null;
+
+        // Use the earlier timestamp for display
+        const timestamp = segA && segB
+            ? Math.min(segA.start, segB.start)
+            : segA ? segA.start : segB!.start;
+
+        events.push({
+            timestamp,
+            acceptance: segA?.text,
+            emission: segB?.text,
+        });
+    }
+
+    return events;
+  }, [results]);
 
   const getOverallStatus = (similarity: number) => {
     if (similarity >= 0.95)
@@ -490,6 +665,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   ref={acceptanceVideoRef}
                   className="w-full h-full object-contain"
                   src={acceptanceVideoUrl}
+                  crossOrigin="anonymous"
                   preload="auto"
                   onLoadedData={() => setAcceptanceLoading(false)}
                   onCanPlay={() => setAcceptanceLoading(false)}
@@ -590,6 +766,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   ref={emissionVideoRef}
                   className="w-full h-full object-contain"
                   src={emissionVideoUrl}
+                  crossOrigin="anonymous"
                   preload="auto"
                   onLoadedData={() => setEmissionLoading(false)}
                   onCanPlay={() => setEmissionLoading(false)}
@@ -705,7 +882,34 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     {/* 3. AUDIO Differences Track (BLUE) - Placeholder for now */}
                     <div className="relative h-4 w-full bg-blue-50 rounded border border-blue-100 flex items-center">
                       <span className="absolute -left-16 text-xs font-bold text-blue-600 uppercase w-14 text-right">Audio</span>
-                      {/* Placeholder markers or if we had timestamps */}
+                      {audioDiffSegments.map((seg: any, index: number) => {
+                         const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
+                         const time = parseFloat(timeStr.replace('s', ''));
+                         
+                         if (isNaN(time) || duration <= 0) return null;
+                         
+                         const position = (time / duration) * 100;
+                         
+                         return (
+                           <div
+                             key={`audio-${index}`}
+                             onClick={() => {
+                               // Optional: Jump to time
+                               if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = time;
+                               if (emissionVideoRef.current) emissionVideoRef.current.currentTime = time;
+                               setCurrentTime(time);
+                             }}
+                             className="absolute bg-blue-500 hover:bg-blue-600 cursor-pointer z-10 rounded-full"
+                             style={{ 
+                                 left: `${position}%`, 
+                                 width: '6px', 
+                                 height: '6px',
+                                 transform: 'translateX(-50%)'
+                             }}
+                             title={`🎤 Audio Diff: ${seg.text_a || 'Missing'} vs ${seg.text_b || 'Missing'}`}
+                           />
+                         );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -789,7 +993,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                           const formData = new FormData();
                           formData.append("sensitivity_level", level);
                           const response = await fetch(
-                            `http://localhost:8001/api/v1/compare/${job.id}/reanalyze`,
+                            `/api/v1/compare/${job.id}/reanalyze`,
                             { method: "POST", body: formData }
                           );
                           if (response.ok) {
@@ -876,6 +1080,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                       <div className="flex items-center justify-between mb-4 p-4 bg-purple-50 rounded-t-xl border border-purple-200">
                         <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                           🔊 Audio Comparison
+                          {detectedLanguage && (
+                              <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded border border-gray-200 uppercase font-mono" title="Detected Language">
+                                  {detectedLanguage}
+                              </span>
+                          )}
                           {audio.has_loudness_differences ? (
                             <span className="ml-2 px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium">
                               Różnice w głośności
@@ -976,46 +1185,50 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                         </div>
                       )}
                       
-                      {/* Source Separation Results (HIGH sensitivity only) */}
-                      {audio.source_separation && (
-                        <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                          <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                            🎭 Source Separation (Demucs)
-                          </h4>
-                          <div className="grid grid-cols-2 gap-4">
-                            {/* Acceptance */}
-                            <div className="text-center">
-                              <div className="text-xs text-gray-500 mb-1">Acceptance</div>
-                              <div className="flex items-center justify-center gap-2">
-                                <span className="text-lg font-bold text-indigo-600">
-                                  🎤 {Math.round((audio.source_separation.acceptance?.vocals_proportion || 0) * 100)}%
+                      {/* Audio Waveforms (Stacked) */}
+                      <div className="mt-6 mb-8">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                          <span className="bg-gray-100 p-1.5 rounded-lg mr-2">🌊</span>
+                          Audio Waveform Comparison
+                        </h4>
+                        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-4">
+                          
+                          {/* Acceptance Waveform */}
+                          <div className="relative">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Acceptance Audio</span>
+                              {waveformError && (
+                                <span className="text-xs text-red-500 font-bold bg-white px-2 rounded border border-red-200">
+                                  Error: {waveformError}
                                 </span>
-                                <span className="text-lg font-bold text-purple-600">
-                                  🎵 {Math.round((audio.source_separation.acceptance?.music_proportion || 0) * 100)}%
-                                </span>
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {audio.source_separation.acceptance?.has_vocals ? '✓ Has vocals' : 'No vocals detected'}
-                              </div>
+                              )}
                             </div>
-                            {/* Emission */}
-                            <div className="text-center">
-                              <div className="text-xs text-gray-500 mb-1">Emission</div>
-                              <div className="flex items-center justify-center gap-2">
-                                <span className="text-lg font-bold text-indigo-600">
-                                  🎤 {Math.round((audio.source_separation.emission?.vocals_proportion || 0) * 100)}%
-                                </span>
-                                <span className="text-lg font-bold text-purple-600">
-                                  🎵 {Math.round((audio.source_separation.emission?.music_proportion || 0) * 100)}%
-                                </span>
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {audio.source_separation.emission?.has_vocals ? '✓ Has vocals' : 'No vocals detected'}
-                              </div>
+                            <div className="h-[60px] w-full bg-white rounded border border-blue-100 relative overflow-hidden">
+                              <div ref={waveformRef} className="absolute inset-0 w-full h-full" />
+                              {/* Central Line */}
+                              <div className="absolute top-1/2 left-0 right-0 h-px bg-blue-100 z-0"></div>
                             </div>
                           </div>
+
+                          {/* Emission Waveform */}
+                          <div className="relative">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Emission Audio</span>
+                              {emissionWaveformError && (
+                                <span className="text-xs text-red-500 font-bold bg-white px-2 rounded border border-red-200">
+                                  Error: {emissionWaveformError}
+                                </span>
+                              )}
+                            </div>
+                            <div className="h-[60px] w-full bg-white rounded border border-red-100 relative overflow-hidden">
+                              <div ref={emissionWaveformRef} className="absolute inset-0 w-full h-full" />
+                              {/* Central Line */}
+                              <div className="absolute top-1/2 left-0 right-0 h-px bg-red-100 z-0"></div>
+                            </div>
+                          </div>
+
                         </div>
-                      )}
+                      </div>
                       
                       {/* Voiceover Comparison (if both have vocals) */}
                       {audio.voiceover && (
@@ -1051,6 +1264,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                         <div className="mt-4 p-4 bg-teal-50 rounded-lg border border-teal-200">
                           <h4 className="flex items-center text-sm font-semibold text-gray-700 mb-3">
                             📝 Transcript Comparison (Whisper)
+                            {audio.speech_to_text.language && (
+                                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 uppercase border border-blue-200" title="Detected Language">
+                                    {audio.speech_to_text.language}
+                                </span>
+                            )}
                             <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${audio.speech_to_text.is_text_match ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
                               {Math.round(audio.speech_to_text.text_similarity * 100)}% match
                             </span>
@@ -1088,41 +1306,49 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             )}
 
                             {/* OCR Timeline (SRT Style) */}
-                            {results?.overall_result?.report_data?.ocr?.timeline && results.overall_result.report_data.ocr.timeline.length > 0 ? (
+                            {/* Dialog Timeline (Whisper) - Side by Side */}
+                            {dialogTimeline.length > 0 ? (
                               <div className="mt-4">
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2">Detected Text Timeline</h4>
+                                <h4 className="text-sm font-semibold text-gray-700 mb-2">Detected Dialog Timeline</h4>
                                 <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
-                                  <table className="min-w-full divide-y divide-gray-200 text-xs">
-                                    <thead className="bg-gray-50 sticky top-0">
+                                  <table className="min-w-full divide-y divide-gray-200 text-xs table-fixed">
+                                    <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                                       <tr>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-20">Time</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-24">Source</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Text</th>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-24">Time</th>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-1/2">
+                                          <span className="text-blue-600">Acceptance</span>
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-1/2">
+                                          <span className="text-red-600">Emission</span>
+                                        </th>
                                       </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                      {results.overall_result.report_data.ocr.timeline.map((item: any, idx: number) => (
+                                      {dialogTimeline.map((item, idx) => (
                                         <tr 
                                           key={idx} 
-                                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${item.is_difference ? 'bg-orange-50' : ''}`}
+                                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-orange-50' : ''}`}
                                           onClick={() => jumpToDifference(item.timestamp)}
                                         >
-                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-gray-500">
+                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-gray-500 align-top">
                                             {formatTime(item.timestamp)}
                                           </td>
-                                          <td className="px-3 py-2 whitespace-nowrap">
-                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                                              item.source === 'acceptance' 
-                                                ? 'bg-green-100 text-green-800' 
-                                                : 'bg-red-100 text-red-800'
-                                            }`}>
-                                              {item.source === 'acceptance' ? 'Acceptance' : 'Emission'}
-                                            </span>
+                                          <td className="px-3 py-2 text-gray-900 break-words align-top border-r border-gray-100">
+                                            {item.acceptance ? (
+                                              <div className="bg-blue-50/50 p-1 rounded">
+                                                {item.acceptance}
+                                              </div>
+                                            ) : (
+                                              <span className="text-gray-300 italic">-</span>
+                                            )}
                                           </td>
-                                          <td className="px-3 py-2 text-gray-900 break-words max-w-lg">
-                                            {item.text}
-                                            {item.is_difference && (
-                                              <span className="ml-2 text-orange-600 font-bold" title="Missing in other video at this time">⚠️</span>
+                                          <td className="px-3 py-2 text-gray-900 break-words align-top">
+                                            {item.emission ? (
+                                              <div className="bg-red-50/50 p-1 rounded">
+                                                {item.emission}
+                                              </div>
+                                            ) : (
+                                              <span className="text-gray-300 italic">-</span>
                                             )}
                                           </td>
                                         </tr>
@@ -1132,20 +1358,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                                 </div>
                               </div>
                             ) : (
-                              /* Legacy Fallback if timeline missing */
-                              <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                  <div className="text-xs text-gray-500 mb-1">Unique Acceptance Text</div>
-                                  <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
-                                    {results?.overall_result?.report_data?.ocr?.only_in_acceptance?.join('\n') || "None"}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-xs text-gray-500 mb-1">Unique Emission Text</div>
-                                  <div className="p-2 bg-white rounded border border-gray-200 text-xs text-gray-600 h-32 overflow-y-auto italic">
-                                     {results?.overall_result?.report_data?.ocr?.only_in_emission?.join('\n') || "None"}
-                                  </div>
-                                </div>
+                                /* Legacy Fallback if timeline missing */
+                              <div className="text-center p-4 bg-gray-50 rounded text-gray-500 italic">
+                                No dialog timeline available.
                               </div>
                             )}
                           </div>
@@ -1155,37 +1370,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   );
                 })()}
 
-                {/* Detected Differences */}
-                {differences.length > 0 && (
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                      Detected Differences ({differences.length})
-                    </h4>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {differences.map((diff, index) => (
-                        <div
-                          key={index}
-                          className="p-3 bg-orange-50 border-l-4 border-orange-400 rounded-lg cursor-pointer hover:bg-orange-100 transition-colors"
-                          onClick={() => jumpToDifference(diff.timestamp_seconds)}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-orange-800">
-                              {diff.difference_type.replace("_", " ")}
-                            </span>
-                            <span className="text-xs text-orange-600">
-                              {Math.round(diff.confidence * 100)}% confidence
-                            </span>
-                          </div>
-                          <p className="text-xs text-orange-700 mt-1">
-                            At {formatTime(diff.timestamp_seconds)} 
-                            {diff.duration_seconds > 0 && ` (${diff.duration_seconds.toFixed(1)}s)`}
-                            {diff.description && ` - ${diff.description}`}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Detected Differences (REMOVED) */}
               </>
             ) : !loading ? (
               <div className="text-center py-8 text-gray-500">

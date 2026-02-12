@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     ffprobe_path: str = Field(default="ffprobe", env="FFPROBE_PATH")
     max_concurrent_jobs: int = Field(default=3, env="MAX_CONCURRENT_JOBS")
     processing_timeout: int = Field(default=1800, env="PROCESSING_TIMEOUT")  # 30 min
+    whisper_model_size: str = Field(default="base", env="WHISPER_MODEL_SIZE")
     
     # =============================================================================
     # INTEGRATION SETTINGS
