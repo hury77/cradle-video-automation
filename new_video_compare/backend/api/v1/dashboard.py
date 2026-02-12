@@ -64,7 +64,9 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 @router.delete("/cleanup")
 async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
-    """Delete N oldest completed/failed jobs and their files"""
+    """Delete N oldest completed/failed jobs and their files, plus clean up orphans."""
+    
+    import shutil
     
     # Find N oldest jobs that are completed or failed
     jobs_to_delete = (
@@ -77,28 +79,25 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
     
     deleted_count = 0
     freed_space_bytes = 0
-    
 
     for job in jobs_to_delete:
         # 1. Identify files to potentially delete
         files_to_check = [job.acceptance_file, job.emission_file]
         
-        # 2. Delete the job first (this removes dependencies on files)
-        # Note: SQLAlchemy handles cascading delete for results due to cascade="all, delete-orphan" in model
+        # 2. Delete the job first (cascade deletes results)
         try:
             db.delete(job)
-            db.flush() # Ensure job deletion is registered in session for subsequent queries
+            db.flush()
             deleted_count += 1
         except Exception as e:
             print(f"Error deleting job {job.id}: {e}")
-            continue # Skip file deletion if job deletion failed
+            continue
 
         # 3. Check if files are orphaned and delete them
         for file_model in files_to_check:
             if file_model:
                 try:
                     # Check if file is used by ANY other job
-                    # (The current job is already marked for deletion in this session)
                     usage_count = db.query(ComparisonJob).filter(
                         or_(
                             ComparisonJob.acceptance_file_id == file_model.id,
@@ -113,11 +112,21 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
                             size = file_path.stat().st_size
                             freed_space_bytes += size
                             os.remove(file_path)
-                            
-                        # Also try to remove parent directory if it was created for this file (uuid based)
+                        
+                        # Also delete proxy files for this file
+                        proxy_dir = file_path.parent / "proxies"
+                        if proxy_dir.exists():
+                            # Proxy filenames contain the original file's stem
+                            stem = file_path.stem
+                            for proxy_file in proxy_dir.iterdir():
+                                if stem in proxy_file.name:
+                                    freed_space_bytes += proxy_file.stat().st_size
+                                    proxy_file.unlink()
+
+                        # Remove parent dir if it's empty and not "uploads"
                         if file_path.parent.name != "uploads" and file_path.parent.exists():
                             try:
-                                os.rmdir(file_path.parent) # Only removes if empty
+                                os.rmdir(file_path.parent)
                             except:
                                 pass
                                 
@@ -125,12 +134,72 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
                 except Exception as e:
                     print(f"Error deleting file {file_model.id}: {e}")
     
+    # 4. Clean up orphan File records (DB rows with no referencing jobs)
+    all_file_ids_in_jobs = set()
+    for job in db.query(ComparisonJob).all():
+        if job.acceptance_file_id:
+            all_file_ids_in_jobs.add(job.acceptance_file_id)
+        if job.emission_file_id:
+            all_file_ids_in_jobs.add(job.emission_file_id)
+    
+    orphan_files = db.query(File).filter(~File.id.in_(all_file_ids_in_jobs)).all() if all_file_ids_in_jobs else db.query(File).all()
+    orphan_count = 0
+    for orphan in orphan_files:
+        try:
+            file_path = Path(orphan.file_path)
+            if file_path.exists():
+                freed_space_bytes += file_path.stat().st_size
+                os.remove(file_path)
+            db.delete(orphan)
+            orphan_count += 1
+        except Exception as e:
+            print(f"Error deleting orphan file {orphan.id}: {e}")
+    
+    # 5. Clean temp directory
+    upload_base = Path("uploads")
+    if not upload_base.exists():
+        upload_base = Path("new_video_compare/backend/uploads")
+    temp_dir = upload_base / "temp"
+    if temp_dir.exists():
+        for temp_file in temp_dir.iterdir():
+            try:
+                if temp_file.is_file():
+                    freed_space_bytes += temp_file.stat().st_size
+                    temp_file.unlink()
+                elif temp_file.is_dir():
+                    size = get_dir_size(str(temp_file))
+                    freed_space_bytes += size
+                    shutil.rmtree(temp_file)
+            except Exception as e:
+                print(f"Error deleting temp file {temp_file}: {e}")
+    
+    # 6. Clean orphan proxy files (proxies for files no longer on disk)
+    proxy_dir = upload_base / "proxies"
+    if proxy_dir.exists():
+        # Get stems of all files still referenced by active jobs
+        active_stems = set()
+        for fid in all_file_ids_in_jobs:
+            f = db.query(File).get(fid)
+            if f:
+                active_stems.add(Path(f.file_path).stem)
+        
+        for proxy_file in proxy_dir.iterdir():
+            if proxy_file.is_file():
+                # Check if any active file stem is a substring of the proxy filename
+                is_active = any(stem in proxy_file.name for stem in active_stems)
+                if not is_active:
+                    try:
+                        freed_space_bytes += proxy_file.stat().st_size
+                        proxy_file.unlink()
+                    except Exception as e:
+                        print(f"Error deleting proxy {proxy_file}: {e}")
+    
     db.commit()
     
-
-    
     return {
-        "message": f"Cleanup finished. Deleted {deleted_count} jobs.",
+        "message": f"Cleanup finished. Deleted {deleted_count} jobs, {orphan_count} orphan file records.",
         "deleted_jobs": deleted_count,
+        "orphan_files_cleaned": orphan_count,
         "freed_space_mb": round(freed_space_bytes / (1024 * 1024), 2)
     }
+
