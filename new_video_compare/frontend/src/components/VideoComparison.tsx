@@ -982,7 +982,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-500">Re-analyze:</span>
                 {(["low", "medium", "high"] as const).map((level) => {
-                  const isCurrent = (job.sensitivity_level || "medium") === level;
+                  const isCurrent = (job.sensitivity_level || "medium") === level && job.comparison_type !== "audio_only";
                   return (
                     <button
                       key={level}
@@ -1024,6 +1024,43 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     </button>
                   );
                 })}
+                
+                {/* Audio Only Button */}
+                <button
+                    disabled={reanalyzing || job.comparison_type === "audio_only"}
+                    onClick={async () => {
+                    setReanalyzing(true);
+                    try {
+                        const formData = new FormData();
+                        // Use current sensitivity or default to medium
+                        formData.append("sensitivity_level", job.sensitivity_level || "medium");
+                        formData.append("comparison_type", "audio_only");
+                        
+                        const response = await fetch(
+                        `/api/v1/compare/${job.id}/reanalyze`,
+                        { method: "POST", body: formData }
+                        );
+                        if (response.ok) {
+                        window.location.reload();
+                        } else {
+                        const errText = await response.text();
+                        console.error("Failed to start re-analysis", errText);
+                        alert("Failed to start re-analysis: " + errText);
+                        }
+                    } catch (err) {
+                        console.error("Error in re-analysis:", err);
+                        alert("Error starting re-analysis. Check console.");
+                    } finally {
+                        setReanalyzing(false);
+                    }
+                    }}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors bg-purple-100 text-purple-700 hover:bg-purple-200 ${
+                    job.comparison_type === "audio_only" ? "ring-2 ring-offset-1 ring-blue-500 font-bold opacity-50 cursor-not-allowed" : ""
+                    } ${reanalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                    Audio Only
+                    {job.comparison_type === "audio_only" && " ✓"}
+                </button>
               </div>
             </div>
 

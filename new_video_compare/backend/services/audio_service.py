@@ -429,12 +429,18 @@ def separate_sources(
             str(audio_path)
         ]
         
+        # Prepare environment to disable TQDM progress bars
+        env = os.environ.copy()
+        env["TQDM_DISABLE"] = "1"
+
         logger.info(f"🚀 Running Demucs: {' '.join(cmd)}")
         
         process = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL, # Prevent TTY read
+            env=env, # Disable progress bars
             timeout=600 # 10 minutes max
         )
         

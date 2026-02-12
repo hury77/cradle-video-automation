@@ -626,6 +626,7 @@ async def get_comparison_results(
 async def reanalyze_job(
     job_id: int,
     sensitivity_level: str = Form(...),
+    comparison_type: str = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
@@ -652,14 +653,22 @@ async def reanalyze_job(
     new_sensitivity = sensitivity_map.get(sensitivity_level.lower())
     if not new_sensitivity:
         raise HTTPException(status_code=400, detail=f"Invalid sensitivity level: {sensitivity_level}")
-    
-    # Create new job with same files but new sensitivity
+        
+    # Determine comparison type
+    new_comparison_type = original_job.comparison_type
+    if comparison_type:
+        try:
+            new_comparison_type = ComparisonType(comparison_type.lower())
+        except ValueError:
+             raise HTTPException(status_code=400, detail=f"Invalid comparison type: {comparison_type}")
+
+    # Create new job with same files but new sensitivity/type
     new_job = ComparisonJobModel(
-        job_name=f"{original_job.job_name} (re-analyzed: {sensitivity_level})",
-        job_description=f"Re-analysis of job #{job_id} with {sensitivity_level} sensitivity",
+        job_name=f"{original_job.job_name} (re-analyzed: {sensitivity_level}, {new_comparison_type.value})",
+        job_description=f"Re-analysis of job #{job_id} with {sensitivity_level} sensitivity ({new_comparison_type.value})",
         acceptance_file_id=original_job.acceptance_file_id,
         emission_file_id=original_job.emission_file_id,
-        comparison_type=original_job.comparison_type,
+        comparison_type=new_comparison_type,
         sensitivity_level=new_sensitivity,
         processing_config=original_job.processing_config,
         cradle_id=original_job.cradle_id,
@@ -671,7 +680,7 @@ async def reanalyze_job(
     db.commit()
     db.refresh(new_job)
     
-    logger.info(f"🔄 Created re-analysis job {new_job.id} from job {job_id} with sensitivity {sensitivity_level}")
+    logger.info(f"🔄 Created re-analysis job {new_job.id} from job {job_id} with sensitivity {sensitivity_level} and type {new_comparison_type.value}")
     
     # Start processing in background (using ProcessPoolExecutor wrapper)
     background_tasks.add_task(process_comparison_job, new_job.id)
