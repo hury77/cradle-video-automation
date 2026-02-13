@@ -5,6 +5,7 @@ from pathlib import Path
 import asyncio
 import glob
 import shutil
+import zipfile
 
 
 class FileHandler:
@@ -53,7 +54,11 @@ class FileHandler:
                     acceptance_file, cradle_folder, "acceptance"
                 )
                 if result["success"]:
-                    results["files_downloaded"].append(result)
+                    # Post-process: Unzip / Rename
+                    processed_result = await self._process_downloaded_file(
+                        result, cradle_folder, "acceptance"
+                    )
+                    results["files_downloaded"].append(processed_result)
                 else:
                     results["errors"].append(result)
 
@@ -63,7 +68,11 @@ class FileHandler:
                     emission_file, cradle_folder, "emission"
                 )
                 if result["success"]:
-                    results["files_downloaded"].append(result)
+                    # Post-process: Unzip / Rename
+                    processed_result = await self._process_downloaded_file(
+                        result, cradle_folder, "emission"
+                    )
+                    results["files_downloaded"].append(processed_result)
                 else:
                     results["errors"].append(result)
 
@@ -385,15 +394,74 @@ class FileHandler:
             f"📤 Sent download results: {len(results['files_downloaded'])} files, {len(results['errors'])} errors"
         )
 
-    async def send_error(self, websocket, error_message):
-        """Send error message to extension"""
-        import json
+    async def _process_downloaded_file(self, result, cradle_folder, file_type):
+        """
+        Post-process downloaded file:
+        1. Unzip if it's a zip file
+        2. Rename with suffix (_akcept / _emis) if needed
+        """
+        try:
+            file_path = Path(result["path"])
+            filename = result["filename"]
 
-        message = {
-            "action": "DOWNLOAD_ERROR",
-            "error": error_message,
-            "timestamp": int(asyncio.get_event_loop().time() * 1000),
-        }
+            # 1. Handle ZIP files
+            if filename.lower().endswith(".zip"):
+                self.logger.info(f"📦 Detected ZIP file: {filename}")
+                try:
+                    with zipfile.ZipFile(file_path, "r") as zip_ref:
+                        # Extract all
+                        extract_path = cradle_folder / f"extracted_{file_type}"
+                        zip_ref.extractall(extract_path)
+                        self.logger.info(f"📦 Extracted to: {extract_path}")
 
-        await websocket.send(json.dumps(message))
-        self.logger.error(f"📤 Sent error: {error_message}")
+                        # Find video file inside
+                        video_extensions = {
+                            ".mp4",
+                            ".mov",
+                            ".mxf",
+                            ".avi",
+                            ".mkv",
+                            ".prores",
+                        }
+                        largest_video = None
+                        largest_size = 0
+
+                        for root, _, files in os.walk(extract_path):
+                            for f in files:
+                                if Path(f).suffix.lower() in video_extensions:
+                                    full_path = Path(root) / f
+                                    size = full_path.stat().st_size
+                                    if size > largest_size:
+                                        largest_size = size
+                                        largest_video = full_path
+
+                        if largest_video:
+                            # Move video to main folder
+                            new_path = cradle_folder / largest_video.name
+                            shutil.move(str(largest_video), str(new_path))
+                            self.logger.info(
+                                f"✅ Extracted video moved to: {new_path.name}"
+                            )
+
+                            # Clean up zip and extract folder
+                            # os.remove(file_path) # Optional: keep zip?
+                            # shutil.rmtree(extract_path) # Optional: clean up
+
+                            # Update result
+                            file_path = new_path
+                            filename = new_path.name
+                            result["path"] = str(new_path)
+                            result["filename"] = filename
+                        else:
+                            self.logger.warning(
+                                "⚠️ No video file found in ZIP archive"
+                            )
+
+                except zipfile.BadZipFile:
+                    self.logger.error("❌ Invalid ZIP file")
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"❌ Post-processing failed: {str(e)}")
+            return result

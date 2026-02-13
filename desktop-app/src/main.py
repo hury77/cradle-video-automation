@@ -3,12 +3,20 @@ import logging
 from websocket_server import server
 
 # Setup logging
+import os
+
+# Setup logging
+current_dir = os.path.dirname(os.path.abspath(__file__))
+log_dir = os.path.join(current_dir, '../logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'app.log')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('../logs/app.log', mode='a')
+        logging.FileHandler(log_file, mode='a')
     ]
 )
 

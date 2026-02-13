@@ -690,7 +690,7 @@ class CradleScanner {
     console.log("[CradleScanner] Table tagName:", table?.tagName);
     console.log("[CradleScanner] Table object:", table);
 
-    const fileInfo = this.scanForFiles(table);
+    const fileInfo = await this.scanForFiles(table);
 
     console.log("=== WYNIKI SKANOWANIA PLIKÓW ===");
     console.log("Pełne fileInfo:", fileInfo);
@@ -702,7 +702,12 @@ class CradleScanner {
       console.log("  - URL:", fileInfo.acceptanceFile.url);
       console.log("  - Rząd:", fileInfo.acceptanceFile.row);
 
-      await this.handleAcceptanceFile(fileInfo.acceptanceFile, cradleId); // ✅ DODAJ cradleId
+      console.log("  - Rząd:", fileInfo.acceptanceFile.row);
+
+      // Pass the name as preferredFilename (if found in UI text)
+      // Do NOT default to "acceptance.mp4" to avoid unwanted renaming
+      const filename = fileInfo.acceptanceFile.name;
+      await this.handleAcceptanceFile(fileInfo.acceptanceFile, cradleId, filename); 
     } else {
       console.log("✗ PLIK AKCEPTACJI NIE ZNALEZIONY");
     }
@@ -828,381 +833,236 @@ class CradleScanner {
     return null;
   }
 
-  scanForFiles(table) {
-    console.log("[CradleScanner] 🔍 Scanning table rows for files...");
+  async scanForFiles(table) {
+    console.log("[CradleScanner] 🔍 Starting smart file scan...");
 
-    // === KRYTYCZNA WALIDACJA ===
-    console.log("[CradleScanner] 🔍 Validating table object...");
-    console.log("[CradleScanner] Table type:", typeof table);
-    console.log("[CradleScanner] Table constructor:", table?.constructor?.name);
-    console.log("[CradleScanner] Table tagName:", table?.tagName);
-    console.log(
-      "[CradleScanner] Has querySelectorAll:",
-      typeof table?.querySelectorAll
-    );
+    // 1. Scan current page table
+    let fileInfo = this.scanTableForFiles(table);
 
-    if (
-      !table ||
-      !table.querySelectorAll ||
-      typeof table.querySelectorAll !== "function" ||
-      table.tagName !== "TABLE"
-    ) {
-      console.error("[CradleScanner] ❌ Invalid table object");
-      return { acceptanceFile: null, emissionFile: null };
-    }
+    // 2. Recursive Scan: If Acceptance missing, look for links in "distribution" rows
+    if (!fileInfo.acceptanceFile) {
+      console.log(
+        "[CradleScanner] ⚠️ Acceptance file not found. checking for linked assets..."
+      );
+      const linkedAssetUrl = this.findLinkedAssetUrl(table);
 
-    console.log("[CradleScanner] ✅ Table validation passed");
-
-    // === SKANOWANIE WIERSZY ===
-    const fileInfo = {
-      emissionFile: null,
-      acceptanceFile: null,
-    };
-
-    try {
-      let rows = table.querySelectorAll("tbody tr");
-      if (rows.length === 0) {
-        console.log("[CradleScanner] No tbody rows, trying all tr elements...");
-        rows = table.querySelectorAll("tr");
-      }
-
-      console.log(`[CradleScanner] Found ${rows.length} rows to scan`);
-
-      if (rows.length === 0) {
-        console.log("[CradleScanner] ❌ No rows found in table");
-        return fileInfo;
-      }
-
-      // === SKANOWANIE KAŻDEGO WIERSZA ===
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+      if (linkedAssetUrl) {
         console.log(
-          `[CradleScanner] --- Scanning row ${i + 1}/${rows.length} ---`
+          "[CradleScanner] 🔗 Found linked asset URL:",
+          linkedAssetUrl
         );
+        this.showNotification("🔗 Checking linked asset for files...", "info");
 
-        try {
-          const cells = row.querySelectorAll("td");
-          if (cells.length === 0) {
+        const linkedTable = await this.fetchAndParseLinkedAsset(linkedAssetUrl);
+        if (linkedTable) {
+          console.log("[CradleScanner] 📄 Scanning linked asset table...");
+          const linkedFileInfo = this.scanTableForFiles(linkedTable);
+
+          if (linkedFileInfo.acceptanceFile) {
             console.log(
-              `[CradleScanner] Row ${i + 1}: No cells found, skipping`
+              "[CradleScanner] ✅ Found Acceptance in linked asset!"
             );
-            continue;
+            fileInfo.acceptanceFile = linkedFileInfo.acceptanceFile;
           }
-
-          const firstCellText = cells[0].textContent.toLowerCase().trim();
-          console.log(
-            `[CradleScanner] Row ${i + 1}: "${firstCellText.substring(
-              0,
-              80
-            )}..."`
-          );
-
-          // === EMISSION FILES - SPRAWDŹ NAJPIERW! ===
-          // 1. Szukaj w wierszach: "final file preparation"
-          if (firstCellText.includes("final file preparation")) {
-            console.log(
-              `[CradleScanner] Row ${
-                i + 1
-              }: 📡 Final file preparation - sprawdzam kolumnę Comment`
-            );
-
-            cells.forEach((cell, cellIndex) => {
-              const cellText = cell.textContent.trim();
-
-              // Sprawdź czy to ścieżka sieciowa - POPRAWIONY PARSING
-              if (
-                (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
-                !fileInfo.emissionFile
-              ) {
-                console.log(
-                  `[CradleScanner] Row ${i + 1}, Cell ${
-                    cellIndex + 1
-                  }: 🌐 ŚCIEŻKA SIECIOWA w Comment`
-                );
-                console.log(`[CradleScanner] Pełny tekst: "${cellText}"`);
-
-                // POPRAWIONY PARSING ŚCIEŻKI
-                let cleanPath = null;
-
-                // Metoda 1: Regex - szuka /Volumes/ i bierze wszystko do końca linii
-                const pathMatch = cellText.match(/\/Volumes\/[^\n\r]+/);
-                if (pathMatch) {
-                  cleanPath = pathMatch[0].trim();
-                  console.log(`[CradleScanner] Regex match: "${cleanPath}"`);
-                }
-
-                // Metoda 2: Split fallback jeśli regex nie działa
-                if (!cleanPath && cellText.includes("/Volumes/")) {
-                  const parts = cellText.split("/Volumes/");
-                  if (parts.length > 1) {
-                    cleanPath = "/Volumes/" + parts[1].trim();
-                    console.log(`[CradleScanner] Split method: "${cleanPath}"`);
-                  }
-                }
-
-                if (cleanPath) {
-                  console.log(
-                    `[CradleScanner] ✅ Wyciągnięta czysta ścieżka: "${cleanPath}"`
-                  );
-
-                  fileInfo.emissionFile = {
-                    type: "network_path",
-                    path: cleanPath,
-                    name: "emission_from_network",
-                    row: i + 1,
-                    cell: cellIndex + 1,
-                  };
-
-                  console.log(
-                    `[CradleScanner] ✅ EMISSION PATH found in row ${
-                      i + 1
-                    }, cell ${cellIndex + 1}`
-                  );
-                } else {
-                  console.log(
-                    `[CradleScanner] ❌ Nie udało się wyciągnąć ścieżki z: "${cellText}"`
-                  );
-                }
-              }
-
-              // Sprawdź też czy nie ma załącznika
-              const attachmentLink =
-                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
-                cell.querySelector("a i.fa-file")?.parentElement;
-
-              if (
-                attachmentLink &&
-                attachmentLink.href &&
-                !fileInfo.emissionFile
-              ) {
-                const fileName =
-                  attachmentLink.href.split("/").pop() ||
-                  `emission_${Date.now()}.mp4`;
-                const fullUrl = attachmentLink.href.startsWith("http")
-                  ? attachmentLink.href
-                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
-
-                fileInfo.emissionFile = {
-                  type: "attachment",
-                  url: fullUrl,
-                  name: fileName,
-                  row: i + 1,
-                  cell: cellIndex + 1,
-                };
-                console.log(
-                  `[CradleScanner] ✅ EMISSION ATTACHMENT found in row ${
-                    i + 1
-                  }, cell ${cellIndex + 1}: ${fileName}`
-                );
-              }
-            });
+          // Optional: Check emission in linked asset too? Usually not needed but safe to check
+          if (!fileInfo.emissionFile && linkedFileInfo.emissionFile) {
+             console.log("[CradleScanner] ✅ Found Emission in linked asset!");
+             fileInfo.emissionFile = linkedFileInfo.emissionFile;
           }
-
-          // 2. Szukaj w wierszach: "broadcast file preparation"
-          else if (firstCellText.includes("broadcast file preparation")) {
-            console.log(
-              `[CradleScanner] Row ${
-                i + 1
-              }: 📡 Broadcast file preparation - potencjalny plik EMISSION`
-            );
-
-            cells.forEach((cell, cellIndex) => {
-              const cellText = cell.textContent.trim();
-
-              // Sprawdź ścieżkę sieciową - KONSYSTENTNY Z POWYŻSZYM
-              if (
-                (cellText.includes("/Volumes/") || cellText.includes("\\\\")) &&
-                !fileInfo.emissionFile
-              ) {
-                let cleanPath = null;
-
-                const pathMatch = cellText.match(/\/Volumes\/[^\n\r]+/);
-                if (pathMatch) {
-                  cleanPath = pathMatch[0].trim();
-                } else if (cellText.includes("/Volumes/")) {
-                  const parts = cellText.split("/Volumes/");
-                  if (parts.length > 1) {
-                    cleanPath = "/Volumes/" + parts[1].trim();
-                  }
-                }
-
-                if (cleanPath) {
-                  console.log(
-                    `[CradleScanner] ✅ EMISSION PATH found in row ${
-                      i + 1
-                    }, cell ${cellIndex + 1}`
-                  );
-
-                  fileInfo.emissionFile = {
-                    type: "network_path",
-                    path: cleanPath,
-                    name: "emission_from_network",
-                    row: i + 1,
-                    cell: cellIndex + 1,
-                  };
-                }
-              }
-
-              // Sprawdź załączniki
-              const attachmentLink =
-                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
-                cell.querySelector("a i.fa-file")?.parentElement;
-
-              if (
-                attachmentLink &&
-                attachmentLink.href &&
-                !fileInfo.emissionFile
-              ) {
-                const fileName =
-                  attachmentLink.href.split("/").pop() ||
-                  `emission_${Date.now()}.mp4`;
-                const fullUrl = attachmentLink.href.startsWith("http")
-                  ? attachmentLink.href
-                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
-
-                fileInfo.emissionFile = {
-                  type: "attachment",
-                  url: fullUrl,
-                  name: fileName,
-                  row: i + 1,
-                  cell: cellIndex + 1,
-                };
-                console.log(
-                  `[CradleScanner] ✅ EMISSION ATTACHMENT (broadcast) found in row ${
-                    i + 1
-                  }, cell ${cellIndex + 1}: ${fileName}`
-                );
-              }
-            });
-          }
-
-          // === ACCEPTANCE FILES ===
-          else if (
-            firstCellText.includes("file preparation") &&
-            !firstCellText.includes("final") &&
-            !firstCellText.includes("broadcast")
-          ) {
-            console.log(
-              `[CradleScanner] Row ${
-                i + 1
-              }: 📎 File preparation (bez final/broadcast) - potencjalny plik ACCEPTANCE`
-            );
-
-            cells.forEach((cell, cellIndex) => {
-              const attachmentLink =
-                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
-                cell.querySelector("a i.fa-file")?.parentElement;
-
-              if (
-                attachmentLink &&
-                attachmentLink.href &&
-                !fileInfo.acceptanceFile
-              ) {
-                const fileName =
-                  attachmentLink.href.split("/").pop() ||
-                  `acceptance_${Date.now()}.mp4`;
-                const fullUrl = attachmentLink.href.startsWith("http")
-                  ? attachmentLink.href
-                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
-
-                fileInfo.acceptanceFile = {
-                  type: "attachment",
-                  url: fullUrl,
-                  name: fileName,
-                  row: i + 1,
-                  cell: cellIndex + 1,
-                };
-                console.log(
-                  `[CradleScanner] ✅ ACCEPTANCE FILE found in row ${
-                    i + 1
-                  }, cell ${cellIndex + 1}: ${fileName}`
-                );
-              }
-            });
-          }
-
-          // === QA PROOFREADING FALLBACK ===
-          else if (
-            firstCellText.includes("qa proofreading") &&
-            !fileInfo.acceptanceFile
-          ) {
-            console.log(
-              `[CradleScanner] Row ${
-                i + 1
-              }: 📎 QA proofreading - sprawdzam załączniki (fallback)`
-            );
-
-            cells.forEach((cell, cellIndex) => {
-              const attachmentLink =
-                cell.querySelector('a[href^="/media/cradle/comment/"]') ||
-                cell.querySelector("a i.fa-file")?.parentElement;
-
-              if (
-                attachmentLink &&
-                attachmentLink.href &&
-                !fileInfo.acceptanceFile
-              ) {
-                const fileName =
-                  attachmentLink.href.split("/").pop() ||
-                  `qa_acceptance_${Date.now()}.mp4`;
-                const fullUrl = attachmentLink.href.startsWith("http")
-                  ? attachmentLink.href
-                  : `https://cradle.egplusww.pl${attachmentLink.href}`;
-
-                fileInfo.acceptanceFile = {
-                  type: "attachment",
-                  url: fullUrl,
-                  name: fileName,
-                  row: i + 1,
-                  cell: cellIndex + 1,
-                };
-                console.log(
-                  `[CradleScanner] ✅ QA ACCEPTANCE FILE found in row ${
-                    i + 1
-                  }, cell ${cellIndex + 1}: ${fileName}`
-                );
-              }
-            });
-          }
-        } catch (rowError) {
-          console.error(
-            `[CradleScanner] Error scanning row ${i + 1}:`,
-            rowError
-          );
         }
       }
+    }
 
-      // === PODSUMOWANIE WYNIKÓW ===
-      console.log("[CradleScanner] 📋 === FINAL SCAN RESULTS ===");
-      console.log(
-        "[CradleScanner] - Acceptance file:",
-        fileInfo.acceptanceFile
-          ? `FOUND: ${fileInfo.acceptanceFile.name}`
-          : "NOT FOUND"
-      );
-      console.log(
-        "[CradleScanner] - Emission file:",
-        fileInfo.emissionFile
-          ? `FOUND: ${fileInfo.emissionFile.name || fileInfo.emissionFile.path}`
-          : "NOT FOUND"
-      );
-      console.log("[CradleScanner] === END SCAN RESULTS ===");
+    // 3. Final Summary
+    console.log("[CradleScanner] 📋 === FINAL SCAN RESULTS ===");
+    console.log(
+      "[CradleScanner] - Acceptance:",
+      fileInfo.acceptanceFile ? "✅ FOUND" : "❌ MISSING"
+    );
+    console.log(
+      "[CradleScanner] - Emission:",
+      fileInfo.emissionFile ? "✅ FOUND" : "❌ MISSING"
+    );
 
-      return fileInfo;
-    } catch (scanError) {
-      console.error(
-        "[CradleScanner] ❌ Error during table scanning:",
-        scanError
-      );
-      return { acceptanceFile: null, emissionFile: null };
+    return fileInfo;
+  }
+
+  // ✅ New helper: Find URL to another asset (e.g. from "distribution" row)
+  findLinkedAssetUrl(table) {
+    const rows = table.querySelectorAll("tr");
+    for (const row of rows) {
+      const text = row.textContent.toLowerCase();
+      // Look for rows like "Peugeot...VIDEO: pm distribution"
+      if (text.includes("distribution") || text.includes("final file")) {
+        // Check for links in comments
+        const links = row.querySelectorAll("a[href*='/assets/deliverable-details/']");
+         for (const link of links) {
+             // Exclude self-link if any (rare)
+             if (!link.href.includes(this.currentCradleId)) {
+                 return link.href;
+             }
+         }
+      }
+    }
+    return null;
+  }
+
+  // ✅ New helper: Fetch and parse external Cradle page
+  async fetchAndParseLinkedAsset(url) {
+      try {
+          console.log(`[CradleScanner] 🌍 Fetching linked asset: ${url}`);
+          const response = await fetch(url);
+          const html = await response.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, "text/html");
+          
+          // Reuse existing table finder logic, but on the new doc
+          // We need to reimplement a simple version of findAssetCommentsTable for a DOC
+          const tables = doc.querySelectorAll("table");
+          for (const table of tables) {
+              if (table.textContent.toLowerCase().includes("asset comments") || 
+                  table.textContent.toLowerCase().includes("comment")) {
+                  return table;
+              }
+          }
+          return null;
+      } catch (e) {
+          console.error("[CradleScanner] ❌ Error fetching linked asset:", e);
+          return null;
+      }
+  }
+
+  // ✅ Reusable scanner logic (Logic extracted from original scanForFiles)
+  scanTableForFiles(table) {
+    console.log("[CradleScanner] 🔍 Scanning table rows...");
+    const fileInfo = { emissionFile: null, acceptanceFile: null };
+
+    if (!table) return fileInfo;
+
+    const rows = table.querySelectorAll("tbody tr");
+    const scanRows = rows.length > 0 ? rows : table.querySelectorAll("tr");
+
+    for (let i = 0; i < scanRows.length; i++) {
+        const row = scanRows[i];
+        const cells = row.querySelectorAll("td");
+        if (cells.length === 0) continue;
+
+        const firstCellText = cells[0].textContent.toLowerCase().trim();
+
+        // 1. EMISSION (Final / Broadcast)
+        if (firstCellText.includes("final file preparation") || firstCellText.includes("broadcast file preparation")) {
+             this.extractEmissionFromRow(row, fileInfo, i);
+        }
+        
+        // 2. ACCEPTANCE (File preparation, NOT final/broadcast)
+        else if (firstCellText.includes("file preparation")) {
+            this.extractAcceptanceFromRow(row, fileInfo, i);
+        }
+
+        // 3. Fallback: QA Proofreading (Only if no acceptance found yet)
+        else if (firstCellText.includes("qa proofreading") && !fileInfo.acceptanceFile) {
+             this.extractAcceptanceFromRow(row, fileInfo, i); // Treat as acceptance source
+        }
+    }
+    return fileInfo;
+  }
+
+  extractEmissionFromRow(row, fileInfo, rowIndex) {
+      if (fileInfo.emissionFile) return; // Already found
+
+      const cells = row.querySelectorAll("td");
+      cells.forEach((cell, cellIndex) => {
+          const text = cell.textContent.trim();
+          
+          // A. Network Paths
+          if (text.includes("/Volumes/") || text.includes("lucid://") || text.includes("\\\\")) {
+              console.log(`[CradleScanner] 🌐 Found potential network path in row ${rowIndex}`);
+              
+              // Prefer /Volumes/ over lucid://
+              let cleanPath = null;
+              if (text.includes("/Volumes/")) {
+                   const match = text.match(/\/Volumes\/[^\n\r"]+/);
+                   if (match) cleanPath = match[0].trim();
+              } else if (text.includes("lucid://")) {
+                  // Fallback: we can't download lucid:// directly but we can log it
+                  console.warn("[CradleScanner] Found lucid:// link. Cannot download directly.");
+              }
+
+              if (cleanPath) {
+                  fileInfo.emissionFile = {
+                      type: "network_path",
+                      path: cleanPath,
+                      name: "emission_network",
+                      row: rowIndex
+                  };
+                  console.log(`[CradleScanner] ✅ Found Network Emission: ${cleanPath}`);
+              }
+          }
+
+          // B. Attachments
+          const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
+                       cell.querySelector("a i.fa-file")?.parentElement;
+          
+          if (link && link.href) {
+               const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
+               fileInfo.emissionFile = {
+                   type: "attachment",
+                   url: fullUrl,
+                   name: fullUrl.split("/").pop(),
+                   row: rowIndex
+               };
+               console.log(`[CradleScanner] ✅ Found Attachment Emission: ${fileInfo.emissionFile.name}`);
+          }
+      });
+  }
+
+  extractAcceptanceFromRow(row, fileInfo, rowIndex) {
+      if (fileInfo.acceptanceFile) return;
+
+    const cells = row.querySelectorAll("td");
+    
+    // Use for...of to allow breaking
+    for (const cell of cells) {
+        if (fileInfo.acceptanceFile) break; // Double check
+
+        const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
+                     cell.querySelector("a i.fa-file")?.parentElement;
+        
+        if (link && link.href) {
+             const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
+             
+             // Try to get filename from text content if URL doesn't have it
+             // Clean URL of trailing slash for better pop()
+             const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
+             let filename = cleanUrl.split("/").pop();
+
+             const textContent = link.parentElement.textContent.trim();
+             if (textContent.includes(".")) {
+                 filename = textContent;
+             }
+
+             // Final fallback if filename is still empty or just ID
+             if (!filename || filename.length < 3) {
+                  filename = "acceptance.mp4"; 
+             }
+
+             fileInfo.acceptanceFile = {
+                 type: "attachment",
+                 url: fullUrl,
+                 name: filename,
+                 row: rowIndex
+             };
+             console.log(`[CradleScanner] ✅ Found Acceptance: ${fileInfo.acceptanceFile.name}`);
+             return; // Stop matching in this row after finding one
+        }
     }
   }
 
   // ✅ BEZPIECZNA handleAcceptanceFile() z try-catch
-  async handleAcceptanceFile(fileData, cradleId) {
+  async handleAcceptanceFile(fileData, cradleId, preferredFilename = null) {
     console.log("[CradleScanner] 📥 Downloading acceptance file via Chrome...");
 
-    const filename = this.extractFilenameFromUrl(fileData.url);
+    const filename = preferredFilename || this.extractFilenameFromUrl(fileData.url);
     const downloadPath = `${cradleId}/${filename}`;
 
     try {
@@ -1284,7 +1144,8 @@ class CradleScanner {
         "[CradleScanner] 📡 Downloading emission attachment via Chrome..."
       );
 
-      let finalFilename = this.extractFilenameFromUrl(fileData.url);
+      // Priority: Name from UI text > Name from URL
+      let finalFilename = fileData.name || this.extractFilenameFromUrl(fileData.url);
 
       // Dodaj sufiks _emis jeśli ma taką samą nazwę jak acceptance
       if (acceptanceFileName) {
@@ -1470,6 +1331,29 @@ class CradleScanner {
     return null;
   }
 
+  // ✅ New helper: Extract clean filename from URL (handles query params)
+  extractFilenameFromUrl(url) {
+    try {
+      // Handle URLs with query parameters
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const filename = pathname.split("/").pop();
+      return decodeURIComponent(filename);
+    } catch (e) {
+      // Fallback for non-standard URLs
+      console.warn("Invalid URL for filename extraction:", url);
+      try {
+        return url.split("/").pop().split("?")[0];
+      } catch (e2) {
+        return "unknown_file.mp4";
+      }
+    }
+  }
+
+  wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   findQAOption() {
     console.log("[CradleScanner] Looking for QA FINAL PROOFREADING option...");
 
@@ -1524,17 +1408,25 @@ class CradleScanner {
     console.log("[CradleScanner] Automation stopped");
   }
 
-  // 1. NOWA METODA - dodaj na końcu klasy
+  // ✅ New helper: Extract clean filename from URL (handles query params)
   extractFilenameFromUrl(url) {
     try {
-      const urlParts = url.split("/");
-      const filename = urlParts[urlParts.length - 1];
-      return decodeURIComponent(filename) || `file_${Date.now()}.mp4`;
-    } catch (error) {
-      console.log("[CradleScanner] Error extracting filename:", error);
-      return `file_${Date.now()}.mp4`;
+      // Handle URLs with query parameters
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const filename = pathname.split("/").pop();
+      return decodeURIComponent(filename);
+    } catch (e) {
+      // Fallback for non-standard URLs
+      console.warn("Invalid URL for filename extraction:", url);
+      try {
+        return url.split("/").pop().split("?")[0];
+      } catch (e2) {
+        return "unknown_file.mp4";
+      }
     }
   }
+
   async startVideoCompare() {
     console.log("[CradleScanner] 🎬 Requesting Video Compare automation...");
 
@@ -1566,7 +1458,7 @@ class CradleScanner {
         "info"
       );
     } else {
-      console.log("[CradleScanner] ❌ Desktop App not connected");
+    console.log("[CradleScanner] ❌ Desktop App not connected");
       this.showNotification("❌ Desktop App not connected", "error");
     }
   }
@@ -1606,3 +1498,5 @@ document.addEventListener("test-desktop-connection", () => {
 console.log(
   '[CradleScanner] 🧪 Test available via: document.dispatchEvent(new Event("test-desktop-connection"))'
 );
+
+
