@@ -27,6 +27,30 @@ class DesktopConnection {
         try {
           const data = JSON.parse(event.data);
           console.log("📨 Message from Desktop App:", data);
+
+          const scanner = window.cradleScanner;
+          if (!scanner) return;
+
+          // Handle specific response types
+          if (data.action === "DOWNLOAD_COMPLETED" || data.action === "DOWNLOAD_RESULTS") {
+            const d = data.data || {};
+            if (d.errors && d.errors.length > 0) {
+              for (const err of d.errors) {
+                const msg = err.error || "Unknown download error";
+                scanner.showNotification(`❌ Desktop App: ${msg}`, "error");
+              }
+            }
+            if (d.files_downloaded && d.files_downloaded.length > 0) {
+              for (const f of d.files_downloaded) {
+                scanner.showNotification(`✅ Desktop App: ${f.filename || "file"} downloaded`, "success");
+              }
+            }
+          } else if (data.action === "FILE_MOVED") {
+            console.log(`[Desktop] 📦 File moved: ${data.data?.filename}`);
+          } else if (data.action === "ERROR") {
+            const msg = data.data?.error || data.error || "Unknown error";
+            scanner.showNotification(`❌ Desktop App error: ${msg}`, "error");
+          }
         } catch (e) {
           console.error("Failed to parse message:", event.data);
         }
@@ -750,12 +774,17 @@ class CradleScanner {
       this.showNotification("Pobrano oba pliki pomyślnie", "success");
     }
     // Wyślij info o pobranych plikach do Desktop App
+
+    // Wyślij info o pobranych plikach do Desktop App
     console.log("[CradleScanner] 📤 Sending files info to Desktop App...");
+    
+    // CRITICAL FIX: Only send network paths to Desktop App.
+    // Attachments are handled by Extension. Desktop App shouldn't try to download them without auth.
     const filesData = {
       action: "FILES_DETECTED",
       cradleId: this.currentCradleId,
-      acceptanceFile: fileInfo.acceptanceFile,
-      emissionFile: fileInfo.emissionFile,
+      acceptanceFile: fileInfo.acceptanceFile?.type === "network_path" ? fileInfo.acceptanceFile : null,
+      emissionFile: fileInfo.emissionFile?.type === "network_path" ? fileInfo.emissionFile : null,
       timestamp: Date.now(),
     };
 
@@ -892,16 +921,41 @@ class CradleScanner {
     const rows = table.querySelectorAll("tr");
     for (const row of rows) {
       const text = row.textContent.toLowerCase();
-      // Look for rows like "Peugeot...VIDEO: pm distribution"
+      // Look for rows like "Peugeot...VIDEO: pm distribution" or "final file preparation"
       if (text.includes("distribution") || text.includes("final file")) {
-        // Check for links in comments
-        const links = row.querySelectorAll("a[href*='/assets/deliverable-details/']");
-         for (const link of links) {
-             // Exclude self-link if any (rare)
-             if (!link.href.includes(this.currentCradleId)) {
-                 return link.href;
+        console.log(`[CradleScanner] 🔎 Checking row for links: "${text.substring(0, 50)}..."`);
+        console.log("[CradleScanner] 📄 Row HTML:", row.innerHTML);
+
+        // Check for links in comments - broader check
+        const links = row.querySelectorAll("a");
+        for (const link of links) {
+             const href = link.getAttribute("href");
+             if (!href) continue;
+
+             // Exclude self-link, mailto, etc.
+             if (href.includes(this.currentCradleId) || href.startsWith("mailto:") || href === "#") {
+                 continue;
              }
-         }
+
+             // Valid asset link usually contains /assets/ or /deliverable-details/
+             if (href.includes("/assets/") || href.includes("deliverable-details")) {
+                 console.log(`[CradleScanner] 🔗 Found potential linked asset (<a>): ${href}`);
+                 return link.href; // Return absolute URL
+             }
+        }
+
+        // FALLBACK: Look for plain text URLs if no <a> tag matched
+        const textContent = row.textContent;
+        // Regex to find https://.../deliverable-details/ID...
+        const urlRegex = /https:\/\/[^/]+\/assets\/deliverable-details\/(\d+)(?:\/[^ ]*)?/i;
+        const match = textContent.match(urlRegex);
+        
+        if (match) {
+             const foundUrl = match[0];
+             // Clean up trailing chars potentially
+             console.log(`[CradleScanner] 🔗 Found potential linked asset (text): ${foundUrl}`);
+             return foundUrl;
+        }
       }
     }
     return null;
@@ -971,7 +1025,9 @@ class CradleScanner {
       if (fileInfo.emissionFile) return; // Already found
 
       const cells = row.querySelectorAll("td");
-      cells.forEach((cell, cellIndex) => {
+      for (const cell of cells) {
+          if (fileInfo.emissionFile) return; // Already found, stop scanning
+
           const text = cell.textContent.trim();
           
           // A. Network Paths
@@ -981,8 +1037,8 @@ class CradleScanner {
               // Prefer /Volumes/ over lucid://
               let cleanPath = null;
               if (text.includes("/Volumes/")) {
-                   const match = text.match(/\/Volumes\/[^\n\r"]+/);
-                   if (match) cleanPath = match[0].trim();
+                   const match = text.match(/\/Volumes\/[^\n\r"'`<>]+/);
+                   if (match) cleanPath = match[0].trim().replace(/['\s]+$/, '');
               } else if (text.includes("lucid://")) {
                   // Fallback: we can't download lucid:// directly but we can log it
                   console.warn("[CradleScanner] Found lucid:// link. Cannot download directly.");
@@ -996,24 +1052,31 @@ class CradleScanner {
                       row: rowIndex
                   };
                   console.log(`[CradleScanner] ✅ Found Network Emission: ${cleanPath}`);
+                  return; // Stop after first valid match
               }
           }
 
-          // B. Attachments
+          // B. Attachments - prefer direct /media/ URLs, skip nc-download
           const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
-                       cell.querySelector("a i.fa-file")?.parentElement;
+                       cell.querySelector('a[href*="/media/cradle/"]');
           
           if (link && link.href) {
+               // Skip nc-download links (they are API endpoints, not direct files)
+               if (link.href.includes("nc-download")) continue;
+               
                const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
+               const filename = fullUrl.replace(/\/+$/, '').split("/").pop(); // Clean trailing slash
+               
                fileInfo.emissionFile = {
                    type: "attachment",
                    url: fullUrl,
-                   name: fullUrl.split("/").pop(),
+                   name: filename,
                    row: rowIndex
                };
                console.log(`[CradleScanner] ✅ Found Attachment Emission: ${fileInfo.emissionFile.name}`);
+               return; // Stop after first valid match
           }
-      });
+      }
   }
 
   extractAcceptanceFromRow(row, fileInfo, rowIndex) {
@@ -1058,105 +1121,121 @@ class CradleScanner {
     }
   }
 
-  // ✅ BEZPIECZNA handleAcceptanceFile() z try-catch
-  async handleAcceptanceFile(fileData, cradleId, preferredFilename = null) {
-    console.log("[CradleScanner] 📥 Downloading acceptance file via Chrome...");
+  // ✅ UNIVERSAL FILE DOWNLOAD
+  // Tries chrome.downloads first (supports subdirectories), falls back to fetch+blob
+  async downloadViaFetch(url, downloadPath) {
+    const displayName = downloadPath.split('/').pop();
+    console.log(`[CradleScanner] ⬇️ Downloading: ${downloadPath}`);
 
+    // 1. Try Chrome Downloads API (supports saving to subdirectories)
+    try {
+      if (chrome?.runtime?.sendMessage) {
+        const result = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { action: "DOWNLOAD_FILE", url, filename: downloadPath },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn("[CradleScanner] Chrome API error:", chrome.runtime.lastError.message);
+                resolve(false);
+              } else {
+                resolve(response?.success !== false);
+              }
+            }
+          );
+        });
+        if (result) {
+          console.log(`[CradleScanner] ✅ Chrome download started: ${downloadPath}`);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn("[CradleScanner] Chrome API unavailable, using fetch fallback");
+    }
+
+    // 2. Fallback: fetch + blob + ask Desktop App to move file
+    const cradleId = downloadPath.includes('/') ? downloadPath.split('/')[0] : null;
+    console.log(`[CradleScanner] ⬇️ Fallback: fetching ${displayName} via blob...`);
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = displayName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }, 1000);
+
+      console.log(`[CradleScanner] ✅ Blob download: ${displayName} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+
+      // Ask Desktop App to move file into cradleId subfolder
+      if (cradleId && desktopConnection) {
+        setTimeout(() => {
+          desktopConnection.sendMessage({
+            action: "MOVE_DOWNLOADED_FILE",
+            filename: displayName,
+            cradleId: cradleId,
+            timestamp: Date.now()
+          });
+          console.log(`[CradleScanner] 📦 Requested move: ${displayName} → ${cradleId}/`);
+        }, 2000); // Wait 2s for file to finish writing
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`[CradleScanner] ❌ Download failed for ${displayName}:`, error.message);
+      return false;
+    }
+  }
+
+  // ✅ ACCEPTANCE FILE DOWNLOAD
+  async handleAcceptanceFile(fileData, cradleId, preferredFilename = null) {
+    console.log("[CradleScanner] 📥 Downloading acceptance file...");
     const filename = preferredFilename || this.extractFilenameFromUrl(fileData.url);
     const downloadPath = `${cradleId}/${filename}`;
 
-    try {
-      if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
-        throw new Error("Chrome API not available");
-      }
-
-      console.log(
-        "[CradleScanner] ✅ Chrome API available, sending download request..."
-      );
-
-      chrome.runtime.sendMessage(
-        {
-          action: "DOWNLOAD_FILE",
-          url: fileData.url,
-          filename: downloadPath,
-          type: "acceptance",
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error(
-              "[CradleScanner] Chrome runtime error:",
-              chrome.runtime.lastError
-            );
-            this.showNotification(
-              `❌ Chrome error: ${chrome.runtime.lastError.message}`,
-              "error"
-            );
-            return;
-          }
-
-          if (response?.success) {
-            console.log(`[CradleScanner] ✅ Chrome download: ${filename}`);
-            this.showNotification(
-              `📥 Acceptance downloaded: ${filename}`,
-              "success"
-            );
-          } else {
-            console.error(
-              `[CradleScanner] ❌ Chrome download failed:`,
-              response
-            );
-            this.showNotification(`❌ Acceptance download failed`, "error");
-          }
-        }
-      );
-    } catch (error) {
-      console.error("[CradleScanner] ❌ Chrome API Error:", error.message);
-      this.showNotification(
-        `❌ Chrome API unavailable: ${error.message}`,
-        "error"
-      );
+    const success = await this.downloadViaFetch(fileData.url, downloadPath);
+    if (success) {
+      this.showNotification(`📥 Acceptance downloaded: ${filename}`, "success");
+    } else {
+      this.showNotification(`❌ Acceptance download failed: ${filename}`, "error");
     }
   }
+
   // Helper function to add _emis suffix if needed
   addEmissionSuffix(emissionName, acceptanceName) {
     if (!acceptanceName) return emissionName;
-
-    // Wyciągnij tylko nazwy plików bez ścieżek
     const emissionFileName = emissionName.split("/").pop();
     const acceptanceFileName = acceptanceName.split("/").pop();
-
     if (emissionFileName === acceptanceFileName) {
-      // Dodaj _emis przed rozszerzeniem: file.mp4 → file_emis.mp4
       return emissionName.replace(/(\.[^.]+)$/, "_emis$1");
     }
-
     return emissionName;
   }
 
+  // ✅ EMISSION FILE DOWNLOAD
   async handleEmissionFile(fileData, cradleId, acceptanceFileName = null) {
     console.log("[CradleScanner] 📡 Handling emission file...");
     console.log("Emission type:", fileData.type);
-    console.log("Emission data:", fileData);
 
     if (fileData.type === "attachment") {
-      // 📎 EMISSION ATTACHMENT - pobierz przez Chrome API (ma cookies)
-      console.log(
-        "[CradleScanner] 📡 Downloading emission attachment via Chrome..."
-      );
-
-      // Priority: Name from UI text > Name from URL
+      // 📎 EMISSION ATTACHMENT - download via fetch
       let finalFilename = fileData.name || this.extractFilenameFromUrl(fileData.url);
 
-      // Dodaj sufiks _emis jeśli ma taką samą nazwę jak acceptance
+      // Add _emis suffix if same name as acceptance
       if (acceptanceFileName) {
-        const acceptanceNameOnly = acceptanceFileName.split("/").pop(); // tylko nazwa pliku
+        const acceptanceNameOnly = acceptanceFileName.split("/").pop();
         if (finalFilename === acceptanceNameOnly) {
           const dotIndex = finalFilename.lastIndexOf(".");
           if (dotIndex !== -1) {
-            finalFilename =
-              finalFilename.substring(0, dotIndex) +
-              "_emis" +
-              finalFilename.substring(dotIndex);
+            finalFilename = finalFilename.substring(0, dotIndex) + "_emis" + finalFilename.substring(dotIndex);
           } else {
             finalFilename = finalFilename + "_emis";
           }
@@ -1165,90 +1244,25 @@ class CradleScanner {
       }
 
       const downloadPath = `${cradleId}/${finalFilename}`;
-
-      try {
-        if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
-          throw new Error("Chrome API not available");
-        }
-
-        console.log(
-          "[CradleScanner] ✅ Chrome API available, downloading emission attachment..."
-        );
-
-        chrome.runtime.sendMessage(
-          {
-            action: "DOWNLOAD_FILE",
-            url: fileData.url,
-            filename: downloadPath,
-            type: "emission_attachment",
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                "[CradleScanner] Chrome runtime error:",
-                chrome.runtime.lastError
-              );
-              this.showNotification(
-                `❌ Chrome error: ${chrome.runtime.lastError.message}`,
-                "error"
-              );
-              return;
-            }
-
-            if (response?.success) {
-              console.log(
-                `[CradleScanner] ✅ Chrome download emission: ${finalFilename}`
-              );
-              this.showNotification(
-                `📡 Emission downloaded: ${finalFilename}`,
-                "success"
-              );
-            } else {
-              console.error(
-                `[CradleScanner] ❌ Chrome emission download failed:`,
-                response
-              );
-              this.showNotification(`❌ Emission download failed`, "error");
-            }
-          }
-        );
-
-        this.showNotification(
-          "📥 Emission attachment download via Chrome API",
-          "info"
-        );
-      } catch (error) {
-        console.error(
-          "[CradleScanner] ❌ Chrome API Error for emission:",
-          error.message
-        );
-        this.showNotification(
-          `❌ Chrome API unavailable for emission: ${error.message}`,
-          "error"
-        );
+      const success = await this.downloadViaFetch(fileData.url, downloadPath);
+      if (success) {
+        this.showNotification(`📡 Emission downloaded: ${finalFilename}`, "success");
+      } else {
+        this.showNotification(`❌ Emission download failed`, "error");
       }
+
     } else if (fileData.type === "network_path") {
-      // 🌐 NETWORK PATH - Desktop App obsługuje (ma dostęp do sieci)
+      // 🌐 NETWORK PATH - Desktop App handles this
       console.log("[CradleScanner] 🌐 Network path detected:", fileData.path);
       this.showNotification(
         `📡 Emission file (network): ${fileData.path.split("/").pop()}`,
         "info"
       );
+      console.log("[CradleScanner] 📤 Network emission will be handled by Desktop App");
 
-      // Desktop App pobierze z sieci automatycznie przez FILES_DETECTED
-      console.log(
-        "[CradleScanner] 📤 Network emission will be handled by Desktop App"
-      );
     } else {
-      // ⚠️ Nieznany typ
-      console.log(
-        "[CradleScanner] ⚠️ Unknown emission file type:",
-        fileData.type
-      );
-      this.showNotification(
-        `⚠️ Unknown emission type: ${fileData.type}`,
-        "warning"
-      );
+      console.log("[CradleScanner] ⚠️ Unknown emission file type:", fileData.type);
+      this.showNotification(`⚠️ Unknown emission type: ${fileData.type}`, "warning");
     }
   }
 

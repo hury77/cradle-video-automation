@@ -21,33 +21,42 @@ class BackgroundService {
     console.log('Background service initialized');
   }
 
-  async handleMessage(message, sender, sendResponse) {
-    try {
-      console.log('Background received:', message.action);
-      
-      switch (message.action) {
-        case 'DOWNLOAD_FILE':
-          await this.downloadFile(message.url, message.filename);
-          sendResponse({ success: true });
-          break;
+  handleMessage(message, sender, sendResponse) {
+    console.log('Background received:', message.action);
 
-        case 'GET_STORAGE':
-          const data = await chrome.storage.local.get(message.keys);
-          sendResponse({ success: true, data });
-          break;
+    // Call async handler but don't await it here to allow return true
+    (async () => {
+      try {
+        switch (message.action) {
+          case 'DOWNLOAD_FILE':
+            if (!message.url || !message.filename) {
+               throw new Error('Missing url or filename');
+            }
+            const downloadId = await this.downloadFile(message.url, message.filename);
+            sendResponse({ success: true, downloadId });
+            break;
 
-        case 'SET_STORAGE':
-          await chrome.storage.local.set(message.data);
-          sendResponse({ success: true });
-          break;
+          case 'GET_STORAGE':
+            const data = await chrome.storage.local.get(message.keys);
+            sendResponse({ success: true, data });
+            break;
 
-        default:
-          sendResponse({ success: false, error: 'Unknown action' });
+          case 'SET_STORAGE':
+            await chrome.storage.local.set(message.data);
+            sendResponse({ success: true });
+            break;
+
+          default:
+            sendResponse({ success: false, error: 'Unknown action' });
+        }
+      } catch (error) {
+        console.error('Background error:', error);
+        sendResponse({ success: false, error: error.message });
       }
-    } catch (error) {
-      console.error('Background error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
+    })();
+    
+    // Return true to indicate we will sendResponse asynchronously
+    return true; 
   }
 
   async downloadFile(url, filename) {

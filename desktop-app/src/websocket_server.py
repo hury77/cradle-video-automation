@@ -5,6 +5,7 @@ import logging
 from file_handler import FileHandler
 from video_compare_automator import VideoCompareAutomator
 import time
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,10 @@ class WebSocketServer:
                     websocket, "PONG", {"timestamp": int(time.time() * 1000)}
                 )
 
+            elif action == "MOVE_DOWNLOADED_FILE":
+                logger.info("📦 MOVE_DOWNLOADED_FILE received")
+                await self.handle_move_file(websocket, data)
+
             else:
                 logger.warning(f"Unknown action: {action}")
                 await self.send_error(websocket, f"Unknown action: {action}")
@@ -92,6 +97,41 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"Error handling message: {str(e)}")
             await self.send_error(websocket, f"Server error: {str(e)}")
+
+    async def handle_move_file(self, websocket, data):
+        """Move a blob-downloaded file from Downloads root into cradleId subfolder"""
+        try:
+            filename = data.get("filename")
+            cradle_id = data.get("cradleId")
+            
+            if not filename or not cradle_id:
+                await self.send_error(websocket, "Missing filename or cradleId")
+                return
+            
+            downloads_dir = Path.home() / "Downloads"
+            source = downloads_dir / filename
+            target_dir = downloads_dir / cradle_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / filename
+            
+            # Retry a few times (file might still be writing)
+            for attempt in range(10):
+                if source.exists():
+                    shutil.move(str(source), str(target))
+                    logger.info(f"📦 Moved: {filename} → {cradle_id}/{filename}")
+                    await self.send_response(websocket, "FILE_MOVED", {
+                        "filename": filename,
+                        "destination": str(target)
+                    })
+                    return
+                await asyncio.sleep(1)
+            
+            logger.warning(f"⚠️ File not found after retries: {source}")
+            await self.send_error(websocket, f"File not found: {filename}")
+            
+        except Exception as e:
+            logger.error(f"❌ Move file error: {str(e)}")
+            await self.send_error(websocket, f"Move error: {str(e)}")
 
     async def handle_files_detected(self, websocket, data):
         """Handle FILES_DETECTED message - download files"""
@@ -571,7 +611,7 @@ class WebSocketServer:
                 return_exceptions=True,
             )
 
-    async def start_server(self, host="localhost", port=8765):
+    async def start_server(self, host="0.0.0.0", port=8765):
         """Start the WebSocket server"""
         logger.info(f"Starting WebSocket server on {host}:{port}")
 
