@@ -1067,6 +1067,14 @@ class CradleScanner {
                const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
                const filename = fullUrl.replace(/\/+$/, '').split("/").pop(); // Clean trailing slash
                
+               // Only accept video files and ZIPs
+               const validExts = [".mp4", ".mov", ".mxf", ".zip"];
+               const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+               if (!validExts.includes(ext)) {
+                   console.log(`[CradleScanner] ⏩ Skipping non-video emission: ${filename}`);
+                   continue;
+               }
+               
                fileInfo.emissionFile = {
                    type: "attachment",
                    url: fullUrl,
@@ -1107,6 +1115,14 @@ class CradleScanner {
              // Final fallback if filename is still empty or just ID
              if (!filename || filename.length < 3) {
                   filename = "acceptance.mp4"; 
+             }
+
+             // Only accept video files and ZIPs
+             const validExts = [".mp4", ".mov", ".mxf", ".zip"];
+             const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+             if (!validExts.includes(ext)) {
+                 console.log(`[CradleScanner] ⏩ Skipping non-video acceptance: ${filename}`);
+                 continue;
              }
 
              fileInfo.acceptanceFile = {
