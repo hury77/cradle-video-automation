@@ -1008,14 +1008,19 @@ class CradleScanner {
              this.extractEmissionFromRow(row, fileInfo, i);
         }
         
-        // 2. ACCEPTANCE (File preparation, NOT final/broadcast)
+        // 2. ACCEPTANCE — Primary: video preparation (the actual file being QA'd)
+        else if (firstCellText.includes("video preparation")) {
+            this.extractAcceptanceFromRow(row, fileInfo, i);
+        }
+
+        // 3. ACCEPTANCE — Secondary: file preparation (NOT final/broadcast)
         else if (firstCellText.includes("file preparation")) {
             this.extractAcceptanceFromRow(row, fileInfo, i);
         }
 
-        // 3. Fallback: QA Proofreading (Only if no acceptance found yet)
+        // 4. ACCEPTANCE — Fallback: QA Proofreading (Only if no acceptance found yet)
         else if (firstCellText.includes("qa proofreading") && !fileInfo.acceptanceFile) {
-             this.extractAcceptanceFromRow(row, fileInfo, i); // Treat as acceptance source
+             this.extractAcceptanceFromRow(row, fileInfo, i);
         }
     }
     return fileInfo;
