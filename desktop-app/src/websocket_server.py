@@ -6,6 +6,7 @@ from file_handler import FileHandler
 from video_compare_automator import VideoCompareAutomator
 import time
 import shutil
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class WebSocketServer:
             await self.send_error(websocket, f"Server error: {str(e)}")
 
     async def handle_move_file(self, websocket, data):
-        """Move a blob-downloaded file from Downloads root into cradleId subfolder"""
+        """Move a blob-downloaded file from Downloads root into cradleId subfolder, then unzip if needed"""
         try:
             filename = data.get("filename")
             cradle_id = data.get("cradleId")
@@ -119,15 +120,58 @@ class WebSocketServer:
                 if source.exists():
                     shutil.move(str(source), str(target))
                     logger.info(f"📦 Moved: {filename} → {cradle_id}/{filename}")
-                    await self.send_response(websocket, "FILE_MOVED", {
-                        "filename": filename,
-                        "destination": str(target)
-                    })
-                    return
+                    break
                 await asyncio.sleep(1)
-            
-            logger.warning(f"⚠️ File not found after retries: {source}")
-            await self.send_error(websocket, f"File not found: {filename}")
+            else:
+                logger.warning(f"⚠️ File not found after retries: {source}")
+                await self.send_error(websocket, f"File not found: {filename}")
+                return
+
+            # Unzip if it's a ZIP file
+            final_filename = filename
+            if filename.lower().endswith(".zip") and target.exists():
+                logger.info(f"📦 Unzipping: {filename}")
+                try:
+                    import zipfile
+                    with zipfile.ZipFile(target, "r") as zip_ref:
+                        extract_dir = target_dir / "_extracted_tmp"
+                        zip_ref.extractall(extract_dir)
+                        
+                        # Find largest video file
+                        video_exts = {".mp4", ".mov", ".mxf", ".avi", ".mkv", ".prores"}
+                        largest_video = None
+                        largest_size = 0
+                        
+                        for root, _, files in os.walk(extract_dir):
+                            for f in files:
+                                if Path(f).suffix.lower() in video_exts:
+                                    fpath = Path(root) / f
+                                    fsize = fpath.stat().st_size
+                                    if fsize > largest_size:
+                                        largest_size = fsize
+                                        largest_video = fpath
+                        
+                        if largest_video:
+                            video_dest = target_dir / largest_video.name
+                            shutil.move(str(largest_video), str(video_dest))
+                            final_filename = largest_video.name
+                            logger.info(f"✅ Extracted video: {final_filename} ({largest_size:,} bytes)")
+                            
+                            # Cleanup ZIP and temp folder
+                            os.remove(target)
+                            shutil.rmtree(extract_dir, ignore_errors=True)
+                            logger.info(f"🗑️ Cleaned up ZIP and temp folder")
+                        else:
+                            logger.warning("⚠️ No video found in ZIP, keeping archive")
+                            shutil.rmtree(extract_dir, ignore_errors=True)
+                            
+                except Exception as e:
+                    logger.error(f"❌ Unzip failed: {str(e)}")
+
+            await self.send_response(websocket, "FILE_MOVED", {
+                "filename": final_filename,
+                "destination": str(target_dir / final_filename)
+            })
             
         except Exception as e:
             logger.error(f"❌ Move file error: {str(e)}")
