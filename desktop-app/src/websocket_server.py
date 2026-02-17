@@ -4,12 +4,16 @@ import json
 import logging
 from file_handler import FileHandler
 from video_compare_automator import VideoCompareAutomator
+from api_client import APIClient
 import time
 import shutil
 import os
 from pathlib import Path
+from zip_utils import check_and_unzip_folder
 
 logger = logging.getLogger(__name__)
+
+
 
 
 class WebSocketServer:
@@ -17,6 +21,7 @@ class WebSocketServer:
         self.clients = set()
         self.file_handler = FileHandler()
         self.video_compare = VideoCompareAutomator()
+        self.api_client = APIClient()
 
     async def register(self, websocket):
         """Register a new client"""
@@ -63,6 +68,12 @@ class WebSocketServer:
                     "🎬 VIDEO_COMPARE_REQUEST received - starting Video Compare..."
                 )
                 await self.handle_video_compare_request(websocket, data)
+
+            elif action == "VIDEO_COMPARE_API_REQUEST":
+                logger.info(
+                    "🚀 VIDEO_COMPARE_API_REQUEST received - starting Direct API Compare..."
+                )
+                await self.handle_video_compare_api_request(websocket, data)
 
             elif action == "VIDEO_COMPARE_UPLOAD_REQUEST":
                 logger.info(
@@ -242,6 +253,13 @@ class WebSocketServer:
             emission_file = None
 
             if base_path.exists():
+                # ✅ AUTO-UNZIP: Rozpakuj ewentualne ZIPy przed szukaniem wideo
+                zip_result = check_and_unzip_folder(base_path)
+                if zip_result['processed_zips'] > 0:
+                    logger.info(f"📦 Auto-unzipped {zip_result['processed_zips']} archives in {cradle_id}")
+                    if zip_result['errors']:
+                        logger.error(f"❌ ZIP Errors: {zip_result['errors']}")
+
                 files = list(base_path.glob("*"))
                 logger.info(
                     f"📁 Files in {cradle_id} folder: {[f.name for f in files]}"
@@ -437,6 +455,97 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"❌ Hybrid Video Compare upload failed: {str(e)}")
             await self.send_error(websocket, f"Hybrid upload error: {str(e)}")
+
+    async def handle_video_compare_api_request(self, websocket, data):
+        """Handle Video Compare request via Direct API (Parallel Implementation)"""
+        try:
+            cradle_id = data.get("cradleId")
+            
+            if not cradle_id:
+                await self.send_error(websocket, "No CradleID provided for API Compare")
+                return
+
+            # Build file paths (reuse existing logic from file_handler/server)
+            base_path = Path.home() / "Downloads" / cradle_id
+            logger.info(f"🔍 [API] Looking for files in: {base_path}")
+            
+            if not base_path.exists():
+                await self.send_error(websocket, f"Folder not found: {cradle_id}")
+                return
+
+            # ✅ AUTO-UNZIP: Rozpakuj ewentualne ZIPy przed szukaniem wideo
+            zip_result = check_and_unzip_folder(base_path)
+            if zip_result['processed_zips'] > 0:
+                logger.info(f"📦 [API] Auto-unzipped {zip_result['processed_zips']} archives in {cradle_id}")
+                if zip_result['errors']:
+                    logger.error(f"❌ [API] ZIP Errors: {zip_result['errors']}")
+
+            files = list(base_path.glob("*"))
+            video_files = [f for f in files if f.suffix.lower() in [".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"]]
+            
+            if len(video_files) < 2:
+                await self.send_error(websocket, f"Need 2 video files, found {len(video_files)}")
+                return
+
+            # Identify files
+            acceptance_file, emission_file = await self.identify_video_files(video_files, cradle_id)
+            
+            if not acceptance_file or not emission_file:
+                await self.send_error(websocket, "Could not identify acceptance and emission files")
+                return
+
+            logger.info(f"🚀 [API] Starting API Job for {cradle_id}")
+            logger.info(f"   📂 Acceptance: {Path(acceptance_file).name}")
+            logger.info(f"   📂 Emission: {Path(emission_file).name}")
+
+            # Send status: Started
+            await self.send_status_update(websocket, "VIDEO_COMPARE_STARTED", {
+                "cradle_id": cradle_id,
+                "status": "Uploading files to API...",
+                "mode": "API_CLIENT"
+            })
+
+            # 1. Upload Acceptance
+            acc_result = await self.api_client.upload_file(acceptance_file, "acceptance", cradle_id)
+            if not acc_result or "file_id" not in acc_result:
+                raise Exception(f"Acceptance upload failed: {acc_result}")
+            
+            # 2. Upload Emission
+            emi_result = await self.api_client.upload_file(emission_file, "emission", cradle_id)
+            if not emi_result or "file_id" not in emi_result:
+                 raise Exception(f"Emission upload failed: {emi_result}")
+
+            # 3. Create Job
+            job_result = await self.api_client.create_comparison_job(
+                acceptance_id=acc_result["file_id"],
+                emission_id=emi_result["file_id"],
+                cradle_id=cradle_id,
+                job_name=f"Auto-Compare {cradle_id}",
+                comparison_type="automation"
+            )
+
+            if not job_result or "id" not in job_result:
+                 raise Exception(f"Job creation failed: {job_result}")
+
+            logger.info(f"✅ [API] Job started successfully: ID {job_result['id']}")
+
+            # Send results (Success)
+            await self.send_video_compare_results(websocket, {
+                "success": True,
+                "job_id": job_result["id"],
+                "message": "Job started via API",
+                "api_response": job_result
+            })
+
+            # Open results in browser
+            import webbrowser
+            results_url = f"http://localhost:3000/compare/{job_result['id']}"
+            logger.info(f"🌍 Opening results in browser: {results_url}")
+            webbrowser.open(results_url)
+
+        except Exception as e:
+            logger.error(f"❌ [API] Error: {str(e)}")
+            await self.send_error(websocket, f"API Error: {str(e)}")
 
     async def identify_video_files(self, video_files, cradle_id):
         """Intelligently identify acceptance and emission files"""

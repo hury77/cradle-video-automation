@@ -259,8 +259,10 @@ class ProgressTracker:
 
     async def _update_database_job_status(self, job_id: int, progress: ProgressUpdate):
         """Update job status in database"""
+        from models.database import SessionLocal  # Import here to avoid circular imports if any
+
+        db = SessionLocal()
         try:
-            db = next(get_db())
             job = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first()
 
             if job:
@@ -295,6 +297,9 @@ class ProgressTracker:
 
         except Exception as e:
             logger.error(f"Error updating database for job {job_id}: {str(e)}")
+            db.rollback()
+        finally:
+            db.close()
 
     async def _broadcast_progress_update(self, job_id: int, progress: ProgressUpdate):
         """Broadcast progress update to WebSocket subscribers"""

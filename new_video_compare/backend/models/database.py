@@ -34,6 +34,8 @@ else:
         DATABASE_URL,
         pool_pre_ping=True,
         pool_recycle=300,
+        pool_size=20,       # Increased from default 5
+        max_overflow=30,    # Increased from default 10
         echo=settings.debug
     )
 

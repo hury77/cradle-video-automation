@@ -222,7 +222,7 @@ class CradleScanner {
         break;
       case "VIDEO_COMPARE":
         console.log("[CradleScanner] INFO: Starting Video Compare...");
-        await this.startVideoCompare();
+        await this.startVideoCompare(event.detail?.data);
         break;
       default:
         console.log("[CradleScanner] Unknown command:", action);
@@ -1462,8 +1462,11 @@ class CradleScanner {
     }
   }
 
-  async startVideoCompare() {
-    console.log("[CradleScanner] 🎬 Requesting Video Compare automation...");
+  async startVideoCompare(data = {}) {
+    const useApi = data.useApi === true;
+    const actionType = useApi ? "VIDEO_COMPARE_API_REQUEST" : "VIDEO_COMPARE_REQUEST";
+
+    console.log(`[CradleScanner] 🎬 Requesting Video Compare automation (API Mode: ${useApi})...`);
 
     const cradleId = this.currentCradleId;
     if (!cradleId) {
@@ -1473,23 +1476,23 @@ class CradleScanner {
     }
 
     console.log(
-      `[CradleScanner] 🎬 Starting Video Compare for CradleID: ${cradleId}`
+      `[CradleScanner] 🎬 Starting Video Compare for CradleID: ${cradleId} via ${actionType}`
     );
-    this.showNotification("🎬 Starting Video Compare automation...", "info");
+    this.showNotification(`🎬 Starting Video Compare (${useApi ? "API" : "Legacy"})...`, "info");
 
     // Send request to Desktop App
     const sent = desktopConnection.sendMessage({
-      action: "VIDEO_COMPARE_REQUEST",
+      action: actionType,
       cradleId: cradleId,
       timestamp: Date.now(),
     });
 
     if (sent) {
       console.log(
-        "[CradleScanner] ✅ Video Compare request sent to Desktop App"
+        `[CradleScanner] ✅ ${actionType} sent to Desktop App`
       );
       this.showNotification(
-        "📤 Video Compare request sent to Desktop App",
+        `📤 Request sent to Desktop App`,
         "info"
       );
     } else {

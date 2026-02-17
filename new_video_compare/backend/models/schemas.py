@@ -49,12 +49,13 @@ class ComparisonTypeEnum(str, Enum):
     VIDEO_ONLY = "video_only"
     AUDIO_ONLY = "audio_only"
     FULL = "full"
+    AUTOMATION = "automation"
 
 
 class SensitivityLevel(str, Enum):
     """Sensitivity level for comparison thresholds"""
     LOW = "low"      # High tolerance - quick check
-    MEDIUM = "medium"  # Recommended - with text detection
+    MEDIUM = "medium"  # Recommended - Standard comparison
     HIGH = "high"    # Critical QA - near-perfect match
 
 
@@ -168,8 +169,7 @@ class ComparisonJobCreate(ComparisonJobBase):
         default=SensitivityLevel.MEDIUM,
         description="Comparison sensitivity: low (tolerant), medium (recommended), high (strict)"
     )
-    ocr_language: Optional[str] = Field(None, description="Language for OCR (e.g. 'pl', 'de')")
-    ocr_similarity_threshold: Optional[float] = Field(0.85, ge=0.0, le=1.0, description="OCR text matching threshold (0.0-1.0)")
+    # OCR fields removed — visual differences detected by SSIM+pixel diff
     processing_config: Optional[Dict[str, Any]] = None
     created_by: Optional[str] = Field(None, max_length=100)
 

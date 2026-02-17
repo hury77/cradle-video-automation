@@ -11,6 +11,8 @@ import {
   PlusIcon,
 } from "@heroicons/react/24/outline";
 
+import { compareApi } from "./services/api";
+
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
@@ -20,6 +22,45 @@ function App() {
   const [wsStatus, setWsStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
+
+  // Handle initial URL and browser navigation
+  useEffect(() => {
+    const handleLocationChange = async () => {
+      const path = window.location.pathname;
+      const compareMatch = path.match(/^\/compare\/(\d+)$/);
+
+      if (compareMatch) {
+        const jobId = parseInt(compareMatch[1], 10);
+        try {
+          const job = await compareApi.getJob(jobId);
+          setSelectedJob(job);
+        } catch (error) {
+          console.error("Failed to load job from URL", error);
+          // Optional: redirect to dashboard or show error
+          window.history.replaceState(null, "", "/");
+          setSelectedJob(null);
+        }
+      } else {
+        setSelectedJob(null);
+      }
+    };
+
+    // Check initial URL
+    handleLocationChange();
+
+    // Listen for popstate (back/forward)
+    window.addEventListener("popstate", handleLocationChange);
+    return () => window.removeEventListener("popstate", handleLocationChange);
+  }, []);
+
+  const handleSelectJob = (job: ComparisonJob | null) => {
+    setSelectedJob(job);
+    if (job) {
+      window.history.pushState(null, "", `/compare/${job.id}`);
+    } else {
+      window.history.pushState(null, "", "/");
+    }
+  };
 
   useEffect(() => {
     checkBackendStatus();
@@ -42,7 +83,10 @@ function App() {
   const setupWebSocket = () => {
     try {
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsHost = window.location.host; // Includes port if present
+      // Fix: If running on dev port 3000, connect to backend on 8001 (IPv4)
+      const wsHost = window.location.port === "3000" 
+        ? "127.0.0.1:8001" 
+        : window.location.host;
       const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/connect`);
 
       ws.onopen = () => {
@@ -165,7 +209,7 @@ function App() {
                 <ol className="flex items-center space-x-4">
                   <li>
                     <button
-                      onClick={() => setSelectedJob(null)}
+                      onClick={() => handleSelectJob(null)}
                       className="text-blue-600 hover:text-blue-500 font-medium transition-colors"
                     >
                       Dashboard
@@ -194,11 +238,11 @@ function App() {
             </div>
             <VideoComparison 
               job={selectedJob} 
-              onJobReanalyzed={() => setSelectedJob(null)}
+              onJobReanalyzed={() => handleSelectJob(null)}
             />
           </div>
         ) : (
-          <Dashboard onSelectJob={setSelectedJob} />
+          <Dashboard onSelectJob={handleSelectJob} />
         )}
       </div>
 

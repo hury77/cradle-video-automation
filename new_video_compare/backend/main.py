@@ -17,8 +17,15 @@ from contextlib import asynccontextmanager
 import logging
 
 # Konfiguracja logowania
+# Konfiguracja logowania
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("backend.log"),
+        logging.StreamHandler(sys.stdout)
+    ],
+    force=True
 )
 logger = logging.getLogger(__name__)
 
@@ -72,7 +79,7 @@ from api.v1.dashboard import router as dashboard_router
 # Dołącz routery
 app.include_router(compare_router, prefix="/api/v1", tags=["comparison"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
-app.include_router(files_router, prefix="/api/v1/files", tags=["files"])
+app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 
 # Catch-all route for SPA (Single Page Application) - MUST BE LAST
@@ -84,6 +91,12 @@ async def serve_spa(full_path: str = ""):
     # Allow API calls to pass through if they weren't caught by routers above
     if full_path.startswith("api/") or full_path.startswith("ws/"):
         raise HTTPException(status_code=404, detail="Not Found")
+    
+    # Check if the file exists in the build directory (for root files like favicon.ico, manifest.json)
+    if frontend_build_dir.exists() and full_path:
+        file_path = frontend_build_dir / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
         
     # Serve index.html for client-side routing or root
     if frontend_build_dir.exists():
@@ -91,7 +104,7 @@ async def serve_spa(full_path: str = ""):
         if index_path.exists():
             return FileResponse(index_path)
             
-    return {"error": "Frontend build not found or not built. Please run 'npm run build' in frontend directory."}
+    return {"error": "Frontend build not found. Please run 'npm run build' in frontend directory."}
 
 
 @app.get("/health")

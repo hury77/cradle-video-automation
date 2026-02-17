@@ -522,7 +522,7 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
 async def stream_video(
     file_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    # db: Session = Depends(get_db), # REMOVED: prevents connection holding
 ):
     """
     Stream a video file with Range request support for seeking.
@@ -530,40 +530,72 @@ async def stream_video(
     
     - **file_id**: ID of the file to stream
     """
-    # Get file from database
-    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
-    if not file_record:
-        raise HTTPException(status_code=404, detail="File not found")
-    
+    # Use short-lived session to get file path, then close immediately
+    try:
+        from models.database import SessionLocal
+        with SessionLocal() as db:
+            file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+            if not file_record:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            # Detach data from session
+            file_path_str = file_record.file_path
+            filename = file_record.filename
+            
+            # Helper to check if transcoding is needed (manual logic since record is detached)
+            codec = (file_record.codec or "").lower()
+            file_format_obj = file_record.file_format
+            if file_format_obj:
+                file_format = file_format_obj.value.lower() if hasattr(file_format_obj, 'value') else str(file_format_obj).lower()
+            else:
+                file_format = ""
+                
+            needs_transcoding_flag = False
+            # ProRes, DNxHD, and similar professional codecs need transcoding
+            if codec in ["prores", "dnxhd", "dnxhr", "mpeg2video", "rawvideo"]:
+                needs_transcoding_flag = True
+            # MOV files with non-H264 codecs need transcoding
+            elif file_format == "mov" and codec not in WEB_COMPATIBLE_CODECS:
+                needs_transcoding_flag = True
+            # If codec is unknown but format is MOV, assume it needs transcoding
+            elif file_format == "mov" and not codec:
+                needs_transcoding_flag = True
+                
+    except Exception as e:
+        logger.error(f"Error retrieving file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+    # DB Session is CLOSED here. We are safe to stream indefinitely.
+
     # Get file path
-    file_path = Path(file_record.file_path)
+    file_path = Path(file_path_str)
     if not file_path.is_absolute():
-        file_path = settings.upload_dir / file_record.filename
+        file_path = settings.upload_dir / filename
     
     
     # Check if file exists at stored path
     if not file_path.exists():
         # Fallback 1: Check in settings.upload_dir
-        fallback_path = settings.upload_dir / file_record.filename
+        fallback_path = settings.upload_dir / filename
         if fallback_path.exists():
             file_path = fallback_path
         else:
              # Fallback 2: Check in new_video_compare/backend/uploads (where we know they are)
-             backend_upload_path = Path("new_video_compare/backend/uploads") / file_record.filename
+             backend_upload_path = Path("new_video_compare/backend/uploads") / filename
              if backend_upload_path.exists():
                  file_path = backend_upload_path
              else:
                  # Fallback 3: Check relative to backend dir logic
-                 relative_backend_upload = Path("uploads") / file_record.filename
+                 relative_backend_upload = Path("uploads") / filename
                  if relative_backend_upload.exists():
                      file_path = relative_backend_upload
 
     if not file_path.exists():
-        logger.error(f"❌ File not found on disk: {file_record.file_path}")
+        logger.error(f"❌ File not found on disk: {file_path_str}")
         raise HTTPException(status_code=404, detail="File not found on disk")
     
     # Check if transcoding is needed
-    if needs_transcoding(file_record):
+    if needs_transcoding_flag:
         proxy_path = get_proxy_path(file_path)
         
         if not proxy_path.exists():

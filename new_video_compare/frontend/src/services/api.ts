@@ -72,14 +72,31 @@ export interface ComparisonResults {
 
 }
 
-export interface StorageStats {
-  jobs: {
-    total: number;
+export interface KPIStats {
+  total_jobs: number;
+  active_jobs: number;
+  success_rate: number;
+  avg_processing_time: number;
+  throughput_24h: number;
+}
+
+export interface ClientStats {
+  name: string;
+  total: number;
+  completed: number;
+  failed: number;
+}
+
+export interface DashboardStats {
+  kpi: KPIStats;
+  chart_data: Array<{ date: string; count: number }>;
+  breakdown: {
     completed: number;
     failed: number;
+    pending: number;
   };
+  clients: ClientStats[];
   storage: {
-    total_size_bytes: number;
     total_size_gb: number;
     file_count: number;
   };
@@ -117,7 +134,7 @@ class CompareAPI {
   }
 
   getVideoStreamUrl(fileId: number): string {
-    return `${API_BASE_URL}/files/files/stream/${fileId}`;
+    return `${API_BASE_URL}/files/stream/${fileId}`;
   }
 
   async startJob(jobId: number): Promise<void> {
@@ -172,7 +189,7 @@ class CompareAPI {
     return response.json();
   }
 
-  async getDashboardStats(): Promise<StorageStats> {
+  async getDashboardStats(): Promise<DashboardStats> {
     const response = await fetch(`${API_BASE_URL}/dashboard/stats`);
     if (!response.ok) {
         throw new Error("Failed to fetch dashboard stats");
@@ -195,7 +212,7 @@ class CompareAPI {
     formData.append("file", file);
     formData.append("file_type", fileType);
 
-    const response = await fetch(`${API_BASE_URL}/files/files/upload`, {
+    const response = await fetch(`${API_BASE_URL}/files/upload`, {
       method: "POST",
       body: formData,
     });

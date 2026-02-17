@@ -36,8 +36,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
   const [creatingJob, setCreatingJob] = useState(false);
   const [sensitivityLevel, setSensitivityLevel] = useState<"low" | "medium" | "high">("medium");
   const [comparisonType, setComparisonType] = useState<"video_only" | "audio_only" | "full">("full");
-  const [ocrLanguage, setOcrLanguage] = useState<string>("");
-  const [ocrSimilarityThreshold, setOcrSimilarityThreshold] = useState<number>(85);  // 85% default
+  // OCR removed — visual differences detected by SSIM+pixel diff comparison
 
   const acceptanceInputRef = useRef<HTMLInputElement>(null);
   const emissionInputRef = useRef<HTMLInputElement>(null);
@@ -52,7 +51,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
 
     try {
       const response = await fetch(
-        "http://localhost:8001/api/v1/files/files/upload",
+        "/api/v1/files/upload",
         {
           method: "POST",
           body: formData,
@@ -156,17 +155,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
       job_name: jobName || `Comparison ${new Date().toLocaleString()}`,
       acceptance_file_id: acceptanceFile.id,
       emission_file_id: emissionFile.id,
-
       comparison_type: comparisonType,
       sensitivity_level: sensitivityLevel,
-      ocr_language: ocrLanguage || undefined,
-      ocr_similarity_threshold: ocrSimilarityThreshold / 100,  // Convert to 0-1 range
     };
 
     console.log("Creating job with payload:", payload);
 
     try {
-      const response = await fetch("http://localhost:8001/api/v1/compare/", {
+      const response = await fetch("/api/v1/compare/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -202,7 +198,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
     setJobName("");
     setSensitivityLevel("medium");
     setComparisonType("full");
-    setOcrLanguage("");
+    // OCR state cleanup removed
     setError(null);
   };
 
@@ -458,7 +454,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                       <span className="w-2 h-2 rounded-full bg-yellow-500 mr-2"></span>
                       <span className="font-medium text-gray-900">Medium</span>
                     </div>
-                    <p className="text-xs text-gray-500">Recommended + OCR</p>
+                    <p className="text-xs text-gray-500">Recommended</p>
                   </button>
                   <button
                     type="button"
@@ -478,31 +474,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                 </div>
               </div>
 
-              {/* Text Region Similarity Threshold Slider */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Text Region Similarity Threshold
-                  <span className="ml-2 text-xs text-gray-500">(visual comparison sensitivity)</span>
-                </label>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="range"
-                    min="50"
-                    max="100"
-                    step="5"
-                    value={ocrSimilarityThreshold}
-                    onChange={(e) => setOcrSimilarityThreshold(parseInt(e.target.value))}
-                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                  <span className="w-16 text-center font-mono text-sm bg-gray-100 px-2 py-1 rounded-lg border">
-                    {ocrSimilarityThreshold}%
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  <span className="font-semibold">Lower = more tolerant</span> (ignores compression artifacts), 
-                  <span className="font-semibold"> Higher = stricter</span> (pixel-perfect match required)
-                </p>
-              </div>
+              {/* OCR Slider removed — visual differences detected by SSIM+pixel diff */}
 
               {/* Upload Areas */}
               <div className="flex space-x-4 mb-6">

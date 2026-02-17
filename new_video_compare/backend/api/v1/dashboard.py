@@ -25,39 +25,117 @@ def get_dir_size(path: str) -> int:
 
 @router.get("/stats")
 async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Get dashboard statistics including storage usage"""
+    """Get advanced dashboard statistics"""
+    from datetime import datetime, timedelta
     
-    # 1. Job statistics
-    total_jobs = db.query(ComparisonJob).count()
-    completed_jobs = db.query(ComparisonJob).filter(ComparisonJob.status == JobStatus.COMPLETED).count()
-    failed_jobs = db.query(ComparisonJob).filter(ComparisonJob.status == JobStatus.FAILED).count()
+    now = datetime.utcnow()
+    last_24h = now - timedelta(hours=24)
     
-    # 2. File storage usage
-    # We can query all files and sum their size on disk
+    # Base queries
+    total_query = db.query(ComparisonJob)
+    completed_query = total_query.filter(ComparisonJob.status == JobStatus.COMPLETED)
+    
+    # 1. Basic Counts
+    total_jobs = total_query.count()
+    completed = completed_query.count()
+    failed = total_query.filter(ComparisonJob.status == JobStatus.FAILED).count()
+    processing = total_query.filter(ComparisonJob.status.in_([JobStatus.PROCESSING, JobStatus.PENDING])).count()
+    
+    # 2. Key Performance Indicators (KPIs)
+    # Success Rate
+    finished_count = completed + failed
+    success_rate = round((completed / finished_count * 100), 1) if finished_count > 0 else 0.0
+    
+    # Avg Processing Time (for completed jobs)
+    avg_duration = db.query(func.avg(ComparisonJob.processing_duration)).filter(ComparisonJob.status == JobStatus.COMPLETED).scalar() or 0
+    
+    # Throughput (24h)
+    jobs_24h = total_query.filter(ComparisonJob.created_at >= last_24h).count()
+    
+    # Chart Data (Last 7 Days)
+    chart_data = []
+    for i in range(6, -1, -1):
+        day_start = now - timedelta(days=i)
+        day_start = day_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        
+        count = total_query.filter(
+            ComparisonJob.created_at >= day_start,
+            ComparisonJob.created_at < day_end
+        ).count()
+        
+        chart_data.append({
+            "date": day_start.strftime("%Y-%m-%d"),
+            "count": count
+        })
+    
+    # 3. Client Breakdown & Formatting
+    # Assuming Job Name format: "Client - Campaign - ..." or just parsing logic
+    # Examples: "Electrolux_Video..." or simple naming. 
+    # For now, we'll try to guess Client from the first word or segment.
+    
+    all_jobs = total_query.all()
+    clients = {}
+    
+    for job in all_jobs:
+        if not job.job_name: continue
+        
+        # Simple heuristic: Split by space, underscore, or dash
+        normalized_name = job.job_name.replace("_", " ").replace("-", " ")
+        parts = normalized_name.split()
+        client_name = parts[0] if parts else "Unknown"
+        
+        # Common known clients (hardcoded for better grouping if needed, otherwise dynamic)
+        known_clients = ["Electrolux", "Philips", "Bridgestone", "Nivea", "Loreal"]
+        for known in known_clients:
+            if known.lower() in job.job_name.lower():
+                client_name = known
+                break
+                
+        if client_name not in clients:
+            clients[client_name] = {"total": 0, "failed": 0, "completed": 0}
+            
+        clients[client_name]["total"] += 1
+        if job.status == JobStatus.COMPLETED:
+            clients[client_name]["completed"] += 1
+        elif job.status == JobStatus.FAILED:
+            clients[client_name]["failed"] += 1
+            
+    # Sort clients by total jobs desc
+    sorted_clients = sorted(
+        [{"name": k, **v} for k, v in clients.items()], 
+        key=lambda x: x["total"], 
+        reverse=True
+    )[:10] # Top 10
+    
+    # 4. Storage Stats (Existing logic)
     files = db.query(File).all()
     total_size_bytes = 0
-    
-    # Also count files in upload directory directly to be accurate about disk usage
-    # Assuming standard upload path structure
     upload_dir = Path("new_video_compare/backend/uploads")
     if not upload_dir.exists():
-        # Fallback if running from backend dir
         upload_dir = Path("uploads")
     if upload_dir.exists():
-        total_size_bytes = get_dir_size(str(upload_dir))
-    
-    # Convert to GB
-    total_size_gb = round(total_size_bytes / (1024 * 1024 * 1024), 2)
-    
+        try:
+            total_size_bytes = get_dir_size(str(upload_dir))
+        except: pass
+        
     return {
-        "jobs": {
-            "total": total_jobs,
-            "completed": completed_jobs,
-            "failed": failed_jobs
+        "kpi": {
+            "total_jobs": total_jobs,
+            "active_jobs": processing,
+            "success_rate": success_rate,
+            "avg_processing_time": round(avg_duration, 1),
+            "throughput_24h": jobs_24h
         },
+        "chart_data": chart_data,
+        "breakdown": {
+            "completed": completed,
+            "failed": failed,
+            "pending": processing
+        },
+        "clients": sorted_clients,
         "storage": {
-            "total_size_bytes": total_size_bytes,
-            "total_size_gb": total_size_gb,
+            "total_size_gb": round(total_size_bytes / (1024**3), 2),
             "file_count": len(files)
         }
     }

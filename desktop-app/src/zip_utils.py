@@ -71,8 +71,11 @@ def unzip_and_cleanup(file_path):
                     logger.info(f"📦 Rozpakowano: {filename}")
         
         # Usuń oryginalny ZIP
-        file_path.unlink()
-        logger.info(f"📦 Usunięto ZIP: {file_path.name}")
+        try:
+            file_path.unlink()
+            logger.info(f"📦 Usunięto ZIP: {file_path.name}")
+        except Exception as unlink_err:
+             logger.warning(f"⚠️ Nie udało się usunąć pliku ZIP {file_path.name}: {unlink_err}")
         
         return {
             'was_zip': True,

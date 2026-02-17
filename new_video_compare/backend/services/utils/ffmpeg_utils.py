@@ -244,7 +244,9 @@ class FFmpegUtils:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Build output pattern
-        output_pattern = output_dir / f"{video_path.stem}_frame_%06d.jpg"
+        # Sanitize stem to remove '%' which FFmpeg interprets as pattern
+        safe_stem = video_path.stem.replace("%", "_")
+        output_pattern = output_dir / f"{safe_stem}_frame_%06d.jpg"
 
         logger.info(f"🎬 Extracting frames from: {video_path.name}")
         logger.info(f"📁 Output directory: {output_dir}")
@@ -282,7 +284,8 @@ class FFmpegUtils:
                 raise FFmpegError(f"Frame extraction failed: {result.stderr}")
 
             # Find extracted frames
-            frame_files = sorted(output_dir.glob(f"{video_path.stem}_frame_*.jpg"))
+            # Use safe_stem because that's what we wrote to disk
+            frame_files = sorted(output_dir.glob(f"{safe_stem}_frame_*.jpg"))
             frame_paths = [str(f) for f in frame_files]
 
             logger.info(f"✅ Extracted {len(frame_paths)} frames")

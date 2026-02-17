@@ -65,13 +65,14 @@ class ComparisonType(enum.Enum):
     VIDEO_ONLY = "video_only"
     AUDIO_ONLY = "audio_only"
     FULL = "full"  # Both video and audio
+    AUTOMATION = "automation"  # Sequential: Video HIGH → gc → Full Audio (Demucs+Whisper) → 1 job
 
 
 class SensitivityLevel(enum.Enum):
     """Sensitivity level for comparison thresholds"""
     
     LOW = "low"      # High tolerance - quick check, SSIM >= 0.85
-    MEDIUM = "medium"  # Recommended with OCR - SSIM >= 0.92
+    MEDIUM = "medium"  # Recommended - SSIM >= 0.92
     HIGH = "high"    # Critical QA - SSIM >= 0.98
 
 

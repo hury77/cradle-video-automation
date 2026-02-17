@@ -18,6 +18,16 @@ class PopupController {
     this.statusDiv = document.getElementById("status");
     this.logDiv = document.getElementById("log");
     this.videoCompareBtn = document.getElementById("videoCompareBtn");
+    this.useApiCheckbox = document.getElementById("useApiCheckbox");
+
+    // Load saved state
+    const useApiState = localStorage.getItem("cradle_use_api") === "true";
+    if (this.useApiCheckbox) {
+      this.useApiCheckbox.checked = useApiState;
+      this.useApiCheckbox.addEventListener("change", (e) => {
+        localStorage.setItem("cradle_use_api", e.target.checked);
+      });
+    }
 
     // Bind event listeners
     this.startBtn.addEventListener("click", () => this.startAutomation());
@@ -175,9 +185,10 @@ class PopupController {
     }
   }
   async startVideoCompare() {
-    this.log("🎬 Starting Video Compare...");
+    const useApi = this.useApiCheckbox ? this.useApiCheckbox.checked : false;
+    this.log(`🎬 Starting Video Compare (API: ${useApi})...`);
     try {
-      await this.sendCommandToContentScript("VIDEO_COMPARE");
+      await this.sendCommandToContentScript("VIDEO_COMPARE", { useApi });
       this.log("✅ Video Compare request sent");
     } catch (error) {
       this.log(`❌ Video Compare error: ${error.message}`, "error");

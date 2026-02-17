@@ -11,7 +11,7 @@ Browser Extension (Chrome)
     ↕ WebSocket :8765
 Desktop App (Python)
     ↕ REST API :8001
-New Video Compare (FastAPI + React)
+New Video Compare (FastAPI + React Build)
     ↕ SQLite
 Dashboard + Stats
 ```
@@ -25,9 +25,36 @@ Dashboard + Stats
 | Backend NVC | FastAPI, SQLAlchemy, FFmpeg | `new_video_compare/backend/` |
 | Frontend NVC | React, TypeScript, Vite | `new_video_compare/frontend/` |
 
+
 ---
 
-## Workflow Cradle
+## 🧠 Core Principles & Rules (Updated 2026-02-16)
+
+### 1. Architecture & Ports 🔌
+- **Backend**: Always runs on `http://localhost:8001`.
+- **Frontend**: 
+  - Dev Mode: `http://localhost:3000` (Proxy to 8001 required).
+  - Production Build: Served by Backend at `http://localhost:8001/`.
+- **WebSocket (Desktop App)**: `ws://localhost:8765`.
+
+### 2. File Paths & URLs 📂
+- **NEVER hardcode `http://localhost:3000` or `http://localhost:8001` in Frontend code.**
+  - Use relative paths (e.g., `/api/v1/...`) to allow the browser to resolve against the current origin (whether it's 3000 with proxy or 8001).
+- **Video Streams**: Ensure URLs are constructed relative to the API base, not `window.location.origin` (unless verified).
+
+### 3. Database 💽
+- **SQLite**: The project uses SQLite (`new_video_compare.db`) located in the `backend/` directory.
+- **Config**: Ensure `database_url` in `config.py` defaults to `sqlite:///./new_video_compare.db` (NOT PostgreSQL).
+- **Execution**: Always run the backend from the `backend/` directory to ensure relative paths to DB and `.env` are correct.
+
+### 4. Comparison Modes ⚙️
+- **Automation Mode**: 
+  - Triggers "High" sensitivity settings (FPS: 5, Threshold: 0.98).
+  - Must be explicitly visible in the UI ("Auto-Compare" badge).
+  - UI Logic must handle `comparison_type="automation"` distinct from "manual" levels.
+
+---
+
 
 ### Kroki w tabeli komentarzy (od najnowszego)
 
@@ -86,7 +113,9 @@ Nazwa klienta parsowana z nazwy pliku/projektu:
 - Fallback: zawsze miej plan B (blob download, WebSocket move)
 
 ### React/TypeScript (Frontend NVC)
-- **Vite** — dev server na `:3000`
+- **Dev Workflow**: `npm start` (port 3000) — zmiany na żywo
+- **Production/Backend**: `npm run build` — zmiany widoczne na port 8001 (backend serwuje `frontend/build`)
+- **UWAGA**: Pracując na porcie 8001, musisz zrobić BUILD po każdej zmianie w `src/`!
 - **TypeScript** — strict mode
 - Komponenty: functional + hooks
 - State management: React hooks (useState, useEffect)

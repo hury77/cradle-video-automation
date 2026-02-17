@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # DATABASE CONFIGURATION
     # =============================================================================
     database_url: str = Field(
-        default="postgresql://username:password@localhost:5432/new_video_compare",
+        default="sqlite:///./new_video_compare.db",
         env="DATABASE_URL"
     )
     db_host: str = Field(default="localhost", env="DB_HOST")
@@ -160,27 +160,29 @@ SENSITIVITY_THRESHOLDS = {
     "low": {
         "ssim_min": 0.85,           # Minimum SSIM for "match"
         "pixel_diff_tolerance": 0.10,  # 10% different pixels allowed
-        "enable_ocr": False,
-        "ocr_region": "none",
         "normalize_quality": False,
         "description": "Quick check, high tolerance"
     },
     "medium": {
         "ssim_min": 0.92,           # Recommended threshold
         "pixel_diff_tolerance": 0.05,  # 5% different pixels allowed
-        "enable_ocr": True,
-        "ocr_region": "bottom_fifth",  # Focus on legal text at bottom
         "normalize_quality": False,
-        "description": "Recommended, with text detection"
+        "description": "Recommended balance of speed and accuracy"
     },
     "high": {
         "ssim_min": 0.98,           # Strict threshold
         "pixel_diff_tolerance": 0.01,  # 1% different pixels allowed  
-        "enable_ocr": True,
-        "ocr_region": "full_frame",    # OCR entire frame
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation + voiceover comparison
         "description": "Critical QA, near-perfect match required"
+    },
+    "automation": {
+        "ssim_min": 0.98,           # Same as HIGH for video
+        "pixel_diff_tolerance": 0.01,  # 1% tolerance
+        "normalize_quality": True,     # Normalize quality before comparison
+        "enable_source_separation": True,  # Demucs source separation
+        "enable_whisper": True,        # Whisper transcription for VO comparison
+        "description": "Autonomous agent mode: Video HIGH + Full Audio (Demucs+Whisper), sequential with memory cleanup"
     }
 }
 

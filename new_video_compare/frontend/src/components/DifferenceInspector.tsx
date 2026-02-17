@@ -97,7 +97,7 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
     }
     
     // Construct full URL for image
-    const fullDiffUrl = diffImagePath ? `http://localhost:8001${diffImagePath}` : null;
+    const fullDiffUrl = diffImagePath ? `${diffImagePath}` : null;
 
     const formatTime = (time: number) => {
         const minutes = Math.floor(time / 60);

@@ -12,7 +12,7 @@ import numpy as np
 
 from .video_processor import VideoProcessor, ProcessingResult
 from .audio_processor import AudioProcessor
-from .ocr_service import compare_video_texts, compare_text_regions_hash
+# OCR removed — visual differences detected by SSIM+pixel diff comparison
 from .audio_service import compare_loudness, compare_audio_similarity, compare_audio_full, separate_sources, compare_spoken_text
 
 # Database imports
@@ -112,57 +112,6 @@ class ComparisonService:
             sensitivity = job.sensitivity_level.value if job.sensitivity_level else "medium"
             logger.info(f"🎚️ Sensitivity Level: {sensitivity}")
 
-            results = {
-                "video_result": None,
-                "audio_result": None,
-                "ocr_result": None,
-                "success": True,
-            }
-            
-            # Define sensitivity-based processing defaults
-            fps_map = {
-                "low": 1.0,      # 1 frame/sec
-                "medium": 2.0,   # 2 frames/sec
-                "high": 5.0      # 5 frames/sec (Detailed check)
-            }
-            max_frames_map = {
-                "low": 300,
-                "medium": 900,
-                "high": 3000
-            }
-            threshold_map = {
-                "low": 0.95,
-                "medium": 0.98,
-                "high": 0.99   # Extremely strict
-            }
-            
-            target_fps = fps_map.get(sensitivity.lower(), 1.0)
-            target_max_frames = max_frames_map.get(sensitivity.lower(), 300)
-            target_threshold = threshold_map.get(sensitivity.lower(), 0.95)
-
-            # Processing config - Merge defaults with job config, but enforce sensitivity FPS
-            base_config = job.processing_config or {}
-            processing_config = {
-                "analysis_fps": target_fps,
-                "max_frames": target_max_frames,
-                "similarity_threshold": target_threshold,
-                **base_config  # Keep other settings like OCR options
-            }
-            # Enforce FPS and Max Frames again to override any stale job config (e.g. from re-analyze copy)
-            # Also enforce threshold if not explicitly overridden by "custom" (which we assume isn't set yet)
-            # Actually, let's prefer sensitivity defaults unless base_config has it EXPLICITLY set? 
-            # Re-analyze copies old config, so it HAS threshold: 0.95. We must OVERRIDE it for High Sensitivity fix.
-            processing_config["analysis_fps"] = target_fps
-            processing_config["max_frames"] = target_max_frames
-            processing_config["similarity_threshold"] = target_threshold
-            
-            logger.info(f"⚙️ Analysis Config: {processing_config['analysis_fps']} FPS, {processing_config['max_frames']} Frames Max")
-            
-            sensitivity_config = get_sensitivity_config(sensitivity)
-
-            # Process based on comparison type
-            logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
-            
             # Helper to check comparison type robustly (handles String vs Enum mismatch)
             def check_comp_type(job_type, target_types):
                 # If it's a single type, make it a list
@@ -183,10 +132,73 @@ class ComparisonService:
                         return True
                 return False
 
+            results = {
+                "video_result": None,
+                "audio_result": None,
+                "success": True,
+            }
+            
+            # Define sensitivity-based processing defaults
+            fps_map = {
+                "low": 1.0,      # 1 frame/sec
+                "medium": 2.0,   # 2 frames/sec
+                "high": 5.0,     # 5 frames/sec (Detailed check)
+                "automation": 5.0  # Same as HIGH
+            }
+            max_frames_map = {
+                "low": 300,
+                "medium": 900,
+                "high": 3000,
+                "automation": 3000  # Same as HIGH
+            }
+            threshold_map = {
+                "low": 0.95,
+                "medium": 0.98,
+                "high": 0.99,      # Extremely strict
+                "automation": 0.99  # Same as HIGH (User requirement)
+            }
+            
+            
+            # Allow ComparisonType to OVERRIDE sensitivity defaults
+            effective_sensitivity = sensitivity.lower()
+            if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION):
+                 effective_sensitivity = "automation"
+                 logger.info(f"⚙️ Comparison Type AUTOMATION overrides sensitivity to: automation")
+
+            target_fps = fps_map.get(effective_sensitivity, 1.0)
+            target_max_frames = max_frames_map.get(effective_sensitivity, 300)
+            target_threshold = threshold_map.get(effective_sensitivity, 0.95)
+
+            # Processing config - Merge defaults with job config, but enforce sensitivity FPS
+            base_config = job.processing_config or {}
+            processing_config = {
+                "analysis_fps": target_fps,
+                "max_frames": target_max_frames,
+                "similarity_threshold": target_threshold,
+                **base_config  # Keep other settings from job config
+            }
+            # Enforce FPS and Max Frames again to override any stale job config (e.g. from re-analyze copy)
+            # Also enforce threshold if not explicitly overridden by "custom" (which we assume isn't set yet)
+            # Actually, let's prefer sensitivity defaults unless base_config has it EXPLICITLY set? 
+            # Re-analyze copies old config, so it HAS threshold: 0.95. We must OVERRIDE it for High Sensitivity fix.
+            processing_config["analysis_fps"] = target_fps
+            processing_config["max_frames"] = target_max_frames
+            processing_config["similarity_threshold"] = target_threshold
+            
+            logger.info(f"⚙️ Analysis Config: {processing_config['analysis_fps']} FPS, {processing_config['max_frames']} Frames Max")
+            
+            sensitivity_config = get_sensitivity_config(sensitivity)
+
+            # Process based on comparison type
+            logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
+            
+
+
             # Process based on comparison type
             logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Type: {type(job.comparison_type)})")
-            
-            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY]):
+            print(f"DEBUG: Processing job {job.id} with type {job.comparison_type}")
+
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY, ComparisonType.AUTOMATION]):
                 logger.info("🎬 Starting video comparison logic...")
                 job.progress = 10.0
                 db.commit()
@@ -206,43 +218,16 @@ class ComparisonService:
                 
                 job.progress = 50.0
                 db.commit()
+                
+                # MEMORY CLEANUP after video (especially important for AUTOMATION mode)
+                if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION):
+                    logger.info("🧹 AUTOMATION: Releasing video memory before audio phase...")
+                    import gc
+                    gc.collect()
             else:
                 logger.warning(f"⚠️ Skipping video comparison (Type mismatch: {job.comparison_type})")
 
-            # OCR text comparison (for medium/high sensitivity only)
-            if sensitivity_config.get("enable_ocr", False):
-                logger.info(f"📊 Starting Text Region Hash Comparison (region: {sensitivity_config.get('ocr_region')})...")
-                job.progress = 55.0
-                db.commit()
-                
-                try:
-                    # Use hash-based comparison instead of OCR (more reliable!)
-                    ocr_result = compare_text_regions_hash(
-                        acceptance_path=acceptance_path,
-                        emission_path=emission_path,
-                        region=sensitivity_config.get("ocr_region", "bottom_fifth"),
-                        sample_interval=0.5,  # 2 FPS
-                        # Use user's threshold from processing_config (slider)
-                        similarity_threshold=processing_config.get("ocr_similarity_threshold", 0.95)
-                    )
-                    results["ocr_result"] = ocr_result
-                    
-                    if ocr_result.get("has_text_differences"):
-                        logger.warning(f"⚠️ Found {len(ocr_result.get('differences', []))} visual text differences!")
-                    
-                    # MEMORY OPTIMIZATION: Clear OCR result from local scope
-                    del ocr_result
-                    import gc
-                    gc.collect()
-                    
-                except Exception as ocr_err:
-                    logger.warning(f"OCR comparison failed: {ocr_err}")
-                    results["ocr_result"] = {"error": str(ocr_err)}
-                
-                job.progress = 60.0
-                db.commit()
-
-            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY]):
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
                 logger.info("🔊 Starting audio comparison...")
                 job.progress = 65.0
                 db.commit()
@@ -288,9 +273,10 @@ class ComparisonService:
                 db.commit()
                 
                 # Extended Audio Analysis (Demucs + Whisper)
-                # Only run in AUDIO_ONLY mode to save resources in FULL mode
-                if check_comp_type(job.comparison_type, ComparisonType.AUDIO_ONLY):
-                    logger.info("🎧 Audio-Only Mode: Running enhanced analysis...")
+                # Run in AUDIO_ONLY mode AND AUTOMATION mode
+                if check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
+                    mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else "Audio-Only"
+                    logger.info(f"🎧 {mode_label} Mode: Running enhanced analysis (Demucs + Whisper)...")
                     
                     import gc
                     gc.collect()
@@ -343,9 +329,9 @@ class ComparisonService:
                         audio_result["source_separation"] = {"error": str(stt_err)}
 
                 else:
-                    # FULL / VIDEO_ONLY Mode
-                    logger.info("⏩ Standard Mode: Skipping Demucs/Whisper to optimize performance strategy.")
-                    audio_result["source_separation"] = {"status": "skipped", "reason": "Available in Audio Only mode"}
+                    # FULL / VIDEO_ONLY Mode — skip heavy audio processing
+                    logger.info("⏩ Standard Mode: Skipping Demucs/Whisper to optimize performance.")
+                    audio_result["source_separation"] = {"status": "skipped", "reason": "Available in Audio Only or Automation mode"}
                     audio_result["speech_to_text"] = None 
                     audio_result["voiceover"] = None
                 
@@ -423,7 +409,6 @@ class ComparisonService:
         
         video_result = results.get("video_result")
         audio_result = results.get("audio_result")
-        ocr_result = results.get("ocr_result")
         
         # Calculate overall similarity
         overall_similarity = 1.0
@@ -437,25 +422,9 @@ class ComparisonService:
             audio_similarity = audio_result.get("similarity_score", 1.0)
             overall_similarity = min(overall_similarity, audio_similarity)
             has_differences = has_differences or audio_similarity < 0.99
-        
-        # Check OCR differences
-        if ocr_result and isinstance(ocr_result, dict):
-            text_similarity = ocr_result.get("text_similarity", 1.0)
-            overall_similarity = min(overall_similarity, text_similarity)
-            has_differences = has_differences or ocr_result.get("has_text_differences", False)
 
-        # Build report data with OCR results
+        # Build report data
         report_data = {}
-        if ocr_result and isinstance(ocr_result, dict) and "error" not in ocr_result:
-            report_data["ocr"] = {
-                "text_similarity": ocr_result.get("text_similarity"),
-                "has_differences": ocr_result.get("has_text_differences", False),
-                "differences": ocr_result.get("differences", []),
-                "timeline": ocr_result.get("timeline", []),  # Fix: Save timeline to DB
-                "only_in_acceptance": ocr_result.get("only_in_acceptance", []),
-                "only_in_emission": ocr_result.get("only_in_emission", []),
-                "common_texts": ocr_result.get("common_texts", []),
-            }
 
         # Add audio results to report_data
         if audio_result and isinstance(audio_result, dict):

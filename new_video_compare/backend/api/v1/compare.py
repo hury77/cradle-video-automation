@@ -152,12 +152,8 @@ async def create_comparison_job(
         sensitivity_value = job_data.sensitivity_level.value.upper()  # "medium" -> "MEDIUM"
         sensitivity_enum = SensitivityLevel[sensitivity_value]  # Get by name
         
-        # Prepare processing config with OCR language
+        # Prepare processing config
         proc_config = job_data.processing_config or {}
-        if job_data.ocr_language:
-            proc_config["ocr_language"] = job_data.ocr_language
-        if job_data.ocr_similarity_threshold is not None:
-            proc_config["ocr_similarity_threshold"] = job_data.ocr_similarity_threshold
 
         comparison_job = ComparisonJobModel(
             job_name=job_data.job_name,

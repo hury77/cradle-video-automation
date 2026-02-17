@@ -162,10 +162,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Build video URLs from job data (note: double /files/ in path matches API router)
-  // Use absolute URL to prevent relative path issues in WaveSurfer fetch
-  const baseUrl = window.location.origin;
-  const acceptanceVideoUrl = `${baseUrl}/api/v1/files/files/stream/${job.acceptance_file_id}`;
-  const emissionVideoUrl = `${baseUrl}/api/v1/files/files/stream/${job.emission_file_id}`;
+  // Use relative URL to allow proxying in dev and direct serving in prod
+  const baseUrl = "";
+  const acceptanceVideoUrl = `${baseUrl}/api/v1/files/stream/${job.acceptance_file_id}`;
+  const emissionVideoUrl = `${baseUrl}/api/v1/files/stream/${job.emission_file_id}`;
 
   // Sync heatmap with playback
   const [currentDiffImage, setCurrentDiffImage] = useState<string | null>(null);
@@ -780,7 +780,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                 {showHeatmap && currentDiffImage && (
                     <div className="absolute inset-0 z-20 pointer-events-none opacity-80 mix-blend-screen">
                         <img 
-                            src={`http://localhost:8001${currentDiffImage}`} 
+                            src={`${currentDiffImage}`} 
                             alt="Difference Heatmap" 
                             className="w-full h-full object-contain"
                         />
@@ -977,12 +977,24 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               {/* Re-analyze dropdown with current level indicator */}
               <div className="flex items-center gap-2 print:hidden">
                 <span className="text-sm text-gray-500">
-                  Current: <span className="font-semibold capitalize">{job.sensitivity_level || "medium"}</span>
+                  Current: <span className="font-semibold capitalize">{job.comparison_type === "automation" ? "Automation" : (job.sensitivity_level || "medium")}</span>
                 </span>
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-500">Re-analyze:</span>
+                
+                {/* Automation Indicator (Read-only) */}
+                {job.comparison_type === "automation" && (
+                    <button
+                        disabled
+                        className="px-3 py-1.5 text-sm rounded-lg bg-blue-100 text-blue-700 ring-2 ring-offset-1 ring-blue-500 font-bold opacity-100 cursor-default"
+                    >
+                        Auto-Compare ✓
+                    </button>
+                )}
+
+                {/* Manual Levels */}
                 {(["low", "medium", "high"] as const).map((level) => {
-                  const isCurrent = (job.sensitivity_level || "medium") === level && job.comparison_type !== "audio_only";
+                  const isCurrent = (job.sensitivity_level || "medium") === level && job.comparison_type !== "audio_only" && job.comparison_type !== "automation";
                   return (
                     <button
                       key={level}
@@ -992,21 +1004,20 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                         try {
                           const formData = new FormData();
                           formData.append("sensitivity_level", level);
+                          formData.append("comparison_type", "full");
                           const response = await fetch(
                             `/api/v1/compare/${job.id}/reanalyze`,
                             { method: "POST", body: formData }
                           );
                           if (response.ok) {
-                            // Reload to reset app state and show list
                             window.location.reload();
                           } else {
                             const errText = await response.text();
-                            console.error("Failed to start re-analysis", errText);
-                            alert("Failed to start re-analysis: " + errText);
+                            alert("Failed: " + errText);
                           }
                         } catch (err) {
-                          console.error("Error in re-analysis:", err);
-                          alert("Error starting re-analysis. Check console.");
+                          console.error(err);
+                          alert("Error starting re-analysis");
                         } finally {
                           setReanalyzing(false);
                         }
@@ -1032,7 +1043,6 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                     setReanalyzing(true);
                     try {
                         const formData = new FormData();
-                        // Use current sensitivity or default to medium
                         formData.append("sensitivity_level", job.sensitivity_level || "medium");
                         formData.append("comparison_type", "audio_only");
                         
@@ -1044,12 +1054,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                         window.location.reload();
                         } else {
                         const errText = await response.text();
-                        console.error("Failed to start re-analysis", errText);
-                        alert("Failed to start re-analysis: " + errText);
+                        alert("Failed: " + errText);
                         }
                     } catch (err) {
-                        console.error("Error in re-analysis:", err);
-                        alert("Error starting re-analysis. Check console.");
+                        console.error(err);
                     } finally {
                         setReanalyzing(false);
                     }
