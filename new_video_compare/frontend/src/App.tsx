@@ -9,6 +9,8 @@ import {
   BellIcon,
   UserIcon,
   PlusIcon,
+  ChartBarIcon,
+  ListBulletIcon
 } from "@heroicons/react/24/outline";
 
 import { compareApi } from "./services/api";
@@ -16,6 +18,7 @@ import { compareApi } from "./services/api";
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
+  const [dashboardView, setDashboardView] = useState(false);
   const [backendStatus, setBackendStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
@@ -126,7 +129,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedJob(null); setDashboardView(false); }}>
                 <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg">
                   <svg
                     className="w-6 h-6 text-white"
@@ -155,7 +158,7 @@ function App() {
 
             <div className="flex items-center space-x-4">
               {/* Status Indicators */}
-              <div className="flex items-center space-x-4 text-sm">
+              <div className="flex items-center space-x-4 text-sm desktop:flex hidden">
                 <div className="flex items-center space-x-2">
                   <div
                     className={`w-2 h-2 rounded-full ${getStatusDot(
@@ -163,32 +166,39 @@ function App() {
                     )}`}
                   ></div>
                   <span className="text-gray-600">
-                    Backend: {backendStatus}
+                    Backend
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div
                     className={`w-2 h-2 rounded-full ${getStatusDot(wsStatus)}`}
                   ></div>
-                  <span className="text-gray-600">WebSocket: {wsStatus}</span>
+                  <span className="text-gray-600">WS</span>
                 </div>
               </div>
 
               {/* Action Buttons */}
+              <div className="h-6 w-px bg-gray-200 mx-2"></div>
+
+              <button
+                onClick={() => { setSelectedJob(null); setDashboardView(!dashboardView); }}
+                className={`inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-lg transition-colors ${dashboardView ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                 {dashboardView ? <ListBulletIcon className="w-5 h-5 mr-2" /> : <ChartBarIcon className="w-5 h-5 mr-2" />}
+                 {dashboardView ? "Recent Jobs" : "Dashboard"}
+              </button>
+
               <button
                 onClick={() => setShowAutoPair(true)}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 shadow-sm hover:shadow-md"
               >
                 <PlusIcon className="w-4 h-4 mr-2" />
-                Auto-Pair Job
+                Auto-Pair
               </button>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1 border-l border-gray-200 pl-4 ml-2">
                 <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
                   <BellIcon className="w-5 h-5" />
-                </button>
-                <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
-                  <Cog6ToothIcon className="w-5 h-5" />
                 </button>
                 <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
                   <UserIcon className="w-5 h-5" />
@@ -242,7 +252,7 @@ function App() {
             />
           </div>
         ) : (
-          <Dashboard onSelectJob={handleSelectJob} />
+          <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView ? 'stats' : 'list'} />
         )}
       </div>
 

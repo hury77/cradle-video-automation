@@ -14,6 +14,7 @@ class PopupController {
     this.findBtn = document.getElementById("findBtn");
     this.takeBtn = document.getElementById("takeBtn");
     this.downloadBtn = document.getElementById("downloadBtn");
+    this.downloadCheckFilesBtn = document.getElementById("downloadCheckFilesBtn");
     this.statusBtn = document.getElementById("statusBtn");
     this.statusDiv = document.getElementById("status");
     this.logDiv = document.getElementById("log");
@@ -35,6 +36,7 @@ class PopupController {
     this.findBtn.addEventListener("click", () => this.findAsset());
     this.takeBtn.addEventListener("click", () => this.takeAsset());
     this.downloadBtn.addEventListener("click", () => this.downloadFiles());
+    this.downloadCheckFilesBtn.addEventListener("click", () => this.downloadCheckFiles());
     this.statusBtn.addEventListener("click", () => this.checkStatus());
     this.videoCompareBtn.addEventListener("click", () =>
       this.startVideoCompare()
@@ -130,6 +132,15 @@ class PopupController {
       await this.sendCommandToContentScript("DOWNLOAD_FILES");
     } catch (error) {
       this.log(`❌ Download failed: ${error.message}`, "error");
+    }
+  }
+
+  async downloadCheckFiles() {
+    try {
+      this.log("📂 Starting Check Files download...");
+      await this.sendCommandToContentScript("DOWNLOAD_CHECK_FILES");
+    } catch (error) {
+      this.log(`❌ Check Files download failed: ${error.message}`, "error");
     }
   }
 

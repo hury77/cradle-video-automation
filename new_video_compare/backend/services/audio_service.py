@@ -413,12 +413,24 @@ def separate_sources(
         # -d cpu forces CPU usage.
         
         # Resolve 'demucs' executable path relative to current python interpreter
+        # Resolve 'demucs' executable path
         import sys
-        venv_bin = Path(sys.executable).parent
-        demucs_exec = venv_bin / "demucs"
+        import site
         
-        # Fallback to just "demucs" if not found (e.g. strict system path)
-        cmd_exec = str(demucs_exec) if demucs_exec.exists() else "demucs"
+        possible_paths = [
+            Path(sys.executable).parent / "demucs",  # venv/bin/demucs
+            Path(site.getuserbase()) / "bin" / "demucs",  # User site bin
+            Path.home() / ".local" / "bin" / "demucs",  # Common Linux user bin
+            Path.home() / "Library/Python/3.9/bin/demucs", # Common macOS user bin (hardcoded fallback)
+        ]
+        
+        cmd_exec = "demucs" # Default fallback to PATH
+        
+        for p in possible_paths:
+            if p.exists() and os.access(p, os.X_OK):
+                cmd_exec = str(p)
+                logger.info(f"✅ Found Demucs at: {cmd_exec}")
+                break
         
         cmd = [
             cmd_exec,
@@ -615,6 +627,80 @@ def compare_voiceovers(
         return {"error": str(e), "voice_similarity": 0.0}
 
 
+
+def filter_song_vocals(vocals_path: str, other_stems: Dict[str, str], output_path: str) -> bool:
+    """
+    Filter out vocals where music energy is significantly higher (likely singing).
+    
+    Args:
+        vocals_path: Path to vocals wav
+        other_stems: Dict with paths to 'drums', 'bass', 'other'
+        output_path: Path to save filtered vocals
+        
+    Returns:
+        True if filtering was applied/successful
+    """
+    import logging
+    import os
+    import numpy as np
+    import soundfile as sf
+    import librosa
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"🎻 Filtering song vocals from: {Path(vocals_path).name}")
+    
+    try:
+        # Load vocals
+        y_vocals, sr = librosa.load(vocals_path, sr=None, mono=True)
+        
+        # Load and sum accompaniment
+        y_music = np.zeros_like(y_vocals)
+        
+        for name, path in other_stems.items():
+            if path and os.path.exists(path):
+                y_stem, _ = librosa.load(path, sr=sr, mono=True)
+                # Ensure length matches (padding/trimming might be needed if slight mismatch)
+                min_len = min(len(y_music), len(y_stem))
+                y_music[:min_len] += y_stem[:min_len]
+        
+        # Calculate RMS Energy over windows (0.5s)
+        frame_length = int(sr * 0.5)
+        hop_length = int(sr * 0.25) # 50% overlap for smoother mask
+        
+        rms_vocals = librosa.feature.rms(y=y_vocals, frame_length=frame_length, hop_length=hop_length)[0]
+        rms_music = librosa.feature.rms(y=y_music, frame_length=frame_length, hop_length=hop_length)[0]
+        
+        # Create mask
+        # If Music / Vocals > 2.0 -> Silence it (it's likely a song)
+        # We add epsilon to vocal energy to avoid div by zero
+        ratio = rms_music / (rms_vocals + 1e-6)
+        
+        # Threshold: 2.0 (Reverted to aggressive, but protected by Music Dominance Gate)
+        mask_frames = ratio < 2.0 
+        
+        # Interpolate mask to audio sample rate
+        mask_samples = np.repeat(mask_frames, hop_length)
+        # Pad mask to match audio length
+        if len(mask_samples) < len(y_vocals):
+            mask_samples = np.pad(mask_samples, (0, len(y_vocals) - len(mask_samples)), 'edge')
+        else:
+            mask_samples = mask_samples[:len(y_vocals)]
+            
+        # Apply mask (hard mute)
+        # We could do soft attenuation, but for VO recognition, silence is better than noise.
+        y_filtered = y_vocals * mask_samples
+        
+        # Save filtered audio
+        sf.write(output_path, y_filtered, sr)
+        
+        logger.info(f"✅ Saved filtered vocals (Song Removed) to: {output_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Song filtering failed: {e}")
+        return False
+
+
 def compare_audio_full(
     acceptance_path: str,
     emission_path: str,
@@ -784,18 +870,35 @@ def transcribe_audio(
         
         # Extract segments with timestamps
         segments = []
+        hallucination_phrases = [
+            "amara.org", "subtitles by", "captioned by", "transcribed by", 
+            "sous-titres", "legendas pela comunidade"
+        ]
+        
+        filtered_text = []
+        
         for seg in result.get("segments", []):
+            text = seg["text"].strip()
+            
+            # Simple hallucination filter
+            if any(h in text.lower() for h in hallucination_phrases):
+                logger.warning(f"⚠️ Filtered hallucination: '{text}'")
+                continue
+                
             segments.append({
                 "start": round(float(seg["start"]), 2),
                 "end": round(float(seg["end"]), 2),
-                "text": seg["text"].strip(),
+                "text": text,
             })
+            filtered_text.append(text)
+        
+        full_text = " ".join(filtered_text)
         
         transcription = {
-            "text": result["text"].strip(),
+            "text": full_text,
             "language": result.get("language", "unknown"),
             "segments": segments,
-            "word_count": len(result["text"].split()),
+            "word_count": len(full_text.split()),
         }
         
         logger.info(f"✅ Transcribed: {len(segments)} segments, {transcription['word_count']} words")
@@ -805,6 +908,28 @@ def transcribe_audio(
     except Exception as e:
         logger.error(f"❌ Transcription failed: {e}")
         return {"error": str(e), "text": "", "segments": []}
+
+
+def normalize_text(text: str) -> str:
+    """
+    Aggressive text normalization for comparison
+    - Lowercase
+    - Strip punctuation
+    - Remove extra whitespace
+    """
+    import string
+    
+    # Lowercase
+    text = text.lower()
+    
+    # Remove punctuation
+    text = text.translate(str.maketrans("", "", string.punctuation))
+    
+    # Normalize whitespace
+    text = " ".join(text.split())
+    
+    return text
+
 
 
 def generate_srt(segments: list, output_path: Optional[str] = None) -> str:
@@ -866,10 +991,19 @@ def compare_transcripts(
     
     logger.info("📊 Comparing transcripts...")
     
-    text_a = transcript_a.get("text", "")
-    text_b = transcript_b.get("text", "")
+    raw_text_a = transcript_a.get("text", "")
+    raw_text_b = transcript_b.get("text", "")
     
-    # Word-level comparison
+    # Normalize for comparison
+    text_a = normalize_text(raw_text_a)
+    text_b = normalize_text(raw_text_b)
+    
+    if text_a != raw_text_a:
+        logger.info(f"Normalized A: {text_a[:100]}...")
+    if text_b != raw_text_b:
+        logger.info(f"Normalized B: {text_b[:100]}...")
+    
+    # Word-level comparison on NORMALIZED tokens
     words_a = text_a.split()
     words_b = text_b.split()
     
@@ -901,8 +1035,11 @@ def compare_transcripts(
         seg_a = segments_a[i]
         seg_b = segments_b[i]
         
-        # Compare segment text
-        if seg_a["text"].lower().strip() != seg_b["text"].lower().strip():
+        # Compare segment text (normalized)
+        norm_a = normalize_text(seg_a["text"])
+        norm_b = normalize_text(seg_b["text"])
+        
+        if norm_a != norm_b:
             segment_diffs.append({
                 "segment_idx": i,
                 "time_a": f"{seg_a['start']:.1f}s",
@@ -963,7 +1100,9 @@ def compare_transcripts(
 def transcribe_single_file(
     file_path: str,
     language: Optional[str] = None,
+    model_name: str = "base",
     use_source_separation: bool = True,
+    filter_song: bool = False,
     label: str = "file"
 ) -> Dict[str, Any]:
     """
@@ -971,14 +1110,17 @@ def transcribe_single_file(
     1. Extract audio from video (FFmpeg → WAV 44.1kHz stereo)
     2. Optionally run Demucs CLI → separate vocals
     3. Verify vocals.wav exists and has content
-    4. Transcribe vocals (or mixed audio as fallback) with Whisper
-    5. Return structured result
+    4. OPTIONAL: Filter out "Song" parts (high music energy)
+    5. Transcribe vocals (or mixed audio as fallback) with Whisper
+    6. Return structured result
     
     Args:
         file_path: Path to video or audio file
         language: Optional language code for Whisper
+        model_name: Whisper model size
         use_source_separation: If True, run Demucs before Whisper
-        label: Human-readable label for logging (e.g., "acceptance", "emission")
+        filter_song: If True, remove segments where music > vocals (remove singing)
+        label: Human-readable label for logging
     
     Returns:
         Dict with transcription, segments, language, and separation stats
@@ -1028,6 +1170,36 @@ def transcribe_single_file(
                     if os.path.exists(vocals_file) and os.path.getsize(vocals_file) > 1000:
                         vocals_path = vocals_file
                         logger.info(f"  [{label.upper()}] ✅ Using separated vocals: {Path(vocals_file).name} (energy={vocals_info.get('energy', 0):.6f})")
+                        
+                        # Apply Song Filter if requested AND Music is dominant
+                        if filter_song:
+                            # Calculate Music Dominance
+                            # vocals_info comes from separate_sources -> stats
+                            vocals_energy = vocals_info.get("energy", 0)
+                            
+                            # Sum other stems energy
+                            others_energy = 0.0
+                            other_stems = {}
+                            for stem in ["drums", "bass", "other"]:
+                                stem_info = sep_result.get("sources", {}).get(stem, {})
+                                if stem_info.get("path"):
+                                    other_stems[stem] = stem_info["path"]
+                                    others_energy += stem_info.get("energy", 0)
+                            
+                            total_energy = vocals_energy + others_energy
+                            music_proportion = others_energy / total_energy if total_energy > 0 else 0
+                            
+                            logger.info(f"  [{label.upper()}] 📊 Music Proportion: {music_proportion:.1%}")
+                            
+                            # GATE: Only filter if Music is dominant (> 40%)
+                            if music_proportion > 0.4:
+                                filtered_vocals = str(Path(sep_dir) / "vocals_filtered.wav")
+                                if filter_song_vocals(vocals_path, other_stems, filtered_vocals):
+                                    vocals_path = filtered_vocals
+                                    logger.info(f"  [{label.upper()}] 🕵️‍♂️ Applied Song Filter (Music > 40%)")
+                            else:
+                                logger.info(f"  [{label.upper()}] 🛡️ Skipped Song Filter (Music < 40%, likely VO)")
+
                     else:
                         logger.warning(f"  [{label.upper()}] Vocals file missing or empty. Using mixed audio.")
                 else:
@@ -1041,7 +1213,7 @@ def transcribe_single_file(
         
         # Step 4: Transcribe with Whisper
         logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if vocals_path != audio_path else 'mixed'})...")
-        transcript = transcribe_audio(vocals_path, language=language)
+        transcript = transcribe_audio(vocals_path, language=language, model_name=model_name)
         
         if transcript.get("error"):
             logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")
@@ -1084,12 +1256,14 @@ def compare_spoken_text(
     acceptance_path: str,
     emission_path: str,
     language: Optional[str] = None,
-    use_separated_vocals: bool = True
+    model_name: str = "base",
+    use_separated_vocals: bool = True,
+    filter_song: bool = False
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
-    1. Process acceptance file independently (extract → Demucs → Whisper)
-    2. Process emission file independently (extract → Demucs → Whisper)
+    1. Process acceptance file independently (extract → Demucs → [Filter] → Whisper)
+    2. Process emission file independently (extract → Demucs → [Filter] → Whisper)
     3. Compare transcriptions
     
     Each file is processed completely independently via transcribe_single_file(),
@@ -1099,6 +1273,7 @@ def compare_spoken_text(
         acceptance_path: Path to acceptance video/audio
         emission_path: Path to emission video/audio
         language: Optional language code
+        model_name: Whisper model size
         use_separated_vocals: If True, use Demucs before Whisper
     
     Returns:
@@ -1115,7 +1290,9 @@ def compare_spoken_text(
     result_a = transcribe_single_file(
         acceptance_path,
         language=language,
+        model_name=model_name,
         use_source_separation=use_separated_vocals,
+        filter_song=filter_song,
         label="acceptance"
     )
     
@@ -1129,7 +1306,9 @@ def compare_spoken_text(
     result_b = transcribe_single_file(
         emission_path,
         language=language,
+        model_name=model_name,
         use_source_separation=use_separated_vocals,
+        filter_song=filter_song,
         label="emission"
     )
     
@@ -1153,7 +1332,8 @@ def compare_spoken_text(
             "emission_used_vocals": result_b.get("used_vocals", False),
             "acceptance_separation": result_a.get("source_separation"),
             "emission_separation": result_b.get("source_separation"),
-        }
+        },
+        "detected_language": transcript_a.get("language") or transcript_b.get("language"),
     }
     
     similarity = result["text_similarity"]

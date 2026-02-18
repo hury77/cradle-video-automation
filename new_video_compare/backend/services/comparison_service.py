@@ -288,10 +288,17 @@ class ComparisonService:
                     # Then compares both transcripts
                     try:
                         logger.info("🎙️ Running Speech-to-Text pipeline (independent per file)...")
+                        
+                        # Enable Song Filtering for High/Automation modes to remove singing
+                        should_filter_song = effective_sensitivity in ["high", "automation"]
+                        if should_filter_song:
+                            logger.info("🎵 Song Filtering ENABLED (High/Automation mode)")
+                        
                         stt_result = compare_spoken_text(
                             acceptance_path,
                             emission_path,
-                            use_separated_vocals=True
+                            use_separated_vocals=True,
+                            filter_song=should_filter_song
                         )
                         
                         # Extract pipeline info (source separation stats)
@@ -308,6 +315,7 @@ class ComparisonService:
                             "comparison": stt_result.get("comparison"),
                             "acceptance_text": stt_result.get("transcript_acceptance", {}).get("text", "")[:500],
                             "emission_text": stt_result.get("transcript_emission", {}).get("text", "")[:500],
+                            "detected_language": stt_result.get("detected_language"),
                             "timeline_data": {
                                 "acceptance_segments": stt_result.get("transcript_acceptance", {}).get("segments", []),
                                 "emission_segments": stt_result.get("transcript_emission", {}).get("segments", []),

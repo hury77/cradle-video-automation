@@ -6,7 +6,7 @@ import asyncio
 import glob
 import shutil
 import zipfile
-
+import subprocess
 
 class FileHandler:
     def __init__(self, download_base_path=None):
@@ -465,3 +465,270 @@ class FileHandler:
         except Exception as e:
             self.logger.error(f"❌ Post-processing failed: {str(e)}")
             return result
+
+    async def handle_check_files_download(self, websocket, data):
+        """Handle download of QA Check Files (Master, Copy Deck, Adaptation)"""
+        try:
+            cradle_id = data.get("cradleId")
+            template_id = data.get("templateId")
+            files = data.get("files", {})
+
+            # Create folder
+            cradle_folder = self.download_base_path / cradle_id
+            cradle_folder.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"📂 Check Files Folder: {cradle_folder}")
+
+            results = {
+                "cradle_id": cradle_id,
+                "files_downloaded": [],
+                "errors": []
+            }
+
+            # 1. Handle MASTER
+            # Priority: Lucid Link (if provided) > Deep Search (fallback)
+            
+            master_info = files.get("master")
+            master_found = False
+            
+            if master_info and master_info.get("type") == "lucid":
+                lucid_url = master_info.get("url")
+                self.logger.info(f"🔗 Received Lucid Link: {lucid_url}")
+                
+                # Convert lucid://host/share/path -> /Volumes/share/path
+                # Example: lucid://egpluswarsaw/Projects/File.mov -> /Volumes/egpluswarsaw/Projects/File.mov
+                
+                try:
+                    # Logic to convert lucid:// url to local path
+                    # Format 1: lucid://domain/root/path/to/file -> /Volumes/domain/root/path/to/file (approx)
+                    # Format 2 (User provided): lucid://alfa.egpluswarsaw/file/97:55453/preview%20files
+                    
+                    master_path = None
+                    convertible = False
+
+                    if "lucid://" in lucid_url:
+                        # naive attempt to map to /Volumes
+                        # Remove protocol
+                        path_part = lucid_url.replace("lucid://", "")
+                        
+                        # Check for ID-based link which we likely can't resolve directly to a file path easily
+                        if "/file/" in path_part and ":" in path_part:
+                             self.logger.warning(f"⚠️ Lucid ID-based link detected: {lucid_url}. Cannot resolve to direct file path without API.")
+                             self.logger.info("   Will proceed to Deep Search as fallback.")
+                        else:
+                             # Try mapping for standard path-like links
+                             candidate_path = Path("/Volumes") / path_part
+                             if candidate_path.exists():
+                                 master_path = candidate_path
+                                 convertible = True
+                             else:
+                                 # Try stripping domain? 
+                                 # lucid://alfa.egpluswarsaw/Select/folder -> /Volumes/Select/folder ??
+                                 # This is guessing.
+                                 parts = path_part.split("/")
+                                 if len(parts) > 1:
+                                     candidate_path_2 = Path("/Volumes") / "/".join(parts[1:])
+                                     if candidate_path_2.exists():
+                                         master_path = candidate_path_2
+                                         convertible = True
+
+                    if convertible and master_path and master_path.exists():
+                        self.logger.info(f"✅ Resolved Lucid Master Path: {master_path}")
+                        
+                        if master_path.is_file():
+                             dest = cradle_folder / master_path.name
+                             shutil.copy2(master_path, dest)
+                             results["files_downloaded"].append("master")
+                             master_found = True
+                        elif master_path.is_dir():
+                             self.logger.info(f"📂 Lucid link points to directory. Searching inside: {master_path}")
+                             # Use the search worker but scoped to this directory!
+                             # But _search_worker expects template_id. 
+                             # We can just copy the best file from this dir.
+                             # For now, let's fall back to search, but hint the search to look here? 
+                             # Actually simple: if we have a folder, maybe we should just set it as a search root?
+                             # For now let's skip complex logic and let Deep Search handle it, 
+                             # BUT Deep Search is optimized to stop early, so it should be fine.
+                             pass
+                    else:
+                        self.logger.warning(f"⚠️ Could not resolve Lucid URL to local file: {lucid_url}")
+
+                except Exception as e:
+                    self.logger.error(f"❌ Error handling Lucid link: {e}")
+
+            # Fallback to Deep Search if no Lucid link worked
+            if not master_found and template_id:
+                self.logger.info(f"🔍 Falling back to Deep Search for TemplateID: {template_id}")
+                
+                found_master = await self._find_and_copy_master_file(
+                    template_id, cradle_folder
+                )
+                
+                if found_master["success"]:
+                    results["files_downloaded"].append(found_master)
+                else:
+                    results["errors"].append(found_master)
+                    
+            elif not master_found and not template_id:
+                results["errors"].append({"success": False, "type": "master", "error": "No Template ID and no valid Lucid link"})
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"❌ handle_check_files_download error: {str(e)}")
+            return {"error": str(e)}
+
+    async def _find_and_copy_master_file(self, template_id, dest_folder):
+        """Async wrapper for the blocking search worker"""
+        if not template_id:
+            return {"success": False, "type": "master", "error": "No Template ID provided"}
+
+        loop = asyncio.get_event_loop()
+        # Run blocking I/O in a separate thread
+        return await loop.run_in_executor(None, self._search_worker, template_id, dest_folder)
+
+    def _search_worker(self, template_id, dest_folder):
+        """Synchronous worker for searching files (runs in thread)"""
+        # 1. TRY SPOTLIGHT (mdfind) - Instant on macOS
+        self.logger.info(f"🔍 [Spotlight] Searching for '{template_id}'...")
+        try:
+            # Search for the Folder matching the TemplateID
+            # mdfind -name "TEMPLATE_ID" -onlyin /Volumes
+            cmd = ["mdfind", "-name", template_id, "-onlyin", "/Volumes"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            spotlight_candidates = []
+            if result.returncode == 0 and result.stdout:
+                paths = result.stdout.strip().split('\n')
+                self.logger.info(f"⚡ [Spotlight] Found {len(paths)} matches.")
+                
+                for p_str in paths:
+                    p = Path(p_str)
+                    # We are looking for the FOLDER matching the ID, or a file inside it
+                    # If p is the folder "260105KCLJ", we look inside
+                    if p.is_dir() and p.name == template_id:
+                        self.logger.info(f"   📂 [Spotlight] Found matching directory: {p}")
+                        # Look inside this folder for files
+                        sub_files = []
+                        sub_files.extend(p.glob("*"))
+                        sub_files.extend(p.glob("*/*"))
+                        
+                        for sf in sub_files:
+                            if sf.is_file() and not sf.name.startswith("."):
+                                spotlight_candidates.append(sf)
+                    
+                    elif p.is_file() and template_id in p.name:
+                        # Found a file directly
+                         spotlight_candidates.append(p)
+            
+            if spotlight_candidates:
+                self.logger.info(f"   ✅ [Spotlight] Found {len(spotlight_candidates)} candidate files via Spotlight.")
+                return self._process_candidates(spotlight_candidates, template_id, dest_folder)
+            else:
+                 self.logger.info("   ⚠️ [Spotlight] No matches found. Falling back to simple scan...")
+
+        except Exception as e:
+            self.logger.error(f"❌ [Spotlight] Error: {e}")
+
+        # 2. FALLBACK: Native 'find' command (Faster than os.walk)
+        self.logger.info(f"🔍 [Fallback] Using native 'find' command to locate directory '{template_id}'...")
+        
+        try:
+            # Optimize: Search specific deep paths first if they exist, then root
+            search_paths = []
+            
+            # 1. Specifc high-probability paths
+            specific_path = Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS")
+            if specific_path.exists():
+                search_paths.append(str(specific_path))
+            
+            # 2. General Volume root
+            search_paths.append("/Volumes")
+
+            found_dir = None
+            
+            for search_path in search_paths:
+                self.logger.info(f"   Searching in: {search_path}")
+                # find PATH -name "TEMPLATE_ID" -type d -print -quit
+                cmd = ["find", search_path, "-name", template_id, "-type", "d", "-maxdepth", "8", "-print", "-quit"]
+                
+                try:
+                    # Increased timeout to 120s for network drives
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0 and result.stdout:
+                        found_dir = result.stdout.strip()
+                        if found_dir: break # Found it!
+                except subprocess.TimeoutExpired:
+                     self.logger.warning(f"   ⚠️ [find] Timeout in {search_path}")
+                     continue
+
+            if found_dir:
+                self.logger.info(f"✅ [find] Directory located: {found_dir}")
+                p = Path(found_dir)
+                
+                # Search inside this directory nicely
+                candidates = []
+                sub_files = []
+                sub_files.extend(p.glob("*"))
+                sub_files.extend(p.glob("*/*"))
+                
+                for sf in sub_files:
+                    if sf.is_file() and not sf.name.startswith("."):
+                        candidates.append(sf)
+                
+                if candidates:
+                    self.logger.info(f"   Files found inside: {len(candidates)}")
+                    return self._process_candidates(candidates, template_id, dest_folder)
+
+            
+            self.logger.info("   ⚠️ [find] No directory found.")
+
+        except subprocess.TimeoutExpired:
+            self.logger.warning("⚠️ [find] Search timed out after 30s")
+        except Exception as e:
+            self.logger.error(f"❌ [find] Error: {e}")
+
+        return {"success": False, "type": "master", "error": "File not found (Search exhausted)"}
+
+
+
+
+    def _process_candidates(self, candidates, template_id, dest_folder):
+            # Filtering and Scoring Logic
+            # 1. Exact match file > File inside matched folder
+            # 2. "Master" in name > "Clean" in name > other
+            # 3. Extensions: pdf, ai, psd, indd, zip > jpg, png
+
+            scored_candidates = []
+            priority_exts = [".pdf", ".ai", ".psd", ".indd", ".zip", ".mov", ".mp4", ".jpg", ".jpeg", ".png"]
+            
+            for cand in candidates:
+                score = 0
+                name_lower = cand.name.lower()
+                
+                if template_id in cand.name: score += 100
+                if "master" in name_lower: score += 50
+                if cand.suffix.lower() in priority_exts: score += 20
+                if "preview" in name_lower or "thumb" in name_lower: score -= 50
+                
+                scored_candidates.append((score, cand))
+            
+            scored_candidates.sort(key=lambda x: x[0], reverse=True)
+            
+            if not scored_candidates:
+                return {"success": False, "type": "master", "error": "No suitable candidates found"}
+
+            best_candidate = scored_candidates[0][1]
+            self.logger.info(f"✅ Best Candidate: {best_candidate} (Score: {scored_candidates[0][0]})")
+
+            dest_path = dest_folder / best_candidate.name
+            shutil.copy2(best_candidate, dest_path)
+
+            return {
+                "success": True,
+                "type": "master",
+                "path": str(dest_path),
+                "original_path": str(best_candidate),
+                "size": dest_path.stat().st_size
+            }
+
+

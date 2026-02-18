@@ -70,9 +70,10 @@ const JobTimer: React.FC<{ startedAt?: string }> = ({ startedAt }) => {
 
 interface DashboardProps {
   onSelectJob: (job: ComparisonJob) => void;
+  viewMode: 'list' | 'stats';
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
+const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
   const [jobs, setJobs] = useState<ComparisonJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -191,248 +192,267 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
     );
   }
 
+  // View: Stats (Dashboard)
+  if (viewMode === 'stats') {
+      return (
+        <div className="min-h-screen bg-slate-50 p-6">
+          <div className="max-w-[1600px] mx-auto">
+            {/* Header */}
+            <div className="mb-8 flex justify-between items-end">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                  <div className="p-2 bg-blue-600 rounded-lg shadow-sm">
+                     <ChartBarIcon className="w-6 h-6 text-white" />
+                  </div>
+                  System Statistics
+                </h1>
+                <p className="text-gray-500 mt-1 ml-14">Analytics and Performance Metrics</p>
+              </div>
+              <button onClick={fetchJobs} className="text-sm text-blue-600 hover:underline">Refresh Data</button>
+            </div>
+    
+            {/* KPI Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                {/* KPI 1: Success Rate */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-sm font-medium text-gray-500">Success Rate</p>
+                            <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                                {dashboardStats?.kpi.success_rate}%
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-green-50 rounded-lg">
+                            <ChartBarIcon className="w-5 h-5 text-green-600" />
+                        </div>
+                    </div>
+                    <div className="mt-4 text-xs text-green-600 font-medium">
+                        {dashboardStats?.breakdown.completed} Completed / {dashboardStats?.breakdown.failed} Failed
+                    </div>
+                </div>
+    
+                {/* KPI 2: Throughput 24h */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-sm font-medium text-gray-500">24h Throughput</p>
+                            <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                                {dashboardStats?.kpi.throughput_24h}
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-purple-50 rounded-lg">
+                            <BoltIcon className="w-5 h-5 text-purple-600" />
+                        </div>
+                    </div>
+                     <div className="mt-4 text-xs text-purple-600 font-medium">
+                        Jobs processed in last 24h
+                    </div>
+                </div>
+    
+                {/* KPI 3: Avg Processing Time */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-sm font-medium text-gray-500">Avg Processing Time</p>
+                            <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                                {dashboardStats?.kpi.avg_processing_time}s
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-blue-50 rounded-lg">
+                            <ClockIcon className="w-5 h-5 text-blue-600" />
+                        </div>
+                    </div>
+                     <div className="mt-4 text-xs text-blue-600 font-medium">
+                        Per completed job
+                    </div>
+                </div>
+    
+                {/* KPI 4: Active Jobs */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-sm font-medium text-gray-500">Active Queue</p>
+                            <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                                {dashboardStats?.kpi.active_jobs}
+                            </h3>
+                        </div>
+                        <div className={`p-2 rounded-lg ${dashboardStats?.kpi.active_jobs ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                            <ArrowPathIcon className={`w-5 h-5 ${dashboardStats?.kpi.active_jobs ? 'text-amber-600 animate-spin' : 'text-gray-400'}`} />
+                        </div>
+                    </div>
+                     <div className="mt-4 text-xs text-gray-500">
+                        Jobs pending or processing
+                    </div>
+                </div>
+            </div>
+    
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                {/* Trend Chart (Last 7 Days) */}
+                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                     <div className="flex items-center gap-2 mb-6">
+                        <ChartBarIcon className="w-5 h-5 text-gray-400" />
+                        <h3 className="font-semibold text-gray-900">Job Trend (Last 7 Days)</h3>
+                     </div>
+                     <div className="h-64 w-full">
+                        {dashboardStats?.chart_data ? (
+                            <Line
+                                data={{
+                                    labels: dashboardStats.chart_data.map(d => {
+                                        const date = new Date(d.date);
+                                        return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+                                    }).reverse(),
+                                    datasets: [
+                                        {
+                                            label: 'Jobs Processed',
+                                            data: dashboardStats.chart_data.map(d => d.count).reverse(),
+                                            borderColor: 'rgb(79, 70, 229)',
+                                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                                            tension: 0.3,
+                                            fill: true,
+                                        }
+                                    ]
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: { display: false },
+                                        tooltip: {
+                                            mode: 'index',
+                                            intersect: false,
+                                        }
+                                    },
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            grid: { color: '#f3f4f6' },
+                                            ticks: { precision: 0 }
+                                        },
+                                        x: {
+                                            grid: { display: false }
+                                        }
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                                No chart data available
+                            </div>
+                        )}
+                     </div>
+                </div>
+    
+                {/* Storage Widget */}
+                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden group">
+                    <div className="flex items-center gap-3 mb-4">
+                         <CircleStackIcon className="w-6 h-6 text-indigo-600" />
+                         <h3 className="font-semibold text-gray-900">System Storage</h3>
+                    </div>
+                    
+                    <div className="space-y-4 relative z-10">
+                        <div>
+                            <div className="flex justify-between text-sm mb-1">
+                                <span className="text-gray-500">Total Usage</span>
+                                <span className="font-medium">{dashboardStats?.storage.total_size_gb} GB</span>
+                            </div>
+                             <div className="w-full bg-gray-100 rounded-full h-2">
+                                 <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${Math.min((dashboardStats?.storage.total_size_gb || 0) / 100 * 100, 100)}%` }}></div>
+                             </div>
+                        </div>
+                        
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Total Files</span>
+                            <span className="font-medium">{dashboardStats?.storage.file_count}</span>
+                        </div>
+    
+                        <button
+                            onClick={handleCleanup}
+                            disabled={cleaningUp}
+                            className="w-full mt-2 py-2 px-3 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                             {cleaningUp ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <TrashIcon className="w-4 h-4"/>}
+                             Cleanup Oldest 10 Jobs
+                        </button>
+                    </div>
+                    {/* Decoration */}
+                    <CircleStackIcon className="absolute -top-6 -right-6 w-32 h-32 text-gray-50 opacity-5" />
+                </div>
+    
+                {/* Clients Table (Top 5) */}
+                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                         <div className="flex items-center gap-2">
+                            <UserGroupIcon className="w-5 h-5 text-gray-400" />
+                            <h3 className="font-semibold text-gray-900">Top Clients (All Time)</h3>
+                         </div>
+                         <span className="text-xs text-gray-500">Sorted by Job Volume</span>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-100">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Jobs</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Failed</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reliability</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-100">
+                                {dashboardStats?.clients.slice(0, 5).map((client, i) => {
+                                    const reliability = client.total > 0 ? Math.round((client.completed / client.total) * 100) : 0;
+                                    return (
+                                        <tr key={client.name} className="hover:bg-gray-50">
+                                            <td className="px-6 py-3 text-sm font-medium text-gray-900">{client.name}</td>
+                                            <td className="px-6 py-3 text-sm text-gray-500">{client.total}</td>
+                                            <td className="px-6 py-3 text-sm text-green-600">{client.completed}</td>
+                                            <td className="px-6 py-3 text-sm text-red-600">{client.failed}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-16 bg-gray-100 rounded-full h-1.5">
+                                                        <div className={`h-1.5 rounded-full ${reliability > 90 ? 'bg-green-500' : reliability > 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${reliability}%`}}></div>
+                                                    </div>
+                                                    <span className="text-xs text-gray-500">{reliability}%</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                                {!dashboardStats?.clients.length && (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No client data available</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+          </div>
+        </div>
+      );
+  }
+
+  // View: List (Default / Home)
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="mb-8 flex justify-between items-end">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <div className="p-2 bg-blue-600 rounded-lg shadow-sm">
-                 <FilmIcon className="w-6 h-6 text-white" />
-              </div>
-              Automation Dashboard
-            </h1>
-            <p className="text-gray-500 mt-1 ml-14">Live monitoring of Video QA automation</p>
-          </div>
-          <button onClick={fetchJobs} className="text-sm text-blue-600 hover:underline">Refresh Data</button>
-        </div>
-
-        {/* KPI Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            {/* KPI 1: Success Rate */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="text-sm font-medium text-gray-500">Success Rate</p>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                            {dashboardStats?.kpi.success_rate}%
-                        </h3>
-                    </div>
-                    <div className="p-2 bg-green-50 rounded-lg">
-                        <ChartBarIcon className="w-5 h-5 text-green-600" />
-                    </div>
-                </div>
-                <div className="mt-4 text-xs text-green-600 font-medium">
-                    {dashboardStats?.breakdown.completed} Completed / {dashboardStats?.breakdown.failed} Failed
-                </div>
+        {/* Header - Simpler for Home */}
+        <div className="mb-6 flex justify-between items-center">
+            <div>
+                 <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <FilmIcon className="w-6 h-6 text-blue-600" />
+                    Recent Comparisons
+                 </h1>
             </div>
-
-            {/* KPI 2: Throughput 24h */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="text-sm font-medium text-gray-500">24h Throughput</p>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                            {dashboardStats?.kpi.throughput_24h}
-                        </h3>
-                    </div>
-                    <div className="p-2 bg-purple-50 rounded-lg">
-                        <BoltIcon className="w-5 h-5 text-purple-600" />
-                    </div>
-                </div>
-                 <div className="mt-4 text-xs text-purple-600 font-medium">
-                    Jobs processed in last 24h
-                </div>
-            </div>
-
-            {/* KPI 3: Avg Processing Time */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="text-sm font-medium text-gray-500">Avg Processing Time</p>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                            {dashboardStats?.kpi.avg_processing_time}s
-                        </h3>
-                    </div>
-                    <div className="p-2 bg-blue-50 rounded-lg">
-                        <ClockIcon className="w-5 h-5 text-blue-600" />
-                    </div>
-                </div>
-                 <div className="mt-4 text-xs text-blue-600 font-medium">
-                    Per completed job
-                </div>
-            </div>
-
-            {/* KPI 4: Active Jobs */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <p className="text-sm font-medium text-gray-500">Active Queue</p>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                            {dashboardStats?.kpi.active_jobs}
-                        </h3>
-                    </div>
-                    <div className={`p-2 rounded-lg ${dashboardStats?.kpi.active_jobs ? 'bg-amber-50' : 'bg-gray-50'}`}>
-                        <ArrowPathIcon className={`w-5 h-5 ${dashboardStats?.kpi.active_jobs ? 'text-amber-600 animate-spin' : 'text-gray-400'}`} />
-                    </div>
-                </div>
-                 <div className="mt-4 text-xs text-gray-500">
-                    Jobs pending or processing
-                </div>
-            </div>
-        </div>
-
-
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-            {/* Trend Chart (Last 7 Days) */}
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                 <div className="flex items-center gap-2 mb-6">
-                    <ChartBarIcon className="w-5 h-5 text-gray-400" />
-                    <h3 className="font-semibold text-gray-900">Job Trend (Last 7 Days)</h3>
-                 </div>
-                 <div className="h-64 w-full">
-                    {dashboardStats?.chart_data ? (
-                        <Line
-                            data={{
-                                labels: dashboardStats.chart_data.map(d => {
-                                    const date = new Date(d.date);
-                                    return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
-                                }).reverse(),
-                                datasets: [
-                                    {
-                                        label: 'Jobs Processed',
-                                        data: dashboardStats.chart_data.map(d => d.count).reverse(),
-                                        borderColor: 'rgb(79, 70, 229)',
-                                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                                        tension: 0.3,
-                                        fill: true,
-                                    }
-                                ]
-                            }}
-                            options={{
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                        mode: 'index',
-                                        intersect: false,
-                                    }
-                                },
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        grid: { color: '#f3f4f6' },
-                                        ticks: { precision: 0 }
-                                    },
-                                    x: {
-                                        grid: { display: false }
-                                    }
-                                }
-                            }}
-                        />
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                            No chart data available
-                        </div>
-                    )}
-                 </div>
-            </div>
-
-            {/* Storage Widget */}
-             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden group">
-                <div className="flex items-center gap-3 mb-4">
-                     <CircleStackIcon className="w-6 h-6 text-indigo-600" />
-                     <h3 className="font-semibold text-gray-900">System Storage</h3>
-                </div>
-                
-                <div className="space-y-4 relative z-10">
-                    <div>
-                        <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-500">Total Usage</span>
-                            <span className="font-medium">{dashboardStats?.storage.total_size_gb} GB</span>
-                        </div>
-                         <div className="w-full bg-gray-100 rounded-full h-2">
-                             <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${Math.min((dashboardStats?.storage.total_size_gb || 0) / 100 * 100, 100)}%` }}></div>
-                         </div>
-                    </div>
-                    
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Total Files</span>
-                        <span className="font-medium">{dashboardStats?.storage.file_count}</span>
-                    </div>
-
-                    <button
-                        onClick={handleCleanup}
-                        disabled={cleaningUp}
-                        className="w-full mt-2 py-2 px-3 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                         {cleaningUp ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <TrashIcon className="w-4 h-4"/>}
-                         Cleanup Oldest 10 Jobs
-                    </button>
-                </div>
-                {/* Decoration */}
-                <CircleStackIcon className="absolute -top-6 -right-6 w-32 h-32 text-gray-50 opacity-5" />
-            </div>
-
-            {/* Clients Table (Top 5) */}
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                     <div className="flex items-center gap-2">
-                        <UserGroupIcon className="w-5 h-5 text-gray-400" />
-                        <h3 className="font-semibold text-gray-900">Top Clients (All Time)</h3>
-                     </div>
-                     <span className="text-xs text-gray-500">Sorted by Job Volume</span>
-                </div>
-                
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-100">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Jobs</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Failed</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reliability</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-100">
-                            {dashboardStats?.clients.slice(0, 5).map((client, i) => {
-                                const reliability = client.total > 0 ? Math.round((client.completed / client.total) * 100) : 0;
-                                return (
-                                    <tr key={client.name} className="hover:bg-gray-50">
-                                        <td className="px-6 py-3 text-sm font-medium text-gray-900">{client.name}</td>
-                                        <td className="px-6 py-3 text-sm text-gray-500">{client.total}</td>
-                                        <td className="px-6 py-3 text-sm text-green-600">{client.completed}</td>
-                                        <td className="px-6 py-3 text-sm text-red-600">{client.failed}</td>
-                                        <td className="px-6 py-3 whitespace-nowrap">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-16 bg-gray-100 rounded-full h-1.5">
-                                                    <div className={`h-1.5 rounded-full ${reliability > 90 ? 'bg-green-500' : reliability > 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${reliability}%`}}></div>
-                                                </div>
-                                                <span className="text-xs text-gray-500">{reliability}%</span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )
-                            })}
-                            {!dashboardStats?.clients.length && (
-                                <tr>
-                                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No client data available</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <button onClick={fetchJobs} className="text-sm text-blue-600 hover:underline">Refresh List</button>
         </div>
 
         {/* Jobs Table */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Jobs</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Active Jobs & History</h2>
             <div className="flex items-center space-x-3">
               <FileUpload onJobCreated={fetchJobs} />
             </div>
@@ -446,7 +466,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              {/* Existing Table Structure but slight styled to match new design */}
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -495,7 +514,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex items-center justify-end space-x-2">
-                           {/* Action Buttons reusing logic */}
                             {job.status === "completed" && (
                                 <button onClick={() => onSelectJob(job)} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><EyeIcon className="w-5 h-5"/></button>
                             )}
