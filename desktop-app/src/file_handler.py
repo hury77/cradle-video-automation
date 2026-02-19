@@ -54,19 +54,24 @@ class FileHandler:
             cradle_folder = self.download_base_path / cradle_id
             cradle_folder.mkdir(parents=True, exist_ok=True)
 
-            # ✅ Wyczyść stare pliki wideo przed nowym pobieraniem
-            # Zapobiega błędnej identyfikacji przez identify_video_files
+            # ✅ Wyczyść tylko pliki _emis z poprzedniej sesji
+            # NIE kasujemy wszystkich plików — acceptance może aktywnie pobierać się przez Chrome
             VIDEO_EXTS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv",
                           ".MP4", ".MOV", ".MXF", ".PRORES", ".AVI", ".MKV"}
             removed = []
             for existing in cradle_folder.iterdir():
-                if existing.is_file() and existing.suffix in VIDEO_EXTS:
+                name_lower = existing.name.lower()
+                is_emis = "_emis." in name_lower or name_lower.endswith("_emis")
+                if existing.is_file() and is_emis and existing.suffix in VIDEO_EXTS:
                     existing.unlink()
                     removed.append(existing.name)
             if removed:
-                self.logger.info(f"🧹 Cleared {len(removed)} old video file(s) from {cradle_id}/: {removed}")
+                self.logger.info(f"🧹 Cleared {len(removed)} old _emis file(s) from {cradle_id}/: {removed}")
+            else:
+                self.logger.info(f"🧹 No old _emis files to clean in {cradle_id}/")
 
             self.logger.info(f"📂 Created/verified folder: {cradle_folder}")
+
 
 
             results = {
