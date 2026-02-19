@@ -107,8 +107,6 @@ class CradleScanner {
     this.checkAutoFindAsset();
     this.extractCradleId();
 
-    this.createNotificationUI(); // Pre-create UI
-    this.showNotification("Scanner initialized", "success");
     console.log("[CradleScanner] Scanner initialized");
   }
 
@@ -222,10 +220,6 @@ class CradleScanner {
         console.log("[CradleScanner] INFO: Rozpoczynam pobieranie plików...");
         await this.downloadFiles();
         break;
-      case "DOWNLOAD_CHECK_FILES":
-        console.log("[CradleScanner] INFO: Rozpoczynam pobieranie plików kontrolnych...");
-        await this.downloadCheckFiles();
-        break;
       case "VIDEO_COMPARE":
         console.log("[CradleScanner] INFO: Starting Video Compare...");
         await this.startVideoCompare(event.detail?.data);
@@ -247,62 +241,13 @@ class CradleScanner {
     );
   }
 
-  createNotificationUI() {
-    if (document.getElementById("cradle-scanner-toast")) return;
-
-    const toast = document.createElement("div");
-    toast.id = "cradle-scanner-toast";
-    toast.style.cssText = `
-      position: fixed !important;
-      top: 20px !important;
-      right: 20px !important;
-      background: #333 !important;
-      color: white !important;
-      padding: 12px 24px !important;
-      border-radius: 4px !important;
-      z-index: 2147483647 !important; /* Max z-index */
-      font-family: Arial, sans-serif !important;
-      font-size: 14px !important;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
-      transition: opacity 0.3s, transform 0.3s !important;
-      opacity: 0;
-      transform: translateY(-20px);
-      pointer-events: none;
-    `;
-    document.body.appendChild(toast);
-    this.toastElement = toast;
-  }
-
   showNotification(message, type = "info") {
     console.log(`[CradleScanner] ${type.toUpperCase()}: ${message}`);
-    
-    // Ensure UI exists
-    if (!this.toastElement) this.createNotificationUI();
-    
-    const toast = this.toastElement;
-    if (!toast) return;
-
-    // Set color based on type
-    let bg = "#333";
-    let icon = "ℹ️";
-    
-    if (type === "success") { bg = "#4CAF50"; icon = "✅"; }
-    else if (type === "error") { bg = "#F44336"; icon = "❌"; }
-    else if (type === "warning") { bg = "#FF9800"; icon = "⚠️"; }
-    
-    toast.style.background = bg;
-    toast.textContent = `${icon} ${message}`;
-    
-    // Show
-    toast.style.opacity = "1";
-    toast.style.transform = "translateY(0)";
-    
-    // Hide after 3s
-    if (this.toastTimeout) clearTimeout(this.toastTimeout);
-    this.toastTimeout = setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateY(-20px)";
-    }, 4000);
+    document.dispatchEvent(
+      new CustomEvent("extension-notification", {
+        detail: { message, type },
+      })
+    );
   }
 
   async startAutomation() {
@@ -777,10 +722,8 @@ class CradleScanner {
     // Download acceptance file if found
     if (fileInfo.acceptanceFile) {
       console.log("✓ ZNALEZIONO PLIK AKCEPTACJI:");
-      console.log("  - Nazwa:", fileInfo.acceptanceFile.filename);
+      console.log("  - Nazwa:", fileInfo.acceptanceFile.name);
       console.log("  - URL:", fileInfo.acceptanceFile.url);
-      console.log("  - Rząd:", fileInfo.acceptanceFile.row);
-
       console.log("  - Rząd:", fileInfo.acceptanceFile.row);
 
       // Pass the name as preferredFilename (if found in UI text)
@@ -835,9 +778,12 @@ class CradleScanner {
     
     // CRITICAL FIX: Only send network paths to Desktop App.
     // Attachments are handled by Extension. Desktop App shouldn't try to download them without auth.
+    const { templateId, jobNumber } = this.extractAssetMetadata();
     const filesData = {
       action: "FILES_DETECTED",
       cradleId: this.currentCradleId,
+      templateId: templateId,
+      jobNumber: jobNumber,
       acceptanceFile: fileInfo.acceptanceFile?.type === "network_path" ? fileInfo.acceptanceFile : null,
       emissionFile: fileInfo.emissionFile?.type === "network_path" ? fileInfo.emissionFile : null,
       timestamp: Date.now(),
@@ -851,353 +797,6 @@ class CradleScanner {
     } else {
       this.showNotification("❌ Desktop App not connected", "warning");
     }
-  }
-
-  // ✅ NOWA FUNKCJA: Pobieranie plików kontrolnych (Master, Copy Deck, Adaptacja)
-  async downloadCheckFiles() {
-    console.log("=== ROZPOCZYNAM POBIERANIE PLIKÓW KONTROLNYCH (v2.0 FIX) ===");
-    
-    // 1. Extract Cradle ID & Template ID
-    const cradleId = this.extractCradleId();
-    const templateId = this.getTemplateId();
-
-    console.log("Cradle ID:", cradleId);
-    console.log("Template ID:", templateId);
-
-    if (!cradleId) {
-      this.showNotification("Nie można pobrać Cradle ID", "error");
-      return;
-    }
-
-    // 2. Scan Comments Table
-    const table = await this.findAssetCommentsTable();
-    if (!table) {
-        this.showNotification("Nie znaleziono tabeli komentarzy", "error");
-        return;
-    }
-
-    // 3. Find specific files
-    const checkFiles = await this.findCheckFiles(table, templateId);
-
-    console.log("=== WYNIKI SKANOWANIA PLIKÓW KONTROLNYCH ===");
-    console.log(checkFiles);
-
-    if (!checkFiles.master && !checkFiles.copyDeck && !checkFiles.adaptation) {
-        this.showNotification("Nie znaleziono żadnych plików kontrolnych", "warning");
-        return;
-    }
-
-    // Helper to download via Fetch (auth) -> Blob -> Base64 -> Extension
-    const downloadViaExtension = async (fileObj, type) => {
-        if (!fileObj || !fileObj.url) return;
-        
-        // Safety check for extension context
-        if (!chrome || !chrome.runtime || !chrome.runtime.id) {
-             this.showNotification("Błąd: Kontekst wtyczki utracony. Odśwież stronę CMD+R!", "error");
-             return;
-        }
-
-        try {
-            console.log(`[CradleScanner] ⬇️ Fetching ${type} via background script: ${fileObj.url}`);
-            this.showNotification(`Pobieranie ${type} (metoda Blob)...`, "info");
-            
-            // 1. Fetch with current cookies
-            const response = await fetch(fileObj.url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
-             // Try to get real filename from Content-Disposition
-            let finalFilename = fileObj.name;
-            const disposition = response.headers.get("Content-Disposition");
-            
-            if (disposition) {
-                // 1. Check for filename*=UTF-8''...
-                const starMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-                if (starMatch && starMatch[1]) {
-                     finalFilename = decodeURIComponent(starMatch[1]);
-                     console.log(`[CradleScanner] 🏷️ Extracted real filename (UTF-8): ${finalFilename}`);
-                } else {
-                    // 2. Check for standard filename="name"
-                    const normMatch = disposition.match(/filename=['"]?([^'";]+)['"]?/i);
-                    if (normMatch && normMatch[1]) {
-                        finalFilename = normMatch[1];
-                        console.log(`[CradleScanner] 🏷️ Extracted real filename: ${finalFilename}`);
-                    }
-                }
-            }
-            
-             // Ensure extension if missing
-            if (type === "Copy Deck" && !finalFilename.match(/\.(xlsx|csv|xls)$/i)) {
-                 finalFilename += ".xlsx";
-            }
-            
-            const blob = await response.blob();
-            
-            // 2. Convert to Base64/DataURL to pass to background
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const dataUrl = reader.result;
-                const path = `${cradleId}/${finalFilename}`;
-                
-                if (chrome && chrome.runtime && chrome.runtime.sendMessage) {
-                    chrome.runtime.sendMessage({
-                        action: 'DOWNLOAD_FILE',
-                        url: dataUrl, // Pass Data URL instead of HTTP URL
-                        filename: path,
-                        type: type
-                    }, (response) => {
-                        if (chrome.runtime.lastError) {
-                             console.error(`❌ ${type} download runtime error:`, chrome.runtime.lastError);
-                             this.showNotification(`Błąd Extension: Proszę odświeżyć stronę (CMD+R)`, "error");
-                        } else if (response && response.success) {
-                            console.log(`✅ ${type} download started: ${path}`);
-                        } else {
-                            console.error(`❌ ${type} download failed:`, response);
-                            this.showNotification(`Błąd pobierania ${type}: ${response?.error}`, "error");
-                        }
-                    });
-                } else {
-                    console.error("❌ chrome.runtime.sendMessage is not available");
-                    this.showNotification("Błąd Extension: Kontekst utracony (odśwież stronę)", "error");
-                }
-            };
-            reader.readAsDataURL(blob);
-            
-        } catch (e) {
-            console.error(`Download error for ${type}:`, e);
-            this.showNotification(`Błąd pobierania ${type}: ${e.message}`, "error");
-        }
-    };
-
-    // 4. Download HTTP files via Fetch -> Extension
-    if (checkFiles.copyDeck && checkFiles.copyDeck.type === "http") {
-        downloadViaExtension(checkFiles.copyDeck, "Copy Deck");
-    }
-
-    if (checkFiles.adaptation && checkFiles.adaptation.type === "http") {
-        downloadViaExtension(checkFiles.adaptation, "Adaptation");
-    }
-
-    // 5. Send to Desktop App (Only Master / Network)
-    const filesForDesktop = {
-        master: checkFiles.master
-    };
-
-    if (checkFiles.master || templateId) {
-        this.showNotification("Szukanie pliku Master na dysku sieciowym...", "info");
-        const filesData = {
-          action: "DOWNLOAD_CHECK_FILES",
-          cradleId: cradleId,
-          templateId: templateId,
-          files: filesForDesktop
-        };
-
-        const sent = desktopConnection.sendMessage(filesData);
-        if (sent) {
-          this.showNotification("📤 Wysłano dane do Desktop App", "info");
-        } else {
-          try {
-             if (window.desktopConnection) {
-                 window.desktopConnection.sendMessage(filesData);
-                 this.showNotification("📤 Wysłano dane do Desktop App (fallback)", "info");
-             } else {
-                 this.showNotification("❌ Desktop App not connected", "warning");
-             }
-          } catch(e) { console.error(e); }
-        }
-    }
-  }
-
-  getTemplateId() {
-      // Logic to find Template ID from metadata
-      try {
-          const xpath = "//*[contains(text(), 'Template ID')]";
-          // Use ANY_TYPE to be safe
-          const result = document.evaluate(xpath, document, null, XPathResult.ANY_TYPE, null);
-          let node = result.iterateNext();
-          
-          while (node) {
-             const text = node.textContent;
-             const match = text.match(/Template ID\s*[:|-]?\s*([A-Z0-9]+)/i);
-             if (match && match[1]) return match[1];
-             
-             if (node.nextElementSibling) {
-                 const siblingText = node.nextElementSibling.textContent;
-                 const matchSibling = siblingText.match(/([A-Z0-9]+)/);
-                 if (matchSibling && matchSibling[1]) return matchSibling[1];
-             }
-             node = result.iterateNext();
-          }
-      } catch (e) { console.warn("Template ID extraction failed", e); }
-      return null;
-  }
-
-  async findCheckFiles(table, templateId) {
-    const rows = Array.from(table.querySelectorAll("tbody tr")).reverse(); // Scan from newest to oldest
-    
-    const result = {
-        master: null,
-        copyDeck: null,
-        adaptation: null
-    };
-
-    const getFilenameFromUrl = (url) => {
-        try {
-            const parts = url.split("/");
-            let filename = parts[parts.length - 1];
-            filename = decodeURIComponent(filename);
-            filename = filename.split("?")[0];
-            return filename;
-        } catch (e) { return null; }
-    };
-
-    for (const row of rows) {
-        const cells = row.querySelectorAll("td");
-        if (cells.length < 3) continue;
-
-        // Column 1 is usually "Comment" or "Description"
-        const description = cells[1]?.textContent?.trim() || "";
-        const link = row.querySelector("a");
-        const href = link ? link.href : "";
-        
-        const rowText = row.textContent.toLowerCase();
-
-        // 1. MASTER (Lucid Link)
-        if (!result.master) {
-             const rowContent = row.textContent;
-             const lucidMatch = rowContent.match(/lucid:\/\/[^\s<>"']+/);
-             if (lucidMatch) {
-                 const lucidUrl = lucidMatch[0];
-                 // Relaxed check: Accept any Lucid link if we don't have one yet.
-                 // We still check for TemplateID if present, but as a "bonus" confirmation
-                 // If the row text implies it's a "source" or "master" or "folder", it's good.
-                 // Actually, in this table context, a Lucid link is almost always the project path.
-                 
-                 console.log(`[CradleScanner] 🔗 Found Lucid link candidate: ${lucidUrl}`);
-                 
-                 let name = "Master_Network_Location";
-                 try {
-                    const parts = lucidUrl.split("/");
-                     if (parts.length > 0) {
-                         const lastPart = parts[parts.length - 1];
-                         if (lastPart) name = decodeURIComponent(lastPart);
-                     }
-                 } catch(e) {}
-
-                 result.master = { type: "lucid", url: lucidUrl, name: name };
-             }
-        }
-
-        // Helper to extract text for CopyDeck/Adaptation
-        const extractTextFromRow = (linkElement, descriptionText) => {
-            if (!linkElement) return "";
-
-            // Priority 1: Title attribute of the link
-            if (linkElement.getAttribute("title")) return linkElement.getAttribute("title").trim();
-            
-            // Priority 2: Text content of the link
-            if (linkElement.textContent.trim()) return linkElement.textContent.trim();
-            
-            // Priority 3: Alt text of an image inside the link
-            const img = linkElement.querySelector("img");
-            if (img && img.getAttribute("alt")) {
-                 const alt = img.getAttribute("alt").trim();
-                 // Ignore generic alt texts if possible (e.g. "icon", "download")
-                 if (alt.length > 5 && !alt.toLowerCase().includes("download")) return alt;
-            }
-
-            // Priority 4: Text immediately FOLLOWING the link (Next Sibling)
-            // Often structure is <a href...><img ...></a> Filename.xlsx
-            const nextNode = linkElement.nextSibling;
-            if (nextNode && nextNode.nodeType === Node.TEXT_NODE && nextNode.textContent.trim()) {
-                return nextNode.textContent.trim();
-            }
-            
-            // Priority 5: Description column text (often contains the filename)
-            if (descriptionText) {
-                const words = descriptionText.split(/\s+/);
-                for (const word of words) {
-                    if (word.match(/\.(xlsx|csv|xls|jpg|jpeg|png)$/i)) {
-                        return word;
-                    }
-                }
-            }
-            return "";
-        };
-
-        // 2. COPY DECK (xlsx/csv)
-        if (!result.copyDeck) {
-            if (rowText.includes("translation in client review") || location.href.includes("translation in client review") || rowText.includes("copy deck")) {
-                
-                let candidateLink = null;
-                let candidateName = "";
-
-                // Check 1: Link in current row
-                if (href && (href.endsWith(".xlsx") || href.endsWith(".csv") || href.endsWith(".xls"))) {
-                    candidateLink = link;
-                    candidateName = extractTextFromRow(link, description);
-                } 
-                // Check 2: Link in PREVIOUS row (threaded comments)
-                else if (row.previousElementSibling) {
-                     const prevRow = row.previousElementSibling;
-                     const prevLink = prevRow.querySelector("a");
-                     if (prevLink && prevLink.href) {
-                         const prevHref = prevLink.href;
-                         if (prevHref.endsWith(".xlsx") || prevHref.endsWith(".csv") || prevHref.endsWith(".xls")) {
-                             console.log(`[CradleScanner] Found Copy Deck in PREVIOUS row`);
-                             candidateLink = prevLink;
-                             candidateName = extractTextFromRow(prevLink, prevRow.querySelector("td:nth-child(2)")?.textContent || "");
-                         }
-                     }
-                }
-
-                if (candidateLink) {
-                    // Final fallback for filename
-                     if (!candidateName || (!candidateName.endsWith(".xlsx") && !candidateName.endsWith(".csv") && !candidateName.endsWith(".xls"))) {
-                         const urlName = getFilenameFromUrl(candidateLink.href);
-                         // If URL name is decent, use it
-                         if (urlName && (urlName.endsWith(".xlsx") || urlName.endsWith(".csv"))) {
-                             candidateName = urlName;
-                         } else {
-                             // User requirement: Download it regardless of name!
-                             candidateName = candidateName || "Copy_Deck.xlsx";
-                             if (!candidateName.match(/\.(xlsx|csv|xls)$/i)) candidateName += ".xlsx";
-                         }
-                     }
-
-                    console.log(`[CradleScanner] ✅ Found Copy Deck: ${candidateName} (${candidateLink.href})`);
-
-                    result.copyDeck = {
-                        type: "http",
-                        url: candidateLink.href,
-                        name: candidateName
-                    };
-                }
-            }
-        }
-
-        // 3. ADAPTATION (jpg)
-        if (!result.adaptation) {
-             if (rowText.includes("artwork preparation")) {
-                 if (href && (href.endsWith(".jpg") || href.endsWith(".jpeg") || href.endsWith(".png"))) {
-                      
-                      console.log(`[CradleScanner] 🔍 Reviewing Adaptation row:`, row.innerHTML.substring(0, 200) + "...");
-
-                      let filename = extractTextFromRow(link, description);
-
-                      if (!filename || (!filename.endsWith(".jpg") && !filename.endsWith(".jpeg") && !filename.endsWith(".png"))) {
-                          const urlName = getFilenameFromUrl(href);
-                          filename = urlName || filename || "Adaptation.jpg";
-                      }
-                      
-                      console.log(`[CradleScanner] ✅ Found Adaptation candidate: name="${filename}", href="${href}"`);
-
-                      result.adaptation = { type: "http", url: href, name: filename };
-                 }
-             }
-        }
-    }
-    
-    return result;
   }
 
   async findAssetCommentsTable() {
@@ -1438,28 +1037,52 @@ class CradleScanner {
           const text = cell.textContent.trim();
           
           // A. Network Paths
-          if (text.includes("/Volumes/") || text.includes("lucid://") || text.includes("\\\\")) {
+          // Check text content AND <a> tags for /Volumes/ and lucid://
+          const lucidLinkEl = cell.querySelector('a[href^="lucid://"]');
+          const hasNetworkContent = text.includes("/Volumes/") || text.includes("lucid://") || text.includes("\\\\") || lucidLinkEl;
+
+          if (hasNetworkContent) {
               console.log(`[CradleScanner] 🌐 Found potential network path in row ${rowIndex}`);
-              
-              // Prefer /Volumes/ over lucid://
+
               let cleanPath = null;
+              let lucidFilespace = null;
+
+              // 1. Prefer explicit /Volumes/ path in text
               if (text.includes("/Volumes/")) {
-                   const match = text.match(/\/Volumes\/[^\n\r"'`<>]+/);
-                   if (match) cleanPath = match[0].trim().replace(/['\s]+$/, '');
+                  const match = text.match(/\/Volumes\/[^\n\r"'`<>]+/);
+                  if (match) cleanPath = match[0].trim().replace(/['\s]+$/, '');
+
+              // 2. Handle lucid:// — via <a href> tag (most reliable)
+              } else if (lucidLinkEl) {
+                  const lucidHref = lucidLinkEl.getAttribute("href"); // e.g. lucid://alfa.egpluswarsaw/file/393:20108/EML
+                  const lucidMatch = lucidHref.match(/^lucid:\/\/([^/]+)/);
+                  if (lucidMatch) {
+                      lucidFilespace = lucidMatch[1]; // "alfa.egpluswarsaw"
+                      console.log(`[CradleScanner] 🔗 lucid:// filespace: ${lucidFilespace}`);
+                      // Desktop App will resolve using filespace + job number + template ID
+                      cleanPath = `__lucid__`; // Sentinel — Desktop App handles actual path
+                  }
+
+              // 3. Fallback: lucid:// in raw text
               } else if (text.includes("lucid://")) {
-                  // Fallback: we can't download lucid:// directly but we can log it
-                  console.warn("[CradleScanner] Found lucid:// link. Cannot download directly.");
+                  const lucidMatch = text.match(/lucid:\/\/([^/\s"'<>]+)/);
+                  if (lucidMatch) {
+                      lucidFilespace = lucidMatch[1];
+                      console.log(`[CradleScanner] 🔗 lucid:// filespace (text): ${lucidFilespace}`);
+                      cleanPath = `__lucid__`;
+                  }
               }
 
               if (cleanPath) {
                   fileInfo.emissionFile = {
                       type: "network_path",
                       path: cleanPath,
+                      lucidFilespace: lucidFilespace || null,
                       name: "emission_network",
                       row: rowIndex
                   };
-                  console.log(`[CradleScanner] ✅ Found Network Emission: ${cleanPath}`);
-                  return; // Stop after first valid match
+                  console.log(`[CradleScanner] ✅ Found Network Emission (filespace: ${lucidFilespace || 'direct path'})`);
+                  return;
               }
           }
 
@@ -1864,6 +1487,45 @@ class CradleScanner {
     }
   }
 
+  // ✅ Extract Template ID and Job Number from asset metadata sidebar
+  extractAssetMetadata() {
+    const result = { templateId: null, jobNumber: null };
+    try {
+      // Cradle renders asset info as label/value pairs in table rows or definition lists
+      // We scan all text nodes looking for "Template ID" and "Job number" labels
+      const allElements = document.querySelectorAll('td, th, dt, dd, li, span, div');
+      for (const el of allElements) {
+        const text = el.textContent.trim();
+
+        // Template ID
+        if (text === 'Template ID') {
+          const next = el.nextElementSibling;
+          if (next) { result.templateId = next.textContent.trim(); continue; }
+          const parentRow = el.closest('tr');
+          if (parentRow) {
+            const tds = parentRow.querySelectorAll('td');
+            if (tds.length >= 2) result.templateId = tds[tds.length - 1].textContent.trim();
+          }
+        }
+
+        // Job number
+        if (text === 'Job number') {
+          const next = el.nextElementSibling;
+          if (next) { result.jobNumber = next.textContent.trim(); continue; }
+          const parentRow = el.closest('tr');
+          if (parentRow) {
+            const tds = parentRow.querySelectorAll('td');
+            if (tds.length >= 2) result.jobNumber = tds[tds.length - 1].textContent.trim();
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[CradleScanner] extractAssetMetadata error:', e);
+    }
+    console.log(`[CradleScanner] 📋 Asset metadata — TemplateID: ${result.templateId}, JobNumber: ${result.jobNumber}`);
+    return result;
+  }
+
   async startVideoCompare(data = {}) {
     const useApi = data.useApi === true;
     const actionType = useApi ? "VIDEO_COMPARE_API_REQUEST" : "VIDEO_COMPARE_REQUEST";
@@ -1882,10 +1544,15 @@ class CradleScanner {
     );
     this.showNotification(`🎬 Starting Video Compare (${useApi ? "API" : "Legacy"})...`, "info");
 
+    // Extract metadata for file discovery
+    const { templateId, jobNumber } = this.extractAssetMetadata();
+
     // Send request to Desktop App
     const sent = desktopConnection.sendMessage({
       action: actionType,
       cradleId: cradleId,
+      templateId: templateId,
+      jobNumber: jobNumber,
       timestamp: Date.now(),
     });
 

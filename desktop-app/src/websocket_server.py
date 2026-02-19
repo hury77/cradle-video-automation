@@ -63,10 +63,6 @@ class WebSocketServer:
                 logger.info("🎯 FILES_DETECTED received - starting download process...")
                 await self.handle_files_detected(websocket, data)
 
-            elif action == "DOWNLOAD_CHECK_FILES":
-                logger.info("📂 DOWNLOAD_CHECK_FILES received - downloading QA assets...")
-                await self.handle_download_check_files(websocket, data)
-
             elif action == "VIDEO_COMPARE_REQUEST":
                 logger.info(
                     "🎬 VIDEO_COMPARE_REQUEST received - starting Video Compare..."
@@ -236,52 +232,6 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"❌ Files detected handling failed: {str(e)}")
             await self.send_error(websocket, f"File download error: {str(e)}")
-
-    async def handle_download_check_files(self, websocket, data):
-        """Handle DOWNLOAD_CHECK_FILES message"""
-        try:
-            cradle_id = data.get("cradleId")
-            template_id = data.get("templateId")
-            files = data.get("files", {})
-
-            if not cradle_id:
-                await self.send_error(websocket, "No CradleID provided")
-                return
-
-            logger.info(f"📂 Processing Check Files for {cradle_id}")
-            logger.info(f"   Template ID: {template_id}")
-            logger.info(f"   Files found: {list(files.keys())}")
-
-            # Send status update
-            await self.send_status_update(
-                websocket,
-                "DOWNLOAD_STARTED",
-                {
-                    "cradle_id": cradle_id,
-                    "status": "Starting Check Files download...",
-                    "files": files
-                },
-            )
-
-            # Delegate to FileHandler
-            results = await self.file_handler.handle_check_files_download(
-                websocket, data
-            )
-
-            # Send completion
-            await self.send_status_update(
-                websocket,
-                "DOWNLOAD_COMPLETED",
-                {
-                    "cradle_id": cradle_id,
-                    "results": results,
-                    "status": "Check Files download completed"
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"❌ Check Files handling failed: {str(e)}")
-            await self.send_error(websocket, f"Check Files error: {str(e)}")
 
     async def handle_video_compare_request(self, websocket, data):
         """Handle Video Compare automation request"""
