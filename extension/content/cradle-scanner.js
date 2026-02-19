@@ -778,12 +778,13 @@ class CradleScanner {
     
     // CRITICAL FIX: Only send network paths to Desktop App.
     // Attachments are handled by Extension. Desktop App shouldn't try to download them without auth.
-    const { templateId, jobNumber } = this.extractAssetMetadata();
+    const { templateId, jobNumber, langCode } = this.extractAssetMetadata();
     const filesData = {
       action: "FILES_DETECTED",
       cradleId: this.currentCradleId,
       templateId: templateId,
       jobNumber: jobNumber,
+      langCode: langCode,
       acceptanceFile: fileInfo.acceptanceFile?.type === "network_path" ? fileInfo.acceptanceFile : null,
       emissionFile: fileInfo.emissionFile?.type === "network_path" ? fileInfo.emissionFile : null,
       timestamp: Date.now(),
@@ -1493,10 +1494,8 @@ class CradleScanner {
 
   // ✅ Extract Template ID and Job Number from asset metadata sidebar
   extractAssetMetadata() {
-    const result = { templateId: null, jobNumber: null };
+    const result = { templateId: null, jobNumber: null, langCode: null };
     try {
-      // Cradle renders asset info as label/value pairs in table rows or definition lists
-      // We scan all text nodes looking for "Template ID" and "Job number" labels
       const allElements = document.querySelectorAll('td, th, dt, dd, li, span, div');
       for (const el of allElements) {
         const text = el.textContent.trim();
@@ -1522,11 +1521,40 @@ class CradleScanner {
             if (tds.length >= 2) result.jobNumber = tds[tds.length - 1].textContent.trim();
           }
         }
+
+        // Lang — e.g. "Italian (CH) ()" → "IT"
+        if (text === 'Lang') {
+          const getVal = (el) => {
+            const next = el.nextElementSibling;
+            if (next) return next.textContent.trim();
+            const parentRow = el.closest('tr');
+            if (parentRow) {
+              const tds = parentRow.querySelectorAll('td');
+              if (tds.length >= 2) return tds[tds.length - 1].textContent.trim();
+            }
+            return null;
+          };
+          const langRaw = getVal(el);
+          if (langRaw) {
+            // Map language name → 2-letter ISO code
+            const LANG_MAP = {
+              'italian':  'IT', 'french':  'FR', 'german':  'DE',
+              'english':  'EN', 'spanish': 'ES', 'polish':  'PL',
+              'dutch':    'NL', 'portuguese': 'PT', 'russian': 'RU',
+              'czech':    'CZ', 'hungarian': 'HU', 'romanian': 'RO',
+              'swedish':  'SV', 'danish':  'DA', 'norwegian': 'NO',
+              'finnish':  'FI', 'turkish': 'TR', 'greek':    'EL',
+            };
+            const langLower = langRaw.toLowerCase().split(/[\s(]/)[0]; // take first word
+            result.langCode = LANG_MAP[langLower] || null;
+            console.log(`[CradleScanner] 🌍 Lang field: '${langRaw}' → langCode: '${result.langCode}'`);
+          }
+        }
       }
     } catch (e) {
       console.warn('[CradleScanner] extractAssetMetadata error:', e);
     }
-    console.log(`[CradleScanner] 📋 Asset metadata — TemplateID: ${result.templateId}, JobNumber: ${result.jobNumber}`);
+    console.log(`[CradleScanner] 📋 Asset metadata — TemplateID: ${result.templateId}, JobNumber: ${result.jobNumber}, LangCode: ${result.langCode}`);
     return result;
   }
 
@@ -1549,7 +1577,7 @@ class CradleScanner {
     this.showNotification(`🎬 Starting Video Compare (${useApi ? "API" : "Legacy"})...`, "info");
 
     // Extract metadata for file discovery
-    const { templateId, jobNumber } = this.extractAssetMetadata();
+    const { templateId, jobNumber, langCode } = this.extractAssetMetadata();
 
     // Send request to Desktop App
     const sent = desktopConnection.sendMessage({
@@ -1557,6 +1585,7 @@ class CradleScanner {
       cradleId: cradleId,
       templateId: templateId,
       jobNumber: jobNumber,
+      langCode: langCode,
       timestamp: Date.now(),
     });
 

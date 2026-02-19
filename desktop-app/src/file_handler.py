@@ -33,14 +33,18 @@ class FileHandler:
             # Inject metadata from message into file_info dicts so Lucid/network handlers have it
             job_number = data.get("jobNumber")
             template_id = data.get("templateId")
+            lang_code = data.get("langCode")  # e.g. "IT", "FR", "DE"
             if acceptance_file and isinstance(acceptance_file, dict):
                 acceptance_file.setdefault("jobNumber", job_number)
                 acceptance_file.setdefault("templateId", template_id)
+                acceptance_file.setdefault("langCode", lang_code)
             if emission_file and isinstance(emission_file, dict):
                 emission_file.setdefault("jobNumber", job_number)
                 emission_file.setdefault("templateId", template_id)
+                emission_file.setdefault("langCode", lang_code)
 
-            self.logger.info(f"📁 Processing files for CradleID: {cradle_id} | jobNumber: {job_number} | templateId: {template_id}")
+            self.logger.info(f"📁 Processing files for CradleID: {cradle_id} | jobNumber: {job_number} | templateId: {template_id} | langCode: {lang_code}")
+
 
             if not cradle_id:
                 await self.send_error(websocket, "No CradleID provided")
@@ -458,17 +462,26 @@ class FileHandler:
                     self.logger.error(f"❌ {error}")
                     return {"success": False, "error": error}
 
-            # Step 3: Search for video file by Template ID inside campaign folder
+            # Step 3: Search for video file by Template ID (+ Lang code) inside campaign folder
+            template_id = file_info.get("templateId") or ""
+            lang_code = file_info.get("langCode") or ""  # e.g. "IT", "FR", "DE"
             found_file = None
             search_patterns = []
 
             if template_id:
-                search_patterns = [
-                    f"*{template_id}*",    # anywhere in name
-                    f"{template_id}*",     # starts with
-                ]
+                if lang_code:
+                    search_patterns = [
+                        f"*{template_id}*{lang_code}*",    # exact lang version first
+                        f"*{template_id}*{lang_code.lower()}*",  # lowercase variant
+                        f"*{template_id}*",                # any language (fallback)
+                    ]
+                    self.logger.info(f"🌍 Lang code '{lang_code}' — will prefer *{template_id}*{lang_code}* pattern")
+                else:
+                    search_patterns = [
+                        f"*{template_id}*",
+                        f"{template_id}*",
+                    ]
             else:
-                # No template ID — use CradleID as last resort
                 search_patterns = [f"*{cradle_id}*"]
 
             for pattern in search_patterns:
@@ -480,6 +493,7 @@ class FileHandler:
                         break
                 if found_file:
                     break
+
 
             if not found_file:
                 error = f"No video file found for templateId='{template_id}' in '{campaign_folder}'"

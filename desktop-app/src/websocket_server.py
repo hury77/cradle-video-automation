@@ -121,22 +121,30 @@ class WebSocketServer:
                 return
             
             downloads_dir = Path.home() / "Downloads"
-            source = downloads_dir / filename
             target_dir = downloads_dir / cradle_id
             target_dir.mkdir(parents=True, exist_ok=True)
+
+            # Chrome Downloads API saves directly to subfolder (961143/file.zip)
+            # Blob fallback saves to Downloads root, then we move it
+            already_in_subfolder = (target_dir / filename).exists()
+            source = downloads_dir / filename      # blob fallback path
             target = target_dir / filename
-            
-            # Retry a few times (file might still be writing)
-            for attempt in range(10):
-                if source.exists():
-                    shutil.move(str(source), str(target))
-                    logger.info(f"📦 Moved: {filename} → {cradle_id}/{filename}")
-                    break
-                await asyncio.sleep(1)
+
+            if already_in_subfolder:
+                logger.info(f"📦 File already in subfolder (Chrome API): {cradle_id}/{filename}")
             else:
-                logger.warning(f"⚠️ File not found after retries: {source}")
-                await self.send_error(websocket, f"File not found: {filename}")
-                return
+                # Retry move from Downloads root
+                for attempt in range(10):
+                    if source.exists():
+                        shutil.move(str(source), str(target))
+                        logger.info(f"📦 Moved: {filename} → {cradle_id}/{filename}")
+                        break
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning(f"⚠️ File not found after retries: {source}")
+                    await self.send_error(websocket, f"File not found: {filename}")
+                    return
+
 
             # Unzip if it's a ZIP file
             final_filename = filename
