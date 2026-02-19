@@ -947,15 +947,15 @@ class CradleScanner {
 
         // FALLBACK: Look for plain text URLs if no <a> tag matched
         const textContent = row.textContent;
-        // Regex to find https://.../deliverable-details/ID...
-        const urlRegex = /https:\/\/[^/]+\/assets\/deliverable-details\/(\d+)(?:\/[^ ]*)?/i;
+        // Regex: stop at whitespace/newline so we don't capture trailing text
+        const urlRegex = /https:\/\/[^\s"'<>]+\/assets\/deliverable-details\/(\d+)(?:\/[^\s"'<>]*)?/i;
         const match = textContent.match(urlRegex);
-        
+
         if (match) {
-             const foundUrl = match[0];
-             // Clean up trailing chars potentially
-             console.log(`[CradleScanner] 🔗 Found potential linked asset (text): ${foundUrl}`);
-             return foundUrl;
+            // Strip any trailing non-path chars (e.g. punctuation)
+            const foundUrl = match[0].replace(/[.,;!?]+$/, "");
+            console.log(`[CradleScanner] 🔗 Found potential linked asset (text): ${foundUrl}`);
+            return foundUrl;
         }
       }
     }
@@ -1004,11 +1004,19 @@ class CradleScanner {
 
         const firstCellText = cells[0].textContent.toLowerCase().trim();
 
-        // 1. EMISSION (Final / Broadcast)
+        // 1. EMISSION / ACCEPTANCE — Final / Broadcast rows
+        // If the row has Action=accept, the file is the acceptance (PA); otherwise emission.
         if (firstCellText.includes("final file preparation") || firstCellText.includes("broadcast file preparation")) {
-             this.extractEmissionFromRow(row, fileInfo, i);
+            const firstCellHTML = cells[0] ? cells[0].innerHTML.toLowerCase() : "";
+            const hasAcceptAction = firstCellHTML.includes("action") && firstCellHTML.includes("accept");
+            if (hasAcceptAction && !fileInfo.acceptanceFile) {
+                console.log(`[CradleScanner] 🔄 Row ${i}: 'final file preparation' + Action=accept → treating as ACCEPTANCE`);
+                this.extractAcceptanceFromRow(row, fileInfo, i);
+            } else {
+                this.extractEmissionFromRow(row, fileInfo, i);
+            }
         }
-        
+
         // 2. ACCEPTANCE — Primary: video preparation (the actual file being QA'd)
         else if (firstCellText.includes("video preparation")) {
             this.extractAcceptanceFromRow(row, fileInfo, i);
