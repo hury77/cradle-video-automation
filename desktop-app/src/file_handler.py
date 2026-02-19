@@ -46,10 +46,24 @@ class FileHandler:
                 await self.send_error(websocket, "No CradleID provided")
                 return
 
-            # Create cradle folder
+            # Create (or reuse) cradle folder
             cradle_folder = self.download_base_path / cradle_id
             cradle_folder.mkdir(parents=True, exist_ok=True)
+
+            # ✅ Wyczyść stare pliki wideo przed nowym pobieraniem
+            # Zapobiega błędnej identyfikacji przez identify_video_files
+            VIDEO_EXTS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv",
+                          ".MP4", ".MOV", ".MXF", ".PRORES", ".AVI", ".MKV"}
+            removed = []
+            for existing in cradle_folder.iterdir():
+                if existing.is_file() and existing.suffix in VIDEO_EXTS:
+                    existing.unlink()
+                    removed.append(existing.name)
+            if removed:
+                self.logger.info(f"🧹 Cleared {len(removed)} old video file(s) from {cradle_id}/: {removed}")
+
             self.logger.info(f"📂 Created/verified folder: {cradle_folder}")
+
 
             results = {
                 "cradle_id": cradle_id,

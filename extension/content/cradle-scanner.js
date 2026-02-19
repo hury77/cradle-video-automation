@@ -1275,19 +1275,15 @@ class CradleScanner {
       // 📎 EMISSION ATTACHMENT - download via fetch
       let finalFilename = fileData.name || this.extractFilenameFromUrl(fileData.url);
 
-      // Add _emis suffix if same name as acceptance
-      if (acceptanceFileName) {
-        const acceptanceNameOnly = acceptanceFileName.split("/").pop();
-        if (finalFilename === acceptanceNameOnly) {
-          const dotIndex = finalFilename.lastIndexOf(".");
-          if (dotIndex !== -1) {
-            finalFilename = finalFilename.substring(0, dotIndex) + "_emis" + finalFilename.substring(dotIndex);
-          } else {
-            finalFilename = finalFilename + "_emis";
-          }
-          console.log(`[CradleScanner] Adding _emis suffix: ${finalFilename}`);
-        }
+      // Always add _emis suffix to emission files — reliable discriminator for Desktop App
+      const dotIndex = finalFilename.lastIndexOf(".");
+      if (dotIndex !== -1) {
+        finalFilename = finalFilename.substring(0, dotIndex) + "_emis" + finalFilename.substring(dotIndex);
+      } else {
+        finalFilename = finalFilename + "_emis";
       }
+      console.log(`[CradleScanner] 🏷️ Emission suffix added: ${finalFilename}`);
+
 
       const downloadPath = `${cradleId}/${finalFilename}`;
       const success = await this.downloadViaFetch(fileData.url, downloadPath);

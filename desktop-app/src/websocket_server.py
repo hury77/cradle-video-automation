@@ -552,7 +552,30 @@ class WebSocketServer:
         acceptance_file = None
         emission_file = None
 
-        # Metoda 1: Próbuj rozróżnić po nazwach/wzorcach
+        # ─────────────────────────────────────────────
+        # Metoda 0: _emis sufiks — NAJPEWNIEJSZY WYRÓŻNIK
+        # Extension zawsze dodaje _emis do pobranych plików emisji.
+        # ─────────────────────────────────────────────
+        for video_file in video_files:
+            file_name_lower = video_file.name.lower()
+            if "_emis." in file_name_lower or file_name_lower.endswith("_emis"):
+                emission_file = str(video_file)
+                logger.info(f"✅ [M0] Identified as EMISSION (_emis suffix): {video_file.name}")
+            elif not acceptance_file:
+                acceptance_file = str(video_file)
+                logger.info(f"✅ [M0] Identified as ACCEPTANCE (no _emis): {video_file.name}")
+
+        if acceptance_file and emission_file:
+            logger.info("✅ [M0] Both files identified by _emis suffix — skipping heuristics")
+            return acceptance_file, emission_file
+
+        # Reset — fallback to heuristics
+        acceptance_file = None
+        emission_file = None
+
+        # ─────────────────────────────────────────────
+        # Metoda 1: Wzorce nazwy i rozmiar
+        # ─────────────────────────────────────────────
         for video_file in video_files:
             file_name_lower = video_file.name.lower()
             file_size = video_file.stat().st_size
@@ -581,7 +604,7 @@ class WebSocketServer:
 
                 if is_acceptance:
                     acceptance_file = str(video_file)
-                    logger.info(f"✅ Identified as ACCEPTANCE: {video_file.name}")
+                    logger.info(f"✅ [M1] Identified as ACCEPTANCE: {video_file.name}")
                     continue
 
             # Emission: pliki z określonymi wzorcami lub większe pliki
@@ -605,42 +628,42 @@ class WebSocketServer:
 
                 if is_emission:
                     emission_file = str(video_file)
-                    logger.info(f"✅ Identified as EMISSION: {video_file.name}")
+                    logger.info(f"✅ [M1] Identified as EMISSION: {video_file.name}")
                     continue
 
-        # Metoda 2: Jeśli nie udało się rozróżnić, użyj kolejności i rozmiaru
+        # ─────────────────────────────────────────────
+        # Metoda 2: Rozmiar (mniejszy = acceptance, większy = emission)
+        # ─────────────────────────────────────────────
         if not acceptance_file or not emission_file:
             logger.info(
                 "⚠️ Could not identify files by pattern, using size and order..."
             )
-
-            # Posortuj pliki po rozmiarze (mniejszy = acceptance, większy = emission)
             video_files_by_size = sorted(video_files, key=lambda x: x.stat().st_size)
 
             if not acceptance_file and len(video_files_by_size) > 0:
-                acceptance_file = str(video_files_by_size[0])  # Najmniejszy plik
+                acceptance_file = str(video_files_by_size[0])
                 logger.info(
-                    f"✅ Assigned as ACCEPTANCE (smallest): {video_files_by_size[0].name}"
+                    f"✅ [M2] Assigned as ACCEPTANCE (smallest): {video_files_by_size[0].name}"
                 )
 
             if not emission_file and len(video_files_by_size) > 1:
-                # Znajdź największy plik różny od acceptance
-                for vf in reversed(video_files_by_size):  # Od największego
+                for vf in reversed(video_files_by_size):
                     if str(vf) != acceptance_file:
                         emission_file = str(vf)
-                        logger.info(f"✅ Assigned as EMISSION (largest): {vf.name}")
+                        logger.info(f"✅ [M2] Assigned as EMISSION (largest): {vf.name}")
                         break
 
-        # Metoda 3: Ostatnia szansa - po nazwie alfabetycznie
+        # ─────────────────────────────────────────────
+        # Metoda 3: Alfabetyczna — ostatnia szansa
+        # ─────────────────────────────────────────────
         if not acceptance_file or not emission_file:
             logger.info("⚠️ Still missing files, using alphabetical order...")
-
             video_files_sorted = sorted(video_files, key=lambda x: x.name.lower())
 
             if not acceptance_file and len(video_files_sorted) > 0:
                 acceptance_file = str(video_files_sorted[0])
                 logger.info(
-                    f"✅ Assigned as ACCEPTANCE (alphabetically first): {video_files_sorted[0].name}"
+                    f"✅ [M3] Assigned as ACCEPTANCE (alphabetically first): {video_files_sorted[0].name}"
                 )
 
             if not emission_file and len(video_files_sorted) > 1:
@@ -648,11 +671,12 @@ class WebSocketServer:
                     if str(vf) != acceptance_file:
                         emission_file = str(vf)
                         logger.info(
-                            f"✅ Assigned as EMISSION (alphabetically second): {vf.name}"
+                            f"✅ [M3] Assigned as EMISSION (alphabetically second): {vf.name}"
                         )
                         break
 
         return acceptance_file, emission_file
+
 
     async def handle_task_scan_request(self, websocket, data):
         """Handle task scanning requests"""
