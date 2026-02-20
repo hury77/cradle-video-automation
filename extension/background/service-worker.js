@@ -16,64 +16,23 @@ async function handleDownload(request, sendResponse) {
     
     console.log(`🔽 Starting Chrome download: ${filename}`);
     console.log(`   URL: ${url}`);
-    console.log(`   Type: ${type}`);
     
-    // Use Chrome Downloads API with cookies
+    // Use Chrome Downloads API — respond immediately on start, not on completion.
+    // Waiting for completion caused message channel timeouts for large video files.
     const downloadId = await chrome.downloads.download({
       url: url,
       filename: filename,
-      saveAs: false, // Don't show save dialog
+      saveAs: false,
       conflictAction: 'overwrite'
     });
     
     console.log(`✅ Chrome download started: ID ${downloadId}`);
-    
-    // Listen for download completion
-    const downloadListener = (downloadDelta) => {
-      if (downloadDelta.id === downloadId && downloadDelta.state) {
-        if (downloadDelta.state.current === 'complete') {
-          console.log(`✅ Download completed: ${filename}`);
-          chrome.downloads.onChanged.removeListener(downloadListener);
-          sendResponse({ 
-            success: true, 
-            downloadId: downloadId,
-            filename: filename,
-            type: type 
-          });
-        } else if (downloadDelta.state.current === 'interrupted') {
-          console.error(`❌ Download failed: ${filename}`);
-          chrome.downloads.onChanged.removeListener(downloadListener);
-          sendResponse({ 
-            success: false, 
-            error: 'Download interrupted',
-            filename: filename,
-            type: type 
-          });
-        }
-      }
-    };
-    
-    chrome.downloads.onChanged.addListener(downloadListener);
-    
-    // Timeout after 2 minutes
-    setTimeout(() => {
-      chrome.downloads.onChanged.removeListener(downloadListener);
-      sendResponse({ 
-        success: false, 
-        error: 'Download timeout',
-        filename: filename,
-        type: type 
-      });
-    }, 120000);
+    // Respond immediately — content script doesn't need to wait for completion
+    sendResponse({ success: true, downloadId, filename, type });
     
   } catch (error) {
-    console.error("❌ Download error:", error);
-    sendResponse({ 
-      success: false, 
-      error: error.message,
-      filename: request.filename,
-      type: request.type 
-    });
+    console.error("❌ Download error:", error.message);
+    sendResponse({ success: false, error: error.message, filename: request.filename, type: request.type });
   }
 }
 
