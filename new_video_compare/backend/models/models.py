@@ -74,6 +74,7 @@ class SensitivityLevel(enum.Enum):
     LOW = "low"      # High tolerance - quick check, SSIM >= 0.85
     MEDIUM = "medium"  # Recommended - SSIM >= 0.92
     HIGH = "high"    # Critical QA - SSIM >= 0.98
+    AUTOMATION = "automation" # Strict thresholds, Demucs+Whisper
 
 
 class DifferenceType(enum.Enum):

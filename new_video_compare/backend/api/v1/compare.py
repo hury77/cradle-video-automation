@@ -645,6 +645,7 @@ async def reanalyze_job(
         "low": SensitivityLevel.LOW,
         "medium": SensitivityLevel.MEDIUM,
         "high": SensitivityLevel.HIGH,
+        "automation": SensitivityLevel.AUTOMATION,
     }
     new_sensitivity = sensitivity_map.get(sensitivity_level.lower())
     if not new_sensitivity:
