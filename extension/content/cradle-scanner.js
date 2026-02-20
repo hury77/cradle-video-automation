@@ -1039,14 +1039,18 @@ class CradleScanner {
   extractEmissionFromRow(row, fileInfo, rowIndex) {
       if (fileInfo.emissionFile) return; // Already found
 
+      console.log(`[CradleScanner] 🔍 extractEmissionFromRow called for row ${rowIndex}`);
       const cells = row.querySelectorAll("td");
       for (const cell of cells) {
           if (fileInfo.emissionFile) return; // Already found, stop scanning
 
           const text = cell.textContent.trim();
+
+          // Debug: log all href links in cell
+          const allLinks = [...cell.querySelectorAll('a[href]')].map(a => a.getAttribute('href'));
+          if (allLinks.length) console.log(`[CradleScanner] 🔗 Row ${rowIndex} cell links:`, allLinks);
           
           // A. Network Paths
-          // Check text content AND <a> tags for /Volumes/ and lucid://
           const lucidLinkEl = cell.querySelector('a[href^="lucid://"]');
           const hasNetworkContent = text.includes("/Volumes/") || text.includes("lucid://") || text.includes("\\\\") || lucidLinkEl;
 
@@ -1102,7 +1106,10 @@ class CradleScanner {
           
           if (link && link.href) {
                // Skip nc-download links (they are API endpoints, not direct files)
-               if (link.href.includes("nc-download")) continue;
+               if (link.href.includes("nc-download")) {
+                   console.log(`[CradleScanner] ⛔ Skipping nc-download in emission row ${rowIndex}: ${link.href}`);
+                   continue;
+               }
                
                const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
 
