@@ -1095,16 +1095,27 @@ class CradleScanner {
               }
           }
 
-          // B. Attachments - prefer direct /media/ URLs, skip nc-download
+          // B. Attachments - prefer direct /media/ URLs, also handle fa-file icon links
           const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
-                       cell.querySelector('a[href*="/media/cradle/"]');
+                       cell.querySelector('a[href*="/media/cradle/"]') ||
+                       cell.querySelector("a i.fa-file")?.parentElement;
           
           if (link && link.href) {
                // Skip nc-download links (they are API endpoints, not direct files)
                if (link.href.includes("nc-download")) continue;
                
                const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
-               const filename = fullUrl.replace(/\/+$/, '').split("/").pop(); // Clean trailing slash
+
+               // Try to get filename from text content (same logic as extractAcceptanceFromRow)
+               const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
+               let filename = cleanUrl.split("/").pop();
+               const textContent = link.parentElement?.textContent?.trim();
+               if (textContent && textContent.includes(".")) {
+                   filename = textContent;
+               }
+               if (!filename || filename.length < 3) {
+                   filename = "emission.mp4";
+               }
                
                // Only accept video files and ZIPs
                const validExts = [".mp4", ".mov", ".mxf", ".zip"];
@@ -1123,6 +1134,7 @@ class CradleScanner {
                console.log(`[CradleScanner] ✅ Found Attachment Emission: ${fileInfo.emissionFile.name}`);
                return; // Stop after first valid match
           }
+
       }
   }
 
