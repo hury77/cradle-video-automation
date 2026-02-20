@@ -393,17 +393,20 @@ class VideoProcessor:
                 frame_similarities.append(similarity)
 
                 # Get config options
-                diff_threshold = self.current_job.processing_config.get("similarity_threshold", 0.95)
+                pixel_diff_tolerance = self.current_job.processing_config.get("pixel_diff_tolerance", 0.05)
+                ssim_min = self.current_job.processing_config.get("ssim_min", 0.92)
                 frame_rate = self.current_job.processing_config.get("analysis_fps", 1.0)
+                # pixel_diff_tolerance → pixel threshold: e.g. 0.03 → 8/255 ≈ 3% of max value
+                pixel_threshold = max(1, int(pixel_diff_tolerance * 255))
 
-                # Check if frame has significant difference  
-                if similarity < diff_threshold:
+                # Check if frame has significant difference
+                if similarity < ssim_min:
                     frames_with_differences += 1
                     timestamp = float(i) / float(frame_rate)
                     difference_timestamps.append(timestamp)
 
                     logger.debug(
-                        f"Frame {i}: similarity={similarity:.3f}, diff at {timestamp}s. Saved heatmap overlay."
+                        f"Frame {i}: similarity={similarity:.3f} < ssim_min={ssim_min:.3f}, diff at {timestamp}s"
                     )
 
                     # START HEATMAP GENERATION (ENABLED)
@@ -414,8 +417,8 @@ class VideoProcessor:
                     # Convert to grayscale to get intensity
                     diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
                     
-                    # Threshold to remove noise (optional, but cleaner)
-                    _, diff_thresh = cv2.threshold(diff_gray, 30, 255, cv2.THRESH_BINARY)
+                    # Threshold to remove noise: use pixel_diff_tolerance as per-pixel threshold
+                    _, diff_thresh = cv2.threshold(diff_gray, pixel_threshold, 255, cv2.THRESH_BINARY)
                     
                     # Create Heatmap Overlay (Pure Mask)
                     # 1. Start with a black image (same size as original)

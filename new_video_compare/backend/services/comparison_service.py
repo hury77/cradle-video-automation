@@ -189,9 +189,14 @@ class ComparisonService:
             
             sensitivity_config = get_sensitivity_config(sensitivity)
 
+            # Merge sensitivity thresholds into processing_config so video_processor can use them
+            processing_config["pixel_diff_tolerance"] = sensitivity_config.get("pixel_diff_tolerance", 0.05)
+            processing_config["ssim_min"] = sensitivity_config.get("ssim_min", 0.92)
+            logger.info(f"⚙️ Sensitivity '{sensitivity}': pixel_diff_tolerance={processing_config['pixel_diff_tolerance']:.0%}, ssim_min={processing_config['ssim_min']}")
+
             # Process based on comparison type
             logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
-            
+
 
 
             # Process based on comparison type
@@ -215,6 +220,7 @@ class ComparisonService:
                 except Exception as e:
                     logger.error(f"❌ CRITICAL ERROR in process_comparison: {e}", exc_info=True)
                     results["video_result"] = None
+
                 
                 job.progress = 50.0
                 db.commit()
