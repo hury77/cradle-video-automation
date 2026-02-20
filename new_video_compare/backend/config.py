@@ -177,12 +177,12 @@ SENSITIVITY_THRESHOLDS = {
         "description": "Critical QA, near-perfect match required"
     },
     "automation": {
-        "ssim_min": 0.94,           # Same as HIGH — tolerates mp4/mov codec differences
-        "pixel_diff_tolerance": 0.03,  # 3% tolerance (tolerates mp4/mov encoding artifacts)
+        "ssim_min": 0.98,           # Strict comparison for automation
+        "pixel_diff_tolerance": 0.01,  # 1% tolerance
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation
         "enable_whisper": True,        # Whisper transcription for VO comparison
-        "description": "Autonomous agent mode: Video HIGH + Full Audio (Demucs+Whisper), sequential with memory cleanup"
+        "description": "Autonomous agent mode: Restrictive Video + Full Audio (Demucs+Whisper), sequential with memory cleanup"
     }
 }
 
