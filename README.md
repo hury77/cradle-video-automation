@@ -18,6 +18,33 @@ Browser extension for automating Cradle video comparison workflow
 ### Development Mode (Chrome/Edge)
 
 1. **Clone the repository:**
-   ```bash
    git clone https://github.com/hury77/cradle-video-automation.git
    cd cradle-video-automation
+   ```
+
+## 🖥️ Uruchamianie środowiska lokalnego
+
+Aby autodetekcja i porównywanie wideo zadziałało, musisz odpalić lokalne serwisy w 3 osobnych oknach terminala:
+
+### 1. Uruchamianie Backendu (FastAPI)
+W pierwszym oknie terminala:
+```bash
+cd ~/Documents/cradle-video-automation/new_video_compare/backend
+source ../../.venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+### 2. Uruchamianie Frontendu (React)
+W drugim oknie terminala:
+```bash
+cd ~/Documents/cradle-video-automation/new_video_compare/frontend
+npm start
+```
+
+### 3. Uruchamianie Desktop App (WebSocket + Obsługa Plików Lokalnych)
+W trzecim oknie terminala:
+```bash
+cd ~/Documents/cradle-video-automation/desktop-app
+source ../.venv/bin/activate
+python src/main.py
+```
