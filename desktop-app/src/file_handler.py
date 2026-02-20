@@ -428,12 +428,17 @@ class FileHandler:
         Handle emission files accessible via LucidLink filespace.
 
         Strategy:
-          1. Base path: /Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS/
+          1. Base paths to check:
+             - /Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS
+             - /Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS
           2. Find campaign folder whose name starts with job_number (| → _)
           3. Search within that campaign folder for files by Template ID
         """
         try:
-            LUCID_CAMPAIGNS_BASE = Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS")
+            LUCID_BASES = [
+                Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS"),
+                Path("/Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS")
+            ]
             VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"}
 
             job_number_raw = file_info.get("jobNumber") or ""
@@ -443,34 +448,44 @@ class FileHandler:
             job_prefix = job_number_raw.replace("|", "_").strip()
 
             self.logger.info(f"🔗 Lucid emission lookup — jobPrefix: '{job_prefix}', templateId: '{template_id}'")
-            self.logger.info(f"📂 Base path: {LUCID_CAMPAIGNS_BASE}")
-
-            # Step 1: Verify base path is mounted
-            if not LUCID_CAMPAIGNS_BASE.exists():
-                error = f"Lucid volume not mounted or path not found: {LUCID_CAMPAIGNS_BASE}"
+            
+            # Step 1: Verify base paths are mounted
+            mounted_bases = [base for base in LUCID_BASES if base.exists()]
+            if not mounted_bases:
+                error = f"No Lucid volumes mounted. Checked: {[str(b) for b in LUCID_BASES]}"
                 self.logger.error(f"❌ {error}")
                 return {"success": False, "error": error}
+            
+            self.logger.info(f"📂 Mounted base paths: {[str(b) for b in mounted_bases]}")
 
             # Step 2: Find campaign folder by job number prefix
             campaign_folder = None
             if job_prefix:
-                for folder in LUCID_CAMPAIGNS_BASE.iterdir():
-                    if folder.is_dir() and folder.name.startswith(job_prefix):
-                        campaign_folder = folder
-                        self.logger.info(f"✅ Found campaign folder: {folder.name}")
+                for base_path in mounted_bases:
+                    self.logger.info(f"🔍 Checking base path for job prefix '{job_prefix}': {base_path.name}")
+                    for folder in base_path.iterdir():
+                        if folder.is_dir() and folder.name.startswith(job_prefix):
+                            campaign_folder = folder
+                            self.logger.info(f"✅ Found campaign folder: {folder.name} in {base_path.parent.parent.name}")
+                            break
+                    if campaign_folder:
                         break
 
-            if not campaign_folder:
+            # Define search targets (either the specific campaign folder, or ALL mounted bases if fallback)
+            search_targets = []
+            if campaign_folder:
+                search_targets = [campaign_folder]
+            else:
                 # Fallback: search by template_id across all campaigns (slower but safe)
                 if template_id:
-                    self.logger.warning(f"⚠️ Job prefix '{job_prefix}' not found. Falling back to Template ID search across campaigns.")
-                    campaign_folder = LUCID_CAMPAIGNS_BASE
+                    self.logger.warning(f"⚠️ Job prefix '{job_prefix}' not found. Falling back to Template ID search across all mounted campaigns.")
+                    search_targets = mounted_bases
                 else:
                     error = f"Campaign folder not found for job prefix '{job_prefix}' and no Template ID provided."
                     self.logger.error(f"❌ {error}")
                     return {"success": False, "error": error}
 
-            # Step 3: Search for video file by Template ID (+ Lang code) inside campaign folder
+            # Step 3: Search for video file by Template ID (+ Lang code) inside targets
             template_id = file_info.get("templateId") or ""
             lang_code = file_info.get("langCode") or ""  # e.g. "IT", "FR", "DE"
             found_file = None
@@ -492,24 +507,27 @@ class FileHandler:
             else:
                 search_patterns = [f"*{cradle_id}*"]
 
-            for pattern in search_patterns:
-                self.logger.info(f"🔍 Searching in {campaign_folder.name} with pattern: {pattern}")
-                for match in campaign_folder.rglob(pattern):
-                    if match.is_file() and match.suffix.lower() in VIDEO_EXTENSIONS:
-                        found_file = match
-                        self.logger.info(f"✅ Found Lucid emission file: {match.name}")
+            for target_folder in search_targets:
+                for pattern in search_patterns:
+                    self.logger.info(f"🔍 Searching in {target_folder.name} with pattern: {pattern}")
+                    for match in target_folder.rglob(pattern):
+                        if match.is_file() and match.suffix.lower() in VIDEO_EXTENSIONS:
+                            found_file = match
+                            self.logger.info(f"✅ Found Lucid emission file: {match.name}")
+                            break
+                    if found_file:
                         break
                 if found_file:
                     break
 
-
             if not found_file:
-                error = f"No video file found for templateId='{template_id}' in '{campaign_folder}'"
+                error = f"No video file found for templateId='{template_id}' in any matching campaign folder"
                 self.logger.error(f"❌ {error}")
                 # Log first few items for debugging
                 try:
-                    items = [f.name for f in campaign_folder.iterdir() if not f.name.startswith(".")][:10]
-                    self.logger.info(f"📂 Folder contents (first 10): {items}")
+                    if search_targets:
+                        items = [f.name for f in search_targets[0].iterdir() if not f.name.startswith(".")][:10]
+                        self.logger.info(f"📂 Folder contents of {search_targets[0].name} (first 10): {items}")
                 except Exception:
                     pass
                 return {"success": False, "error": error}
