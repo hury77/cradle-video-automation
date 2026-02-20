@@ -170,14 +170,14 @@ SENSITIVITY_THRESHOLDS = {
         "description": "Recommended balance of speed and accuracy"
     },
     "high": {
-        "ssim_min": 0.98,           # Strict threshold
+        "ssim_min": 0.94,           # Strict but tolerates mp4/mov codec differences
         "pixel_diff_tolerance": 0.03,  # 3% different pixels allowed (tolerates mp4/mov encoding artifacts)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation + voiceover comparison
         "description": "Critical QA, near-perfect match required"
     },
     "automation": {
-        "ssim_min": 0.98,           # Same as HIGH for video
+        "ssim_min": 0.94,           # Same as HIGH — tolerates mp4/mov codec differences
         "pixel_diff_tolerance": 0.03,  # 3% tolerance (tolerates mp4/mov encoding artifacts)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation
