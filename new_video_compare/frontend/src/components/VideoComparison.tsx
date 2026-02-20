@@ -527,15 +527,20 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
   const getOverallStatus = (similarity: number) => {
     if (similarity >= 0.95)
-      return { label: "Excellent Match", color: "text-green-600", bg: "bg-green-100" };
+      return { label: "Excellent Match", color: "text-green-600", bg: "bg-green-100", animate: false };
     if (similarity >= 0.9)
-      return { label: "Good Match", color: "text-blue-600", bg: "bg-blue-100" };
+      return { label: "Good Match", color: "text-blue-600", bg: "bg-blue-100", animate: false };
     if (similarity >= 0.8)
-      return { label: "Fair Match", color: "text-yellow-600", bg: "bg-yellow-100" };
+      return { label: "Fair Match", color: "text-yellow-600", bg: "bg-yellow-100", animate: false };
     if (similarity > 0)
-      return { label: "Poor Match", color: "text-red-600", bg: "bg-red-100" };
-    return { label: "Processing...", color: "text-gray-600", bg: "bg-gray-100" };
+      return { label: "Poor Match", color: "text-red-600", bg: "bg-red-100", animate: false };
+    // similarity === 0: check job.status to distinguish "still running" vs "completed with no score"
+    if (job.status === "completed")
+      return { label: "Completed", color: "text-green-700", bg: "bg-green-100", animate: false };
+    return { label: "Processing...", color: "text-gray-600", bg: "bg-gray-100", animate: true };
   };
+
+
 
   const status = getOverallStatus(overallScore);
 
@@ -561,9 +566,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               <div
                 className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${status.bg} ${status.color}`}
               >
-                <div className="w-2 h-2 bg-current rounded-full mr-2"></div>
+                <div className={`w-2 h-2 bg-current rounded-full mr-2 ${status.animate ? "animate-pulse" : ""}`}></div>
                 {status.label}
               </div>
+
 
               <button
                 onClick={() => setShowResults(!showResults)}
