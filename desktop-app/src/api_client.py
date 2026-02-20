@@ -100,7 +100,7 @@ class APIClient:
                 "acceptance_file_id": acceptance_id,
                 "emission_file_id": emission_id,
                 "comparison_type": comparison_type,
-                "sensitivity_level": "high",  # AUTOMATION requires High-level thresholds (5 FPS, threshold 0.99)
+                "sensitivity_level": "automation" if comparison_type == "automation" else "high",
                 "processing_config": {}
             }
             
