@@ -171,14 +171,14 @@ SENSITIVITY_THRESHOLDS = {
     },
     "high": {
         "ssim_min": 0.98,           # Strict threshold
-        "pixel_diff_tolerance": 0.01,  # 1% different pixels allowed  
+        "pixel_diff_tolerance": 0.03,  # 3% different pixels allowed (tolerates mp4/mov encoding artifacts)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation + voiceover comparison
         "description": "Critical QA, near-perfect match required"
     },
     "automation": {
         "ssim_min": 0.98,           # Same as HIGH for video
-        "pixel_diff_tolerance": 0.01,  # 1% tolerance
+        "pixel_diff_tolerance": 0.03,  # 3% tolerance (tolerates mp4/mov encoding artifacts)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation
         "enable_whisper": True,        # Whisper transcription for VO comparison
