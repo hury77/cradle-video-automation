@@ -54,21 +54,24 @@ class FileHandler:
             cradle_folder = self.download_base_path / cradle_id
             cradle_folder.mkdir(parents=True, exist_ok=True)
 
-            # ✅ Wyczyść tylko pliki _emis z poprzedniej sesji
-            # NIE kasujemy wszystkich plików — acceptance może aktywnie pobierać się przez Chrome
+            # ✅ Wyczyść tylko pliki _emis gdy pobieramy NOWY plik emisji z sieci/Lucid.
+            # NIE kasujemy gdy emisja to attachment (Chrome API już pobrał plik _emis).
             VIDEO_EXTS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv",
                           ".MP4", ".MOV", ".MXF", ".PRORES", ".AVI", ".MKV"}
-            removed = []
-            for existing in cradle_folder.iterdir():
-                name_lower = existing.name.lower()
-                is_emis = "_emis." in name_lower or name_lower.endswith("_emis")
-                if existing.is_file() and is_emis and existing.suffix in VIDEO_EXTS:
-                    existing.unlink()
-                    removed.append(existing.name)
-            if removed:
-                self.logger.info(f"🧹 Cleared {len(removed)} old _emis file(s) from {cradle_id}/: {removed}")
+            is_network_emission = emission_file and isinstance(emission_file, dict) and emission_file.get("type") == "network_path"
+            if is_network_emission:
+                removed = []
+                for existing in cradle_folder.iterdir():
+                    name_lower = existing.name.lower()
+                    is_emis = "_emis." in name_lower or name_lower.endswith("_emis")
+                    if existing.is_file() and is_emis and existing.suffix in VIDEO_EXTS:
+                        existing.unlink()
+                        removed.append(existing.name)
+                if removed:
+                    self.logger.info(f"🧹 Cleared {len(removed)} old _emis file(s) from {cradle_id}/: {removed}")
             else:
-                self.logger.info(f"🧹 No old _emis files to clean in {cradle_id}/")
+                self.logger.info(f"🧹 Skipping _emis cleanup — emission is attachment type (Chrome API)")
+
 
             self.logger.info(f"📂 Created/verified folder: {cradle_folder}")
 
