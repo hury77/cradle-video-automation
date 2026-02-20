@@ -1005,33 +1005,37 @@ class CradleScanner {
 
         const firstCellText = cells[0].textContent.toLowerCase().trim();
 
-        // 1. EMISSION / ACCEPTANCE — Final / Broadcast rows
-        // If the row has Action=accept, the file is the acceptance (PA); otherwise emission.
-        if (firstCellText.includes("final file preparation") || firstCellText.includes("broadcast file preparation")) {
-            const firstCellHTML = cells[0] ? cells[0].innerHTML.toLowerCase() : "";
-            const hasAcceptAction = firstCellHTML.includes("action") && firstCellHTML.includes("accept");
-            if (hasAcceptAction && !fileInfo.acceptanceFile) {
-                console.log(`[CradleScanner] 🔄 Row ${i}: 'final file preparation' + Action=accept → treating as ACCEPTANCE`);
-                this.extractAcceptanceFromRow(row, fileInfo, i);
-            } else {
-                this.extractEmissionFromRow(row, fileInfo, i);
-            }
+        // 1. EMISSION — Broadcast & Final file preparation = delivery/emission files
+        if (firstCellText.includes("broadcast file preparation")) {
+            console.log(`[CradleScanner] 📡 Row ${i}: 'broadcast file preparation' → EMISSION`);
+            this.extractEmissionFromRow(row, fileInfo, i);
         }
 
-        // 2. ACCEPTANCE — Primary: video preparation (the actual file being QA'd)
+        else if (firstCellText.includes("final file preparation")) {
+            console.log(`[CradleScanner] 📡 Row ${i}: 'final file preparation' → EMISSION`);
+            this.extractEmissionFromRow(row, fileInfo, i);
+        }
+
+        // 2. ACCEPTANCE — video preparation (primary)
         else if (firstCellText.includes("video preparation")) {
             this.extractAcceptanceFromRow(row, fileInfo, i);
         }
 
-        // 3. ACCEPTANCE — Secondary: file preparation (NOT final/broadcast)
+        // 3. ACCEPTANCE — pm approval (above qa proofreading)
+        else if (firstCellText.includes("pm approval") && !fileInfo.acceptanceFile) {
+            this.extractAcceptanceFromRow(row, fileInfo, i);
+        }
+
+        // 4. ACCEPTANCE — generic file preparation (NOT final/broadcast — excluded above)
         else if (firstCellText.includes("file preparation")) {
             this.extractAcceptanceFromRow(row, fileInfo, i);
         }
 
-        // 4. ACCEPTANCE — Fallback: QA Proofreading (Only if no acceptance found yet)
+        // 5. ACCEPTANCE — QA Proofreading fallback
         else if (firstCellText.includes("qa proofreading") && !fileInfo.acceptanceFile) {
              this.extractAcceptanceFromRow(row, fileInfo, i);
         }
+
     }
     return fileInfo;
   }
