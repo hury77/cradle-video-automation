@@ -590,15 +590,18 @@ async def stream_video(
                  if relative_backend_upload.exists():
                      file_path = relative_backend_upload
 
-    if not file_path.exists():
-        logger.error(f"❌ File not found on disk: {file_path_str}")
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    # Instead of raising 404 immediately, we handle checking in the proxy section
     
     # Check if transcoding is needed
     if needs_transcoding_flag:
+        # Original file_path might not exist, but we still construct proxy path from it
         proxy_path = get_proxy_path(file_path)
         
         if not proxy_path.exists():
+            if not file_path.exists():
+                logger.error(f"❌ Original and proxy file not found on disk: {file_path_str}")
+                raise HTTPException(status_code=404, detail="File not found on disk")
+                
             # Transcode asynchronously in thread pool to avoid blocking event loop
             success = await run_in_threadpool(transcode_to_mp4, file_path, proxy_path)
             if not success:
@@ -611,6 +614,10 @@ async def stream_video(
         file_path = proxy_path
         content_type = "video/mp4"
     else:
+        if not file_path.exists():
+            logger.error(f"❌ File not found on disk: {file_path_str}")
+            raise HTTPException(status_code=404, detail="File not found on disk")
+            
         # Use original file
         content_type_map = {
             "mp4": "video/mp4",
