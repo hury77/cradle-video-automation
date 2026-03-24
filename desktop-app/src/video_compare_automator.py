@@ -34,9 +34,15 @@ class VideoCompareAutomator:
             
             self.playwright = await async_playwright().start()
             
-            # Uruchom Chrome z odpowiednimi opcjami
-            self.browser = await self.playwright.chromium.launch(
+            user_data_dir = os.path.join(os.path.expanduser('~'), '.cradle_playwright_data')
+            os.makedirs(user_data_dir, exist_ok=True)
+            
+            # Utwórz nieniszczalny kontekst (pamięta zalogowanie)
+            self.context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
                 headless=headless,
+                viewport={'width': 1920, 'height': 1080},
+                accept_downloads=True,
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -47,15 +53,10 @@ class VideoCompareAutomator:
                 ]
             )
             
-            # Utwórz nowy kontekst z obsługą plików
-            self.context = await self.browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                accept_downloads=True
-            )
+            self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            self.browser = self.context # Dla kompatybilności z self.browser.close()
             
-            self.page = await self.context.new_page()
-            
-            self.logger.info("Pomyślnie uruchomiono przeglądarkę z Playwright")
+            self.logger.info("Pomyślnie uruchomiono przeglądarkę z Playwright (Persistent)")
             return True
             
         except Exception as e:
@@ -124,29 +125,39 @@ class VideoCompareAutomator:
             await asyncio.sleep(3)
             
             # KROK 1: Znajdź obszary upload przez tekst "Drop files here"
-            drop_zones = await self.page.evaluate('''() => {
-                // Szukamy wszystkich elementów z tekstem "Drop files here"
-                const elements = Array.from(document.querySelectorAll('*'));
-                const dropZones = elements.filter(el => 
-                    el.textContent && 
-                    el.textContent.includes('Drop files here or click to upload') &&
-                    el.offsetWidth > 100 && 
-                    el.offsetHeight > 100
-                );
+            self.logger.info("Szukam obszarów drag-and-drop. Jeśli widać logowanie Cradle, zaloguj się!")
+            drop_zones = None
+            for wait_attempt in range(30):
+                drop_zones = await self.page.evaluate('''() => {
+                    // Szukamy wszystkich elementów z tekstem "Drop files here"
+                    const elements = Array.from(document.querySelectorAll('*'));
+                    const dropZones = elements.filter(el => 
+                        el.textContent && 
+                        el.textContent.includes('Drop files here or click to upload') &&
+                        el.offsetWidth > 100 && 
+                        el.offsetHeight > 100
+                    );
+                    
+                    if (dropZones.length < 2) return null;
+                    
+                    return dropZones.map(zone => ({
+                        left: zone.getBoundingClientRect().left,
+                        top: zone.getBoundingClientRect().top,
+                        width: zone.getBoundingClientRect().width,
+                        height: zone.getBoundingClientRect().height,
+                        centerX: zone.getBoundingClientRect().left + zone.getBoundingClientRect().width / 2,
+                        centerY: zone.getBoundingClientRect().top + zone.getBoundingClientRect().height / 2
+                    }));
+                }''')
                 
-                return dropZones.map(zone => ({
-                    left: zone.getBoundingClientRect().left,
-                    top: zone.getBoundingClientRect().top,
-                    width: zone.getBoundingClientRect().width,
-                    height: zone.getBoundingClientRect().height,
-                    centerX: zone.getBoundingClientRect().left + zone.getBoundingClientRect().width / 2,
-                    centerY: zone.getBoundingClientRect().top + zone.getBoundingClientRect().height / 2
-                }));
-            }''')
+                if drop_zones:
+                    break
+                
+                await asyncio.sleep(2)
             
             if not drop_zones or len(drop_zones) < 2:
-                self.logger.error(f"Nie znaleziono 2 obszarów upload. Znaleziono: {len(drop_zones) if drop_zones else 0}")
-                return {'success': False, 'error': f'Expected 2 upload zones, found {len(drop_zones) if drop_zones else 0}'}
+                self.logger.error(f"Nie znaleziono 2 obszarów upload po 60 sekundach. Prawdopodobnie utknęliśmy na logowaniu.")
+                return {'success': False, 'error': f'Drop zones not found! Are you stuck on login?'}
                 
             self.logger.info(f"Znaleziono {len(drop_zones)} obszarów upload")
             
@@ -473,7 +484,7 @@ class VideoCompareAutomator:
                 await self.page.close()
             if self.context:
                 await self.context.close()
-            if self.browser:
+            if getattr(self, "browser", None) and self.browser != self.context:
                 await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()

@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import Dict, Any
 
 from models.database import get_db
-from models.models import ComparisonJob, File, JobStatus
+from models.models import ComparisonJob, File, JobStatus, AutomationLog
+from pydantic import BaseModel
+from typing import Optional, List
+
+class AutomationLogCreate(BaseModel):
+    cradle_id: Optional[str] = None
+    component: str
+    action: str
+    message: str
+    is_error: bool = True
+    details: Optional[Dict[str, Any]] = None
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -119,6 +129,26 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
             total_size_bytes = get_dir_size(str(upload_dir))
         except: pass
         
+    # 5. Recent Logs (Last 10)
+    recent_logs = (
+        db.query(AutomationLog)
+        .order_by(AutomationLog.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    logs_data = [
+        {
+            "id": log.id,
+            "cradle_id": log.cradle_id,
+            "component": log.component,
+            "action": log.action,
+            "message": log.message,
+            "is_error": log.is_error,
+            "created_at": log.created_at.isoformat() if log.created_at else None
+        }
+        for log in recent_logs
+    ]
+        
     return {
         "kpi": {
             "total_jobs": total_jobs,
@@ -137,7 +167,8 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
         "storage": {
             "total_size_gb": round(total_size_bytes / (1024**3), 2),
             "file_count": len(files)
-        }
+        },
+        "recent_logs": logs_data
     }
 
 @router.delete("/cleanup")
@@ -279,5 +310,77 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
         "deleted_jobs": deleted_count,
         "orphan_files_cleaned": orphan_count,
         "freed_space_mb": round(freed_space_bytes / (1024 * 1024), 2)
+    }
+
+@router.post("/logs")
+async def create_automation_log(log: AutomationLogCreate, db: Session = Depends(get_db)):
+    """Create a new automation log entry"""
+    new_log = AutomationLog(
+        cradle_id=log.cradle_id,
+        component=log.component,
+        action=log.action,
+        message=log.message,
+        is_error=log.is_error,
+        details=log.details
+    )
+    db.add(new_log)
+    db.commit()
+    db.refresh(new_log)
+    return {"success": True, "log_id": new_log.id}
+
+
+@router.get("/knowledge-base")
+async def get_knowledge_base(
+    client_name: Optional[str] = None,
+    verdict: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Get QA decisions for the Knowledge Base, with optional filtering."""
+    from models.models import QADecision
+
+    query = db.query(QADecision)
+    if client_name:
+        query = query.filter(QADecision.client_name.ilike(f"%{client_name}%"))
+    if verdict:
+        from models.models import DecisionVerdict
+        try:
+            query = query.filter(QADecision.verdict == DecisionVerdict(verdict))
+        except ValueError:
+            pass
+
+    total = query.count()
+    decisions = query.order_by(QADecision.created_at.desc()).offset(skip).limit(limit).all()
+
+    # Enrich with job name
+    results = []
+    for d in decisions:
+        job = db.query(ComparisonJob).filter(ComparisonJob.id == d.job_id).first()
+        results.append({
+            "id": d.id,
+            "job_id": d.job_id,
+            "job_name": job.job_name if job else None,
+            "verdict": d.verdict.value,
+            "reasoning": d.reasoning,
+            "client_name": d.client_name,
+            "cradle_id": d.cradle_id,
+            "decided_by": d.decided_by,
+            "metrics_snapshot": d.metrics_snapshot,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        })
+
+    # Unique clients for filter dropdown
+    all_clients = [
+        row[0] for row in db.query(QADecision.client_name)
+        .distinct()
+        .filter(QADecision.client_name.isnot(None))
+        .all()
+    ]
+
+    return {
+        "total": total,
+        "results": results,
+        "clients": sorted(all_clients),
     }
 

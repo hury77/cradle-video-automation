@@ -155,13 +155,9 @@ class PopupController {
     this.isRunning = running;
 
     if (running) {
-      this.startBtn.style.display = "none";
-      this.stopBtn.style.display = "block";
       this.statusDiv.textContent = "🔄 Running...";
       this.statusDiv.className = "status running";
     } else {
-      this.startBtn.style.display = "block";
-      this.stopBtn.style.display = "none";
       this.statusDiv.textContent = "⏹️ Stopped";
       this.statusDiv.className = "status stopped";
     }

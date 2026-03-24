@@ -13,6 +13,7 @@ import {
   DocumentChartBarIcon,
 } from "@heroicons/react/24/outline";
 import DifferenceInspector from "./DifferenceInspector";
+import QAVerdictPanel from "./QAVerdictPanel";
 
 interface VideoComparisonProps {
   job: ComparisonJob;
@@ -228,7 +229,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               ws.on('error', (err: any) => {
                   console.error(`${label} WaveSurfer Error:`, err);
                   if (err.toString().includes('AbortError')) return;
-                  setError(err.toString());
+                  if (err.toString().includes('Unable to decode')) {
+                      setError("Brak ścieżki audio");
+                  } else {
+                      setError(err.toString());
+                  }
               });
               
               // Pre-fetch audio as blob to bypass internal fetch issues
@@ -249,7 +254,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
               return ws;
           } catch (e: any) {
               console.error(`${label} WaveSurfer Init Error:`, e);
-              setError(e.message || "Init Error");
+              if (e.message && e.message.includes('Unable to decode')) {
+                  setError("Brak ścieżki audio");
+              } else {
+                  setError(e.message || "Init Error");
+              }
               return null;
           }
       };
@@ -1249,8 +1258,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Acceptance Audio</span>
                               {waveformError && (
-                                <span className="text-xs text-red-500 font-bold bg-white px-2 rounded border border-red-200">
-                                  Error: {waveformError}
+                                <span className={`text-xs font-bold px-2 rounded border ${waveformError === 'Brak ścieżki audio' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                  {waveformError === 'Brak ścieżki audio' ? waveformError : `Error: ${waveformError}`}
                                 </span>
                               )}
                             </div>
@@ -1266,8 +1275,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Emission Audio</span>
                               {emissionWaveformError && (
-                                <span className="text-xs text-red-500 font-bold bg-white px-2 rounded border border-red-200">
-                                  Error: {emissionWaveformError}
+                                <span className={`text-xs font-bold px-2 rounded border ${emissionWaveformError === 'Brak ścieżki audio' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                  {emissionWaveformError === 'Brak ścieżki audio' ? emissionWaveformError : `Error: ${emissionWaveformError}`}
                                 </span>
                               )}
                             </div>
@@ -1436,6 +1445,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
       </div>
 
       {/* Frame Comparison Modal (REMOVED: Replaced by DifferenceInspector) */}
+
+      {/* ======================== QA VERDICT PANEL ======================== */}
+      {job.status === "completed" && (
+        <QAVerdictPanel jobId={job.id} clientName={(job as any).client_name || ""} />
+      )}
     </div>
   );
 };

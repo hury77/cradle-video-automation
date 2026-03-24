@@ -304,7 +304,8 @@ class ComparisonService:
                             acceptance_path,
                             emission_path,
                             use_separated_vocals=True,
-                            filter_song=should_filter_song
+                            filter_song=should_filter_song,
+                            audio_similarity_score=audio_result.get("similarity_score")
                         )
                         
                         # Extract pipeline info (source separation stats)

@@ -524,11 +524,13 @@ class WebSocketServer:
                  raise Exception(f"Emission upload failed: {emi_result}")
 
             # 3. Create Job
+            client_name = data.get("clientName") or data.get("client_name")
             job_result = await self.api_client.create_comparison_job(
                 acceptance_id=acc_result["file_id"],
                 emission_id=emi_result["file_id"],
                 cradle_id=cradle_id,
                 job_name=f"Auto-Compare {cradle_id}",
+                client_name=client_name,
                 comparison_type="automation"
             )
 
@@ -537,19 +539,57 @@ class WebSocketServer:
 
             logger.info(f"✅ [API] Job started successfully: ID {job_result['id']}")
 
-            # Send results (Success)
+            # Send status update that job has started
+            await self.send_status_update(websocket, "VIDEO_COMPARE_PROCESSING", {
+                "cradle_id": cradle_id,
+                "status": f"Job {job_result['id']} is processing on backend...",
+                "job_id": job_result["id"]
+            })
+            
+            # Poll for job completion to avoid opening 100 simultaneous jobs
+            job_id = job_result["id"]
+            job_finished = False
+            final_status = None
+            final_res = None
+            
+            for attempt in range(120): # Max 10 minutes
+                await asyncio.sleep(5)
+                status_res = await self.api_client.get_job_status(job_id)
+                
+                if isinstance(status_res, dict) and "status" in status_res:
+                    current = status_res.get("status")
+                    logger.info(f"⏳ [API] Job {job_id} processing... Status: {current}")
+                    
+                    if current in ["COMPLETED", "FAILED", "ERROR"]:
+                        job_finished = True
+                        final_status = current
+                        final_res = status_res
+                        break
+                    
+                    # Send continuous progress update to extension
+                    progress = status_res.get("progress", 0)
+                    msg = f"Processing video... {current} ({attempt*5}s) - {progress}%"
+                    await self.send_status_update(websocket, "PROCESSING", {"message": msg, "progress": progress})
+            
+            if not job_finished:
+                 logger.error(f"❌ [API] Job {job_id} timed out waiting for completion")
+                 raise Exception("Timeout waiting for job completion")
+                 
+            logger.info(f"✅ [API] Job {job_id} finished with status: {final_status}")
+
+            # Send actual final results
             await self.send_video_compare_results(websocket, {
-                "success": True,
-                "job_id": job_result["id"],
-                "message": "Job started via API",
-                "api_response": job_result
+                "success": final_status == "COMPLETED",
+                "job_id": job_id,
+                "message": f"Job finished with status: {final_status}",
+                "api_response": final_res
             })
 
-            # Open results in browser
-            import webbrowser
-            results_url = f"http://localhost:3000/compare/{job_result['id']}"
-            logger.info(f"🌍 Opening results in browser: {results_url}")
-            webbrowser.open(results_url)
+            # Open results in browser silently or if requested (Optional - commented out to avoid tab spam during automation)
+            # import webbrowser
+            # results_url = f"http://localhost:3000/compare/{job_id}"
+            # logger.info(f"🌍 Opening results in browser: {results_url}")
+            # webbrowser.open(results_url)
 
         except Exception as e:
             logger.error(f"❌ [API] Error: {str(e)}")
@@ -775,15 +815,27 @@ class WebSocketServer:
         await websocket.send(json.dumps(message))
         logger.info(f"📤 Sent response: {action}")
 
-    async def send_error(self, websocket, error_message):
+    async def send_error(self, websocket, error_message, cradle_id=None, action_context="DESKTOP_ERROR"):
         """Send error message to extension"""
         message = {
             "action": "ERROR",
             "error": error_message,
             "timestamp": int(time.time() * 1000),
         }
+        if cradle_id:
+            message["cradle_id"] = cradle_id
+            
         await websocket.send(json.dumps(message))
         logger.error(f"📤 Sent error: {error_message}")
+        
+        # Log to Backend
+        asyncio.create_task(self.api_client.log_system_event(
+            component="desktop_app",
+            action=action_context,
+            message=error_message,
+            is_error=True,
+            cradle_id=cradle_id
+        ))
 
     async def broadcast_message(self, message):
         """Broadcast message to all connected clients"""

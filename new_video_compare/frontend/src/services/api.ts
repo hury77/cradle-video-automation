@@ -100,6 +100,15 @@ export interface DashboardStats {
     total_size_gb: number;
     file_count: number;
   };
+  recent_logs?: Array<{
+    id: number;
+    cradle_id: string | null;
+    component: string;
+    action: string;
+    message: string;
+    is_error: boolean;
+    created_at: string;
+  }>;
 }
 
 export interface CleanupResult {

@@ -45,8 +45,48 @@ class DesktopConnection {
                 scanner.showNotification(`✅ Desktop App: ${f.filename || "file"} downloaded`, "success");
               }
             }
+            
+            if (scanner.isAutoComparing || localStorage.getItem("cradle-auto-video-compare") === "true") {
+              console.log("[CradleScanner] 🔄 Auto-compare: Downloads complete. Triggering Video Compare...");
+              scanner.isAutoComparing = true; // ensure in-memory flag is also set
+              setTimeout(() => {
+                scanner.startVideoCompare({ useApi: true });
+              }, 2000);
+            }
+          } else if (data.action === "VIDEO_COMPARE_RESULTS") {
+            console.log("[CradleScanner] 📊 Video Compare Results:", data.data);
+            if (data.data?.success !== false && !data.data?.error) {
+               scanner.showNotification(`✅ Video Compare task submitted successfully!`, "success");
+               
+               if (scanner.isAutoComparing) {
+                  scanner.isAutoComparing = false;
+                  // DO NOT REMOVE the "cradle-auto-video-compare" flag yet.
+                  // The QA Verdict React component will remove it upon saving.
+                  scanner.showNotification("⏳ Job created. Opening results. Waiting for HUMAN QA Decision...", "info");
+                  setTimeout(() => {
+                    if (data.data && data.data.job_id) {
+                        window.open(`http://localhost:3000/compare/${data.data.job_id}`, '_blank');
+                    } else {
+                        // Fallback
+                        window.open(`http://localhost:3000`, '_blank');
+                    }
+                  }, 2000);
+               }
+            } else {
+               scanner.showNotification(`❌ Video Compare error: ${data.data?.error || data.data?.message || 'Unknown error'}`, "error");
+               
+               if (scanner.isAutoComparing) {
+                  scanner.isAutoComparing = false;
+                  scanner.showNotification("🚫 Stopping automation due to Video Compare error.", "error");
+                  localStorage.setItem("cradle-automation-stopped", "true");
+               }
+            }
           } else if (data.action === "FILE_MOVED") {
             console.log(`[Desktop] 📦 File moved: ${data.data?.filename}`);
+          } else if (data.action === "STATUS_UPDATE") {
+            const statusMsg = data.details?.message || data.status || "Processing...";
+            console.log(`[Desktop] ℹ️ Status: ${statusMsg}`);
+            scanner.showNotification(`System status: ${statusMsg}`, "info");
           } else if (data.action === "ERROR") {
             const msg = data.data?.error || data.error || "Unknown error";
             scanner.showNotification(`❌ Desktop App error: ${msg}`, "error");
@@ -96,6 +136,7 @@ const desktopConnection = new DesktopConnection();
 class CradleScanner {
   constructor() {
     this.isScanning = false;
+    this.isAutoComparing = false;
     this.status = "Ready";
     this.currentCradleId = null;
 
@@ -105,7 +146,31 @@ class CradleScanner {
 
     this.checkAutoApplyFilter();
     this.checkAutoFindAsset();
+    this.checkAutoTakeAsset();
     this.extractCradleId();
+
+    // Storage listener do komunikacji między kartami (Base Tab <-> Worker Tab)
+    window.addEventListener('storage', async (e) => {
+      if (e.key === 'cradle-trigger-next' && e.newValue) {
+         console.log("[CradleScanner] 🔄 Otrzymano sygnał od zamkniętej karty worker'a by przetwarzać dalej!");
+         
+         if (localStorage.getItem("cradle-automation-stopped") === "true") {
+             console.log("[CradleScanner] 🚫 Ignoruję sygnał. Automatyzacja została zatrzymana.");
+             return;
+         }
+         
+         if (window.location.href.includes("my-team")) {
+             await this.wait(2000);
+             this.findPendingAsset();
+         }
+      }
+    });
+
+    // Restore automation state from localStorage (survives page reloads)
+    if (localStorage.getItem("cradle-auto-video-compare") === "true") {
+      this.isAutoComparing = true;
+      console.log("[CradleScanner] 🔄 Restored isAutoComparing=true from localStorage.");
+    }
 
     console.log("[CradleScanner] Scanner initialized");
   }
@@ -155,6 +220,8 @@ class CradleScanner {
       setTimeout(async () => {
         console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
         await this.applyQAFilterOnly();
+        await this.wait(2000);
+        await this.findPendingAsset();
       }, 3000);
     } else {
       console.log("[CradleScanner] No auto-apply flag found");
@@ -181,6 +248,78 @@ class CradleScanner {
           "info"
         );
         await this.findPendingAsset();
+      }, 3000);
+    }
+  }
+
+  // ✅ NOWA METODA - Automatycznie klika "Take" i pobiera pliki po wejściu w asset
+  async checkAutoTakeAsset() {
+    const autoTakeId = localStorage.getItem("cradle-auto-take-asset");
+    const autoDownloadId = localStorage.getItem("cradle-auto-download-asset");
+
+    // 1. SCENARIUSZ: Pojawiliśmy się tu po "twardym" przeładowaniu strony po kliknięciu Take
+    if (autoDownloadId && window.location.href.includes(autoDownloadId)) {
+       console.log(`[CradleScanner] 🔄 Auto-download flag found for asset ${autoDownloadId} (Page Reloaded)!`);
+       localStorage.removeItem("cradle-auto-download-asset");
+       
+       // Dajmy stronie 2 sekundy na pełne wyrenderowanie tabelek
+       setTimeout(async () => {
+           console.log("[CradleScanner] 🚀 Asset taken! Triggering downloads on reloaded page...");
+           this.isAutoComparing = true;
+           localStorage.setItem("cradle-auto-video-compare", "true");
+           await this.downloadFiles();
+       }, 2000);
+       return;
+    }
+
+    // 2. SCENARIUSZ: Dopiero weszliśmy z głównej listy My Team Tasks
+    if (autoTakeId && window.location.href.includes(autoTakeId)) {
+      console.log(`[CradleScanner] 🔄 Auto-take flag found for asset ${autoTakeId}!`);
+      localStorage.removeItem("cradle-auto-take-asset");
+      
+      // Zabezpieczenie przed przeładowaniem strony:
+      localStorage.setItem("cradle-auto-download-asset", autoTakeId);
+      
+      setTimeout(async () => {
+        console.log("[CradleScanner] 🚀 Automatically taking asset...");
+        const success = await this.takeAsset();
+        
+        if (!success) {
+           console.log("[CradleScanner] ❌ takeAsset did not succeed (maybe taken by someone else). Passing to next.");
+           localStorage.removeItem("cradle-auto-download-asset");
+           
+           // Powiedz Base Tab żeby wziął następny zadanie i zamknij tę kartę
+           localStorage.setItem("cradle-trigger-next", Date.now().toString());
+           setTimeout(() => { window.close(); }, 3000);
+           return;
+        }
+        
+        // SCENARIUSZ 3: Strona się NIE przeładowała (SPA) - czekamy na zmianę statusu w DOM
+        console.log("[CradleScanner] ⏳ Waiting up to 15 seconds for status to change to Processing...");
+        let isProcessing = false;
+        for (let i = 0; i < 15; i++) {
+            await this.wait(1000);
+            const currentStatus = this.getCurrentAssetStatus();
+            console.log(`[CradleScanner] Status check ${i+1}/15:`, currentStatus);
+            if (currentStatus && currentStatus.toLowerCase().includes("processing")) {
+                isProcessing = true;
+                break;
+            }
+        }
+        
+        // Usuwamy flagę zabezpieczającą, bo jesteśmy na bieżąco w tym samym kontekście
+        localStorage.removeItem("cradle-auto-download-asset");
+        
+        if (isProcessing) {
+           console.log("[CradleScanner] 🚀 Asset confirmed as Processing! Triggering downloads...");
+           this.isAutoComparing = true;
+           localStorage.setItem("cradle-auto-video-compare", "true");
+           await this.downloadFiles();
+           // Do not trigger timeout here. We wait for websocket DOWNLOAD_COMPLETED.
+        } else {
+           console.log("[CradleScanner] ❌ Timeout waiting for Processing status. Status never changed?");
+           this.showNotification("❌ Timeout waiting for Processing status", "error");
+        }
       }, 3000);
     }
   }
@@ -228,6 +367,26 @@ class CradleScanner {
         console.log("[CradleScanner] Unknown command:", action);
     }
   }
+  
+  stopAutomation() {
+    console.log("[CradleScanner] Stopping automation...");
+    localStorage.removeItem("cradle-auto-find-asset");
+    localStorage.removeItem("cradle-auto-apply-qa-filter");
+    localStorage.removeItem("cradle-auto-take-asset");
+    localStorage.removeItem("cradle-auto-download-asset");
+    
+    // Zapobiegaj triggerowaniu kolejnych zdarzeń
+    localStorage.setItem("cradle-automation-stopped", "true");
+    localStorage.removeItem("cradle-auto-video-compare");
+    
+    this.isAutoComparing = false;
+    this.isScanning = false;
+    this.status = "Automation stopped";
+    this.showNotification("⏹️ Automation stopped", "info");
+    setTimeout(() => {
+        window.location.reload();
+    }, 1500);
+  }
 
   sendStatus() {
     console.log("[CradleScanner] Current status:", this.status);
@@ -257,6 +416,8 @@ class CradleScanner {
     console.log("[CradleScanner] Starting automation...");
     console.log("[CradleScanner] Current URL:", currentUrl);
     console.log("[CradleScanner] Target URL:", targetUrl);
+    
+    localStorage.removeItem("cradle-automation-stopped");
 
     if (currentUrl !== targetUrl) {
       console.log("[CradleScanner] ❌ Wrong page! Redirecting...");
@@ -282,6 +443,8 @@ class CradleScanner {
       "[CradleScanner] ✅ Already on correct page, applying filter..."
     );
     await this.applyQAFilterOnly();
+    await this.wait(2000);
+    await this.findPendingAsset();
   }
 
   async findPendingAsset() {
@@ -464,6 +627,13 @@ class CradleScanner {
         if (state.includes("pending")) {
           const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
 
+          // Extract client name from Client column (index 4 in the table)
+          const clientName = cells.length > 4 ? cells[4].textContent.trim() : null;
+          if (clientName) {
+            localStorage.setItem("cradle-current-client", clientName);
+            console.log(`[CradleScanner] 🏢 Client detected: ${clientName}`);
+          }
+
           console.log(
             `[CradleScanner] ✅ Found earliest pending asset: ${cradleId}`
           );
@@ -471,13 +641,16 @@ class CradleScanner {
 
           this.status = `Opening asset ${cradleId}`;
           this.showNotification(
-            `✅ Opening pending asset ${cradleId}...`,
+            `✅ Opening pending asset ${cradleId} (${clientName || 'Unknown client'})...`,
             "success"
           );
 
+          // Set flag so next page knows to auto-take it
+          localStorage.setItem("cradle-auto-take-asset", cradleId);
           window.open(assetUrl, "_blank");
 
-          this.status = "Ready";
+          this.status = "Monitoring asset tab...";
+          this.showNotification(`Asset ${cradleId} opened in new tab. Waiting...`, "info");
           return;
         }
       }
@@ -490,18 +663,54 @@ class CradleScanner {
       console.log(
         "[CradleScanner] No pending assets found - all are either processing or completed"
       );
+      
+      console.log("[CradleScanner] ⏳ Waiting 120 seconds before reload...");
+      this.status = "Waiting 2 minutes...";
+      this.showNotification("⏳ No pending assets. Auto-retry in 2 minutes...", "info");
+      
+      // Send log to dashboard
+      try {
+        chrome.runtime.sendMessage({
+          action: "LOG_TO_DASHBOARD",
+          payload: {
+            component: "extension",
+            action: "FIND_ASSET",
+            message: "No pending assets found. Waiting 2 minutes for new tasks.",
+            is_error: false
+          }
+        });
+      } catch(e) {}
 
-      alert(
-        "❌ No Pending Assets Found\n\nAll assets are either:\n• Already Processing (someone is working on them)\n• Completed\n• No assets match QA final proofreading filter\n\nPlease check back later or verify the filter settings."
-      );
+      setTimeout(() => {
+        localStorage.setItem("cradle-auto-find-asset", "true");
+        window.location.reload();
+      }, 120000);
+
     } catch (error) {
       console.error("[CradleScanner] Error finding pending asset:", error);
       this.status = `Error: ${error.message}`;
       this.showNotification(`❌ Error: ${error.message}`, "error");
 
-      alert(
-        `❌ Error Finding Assets\n\n${error.message}\n\nPlease check:\n• Are you on the correct page?\n• Is the QA filter applied?\n• Are there any assets in the table?`
-      );
+      // Send log to dashboard
+      try {
+        chrome.runtime.sendMessage({
+          action: "LOG_TO_DASHBOARD",
+          payload: {
+            component: "extension",
+            action: "FIND_ASSET",
+            message: error.message,
+            is_error: true
+          }
+        });
+      } catch(e) {}
+
+      // Do not block with alert, wait 2 mins and try again
+      console.log("[CradleScanner] ⏳ Error occurred. Waiting 120 seconds before reload...");
+      this.showNotification("⏳ Waiting 2 minutes to retry after error...", "warning");
+      setTimeout(() => {
+        localStorage.setItem("cradle-auto-find-asset", "true");
+        window.location.reload();
+      }, 120000);
     }
   }
 
@@ -539,7 +748,7 @@ class CradleScanner {
           localStorage.setItem("cradle-auto-find-asset", "true");
         }, 3000);
 
-        return;
+        return false;
       }
 
       if (currentStatus && currentStatus.toLowerCase().includes("pending")) {
@@ -594,7 +803,7 @@ class CradleScanner {
             localStorage.setItem("cradle-auto-find-asset", "true");
           }, 3000);
 
-          return;
+          return false;
         }
 
         throw new Error(
@@ -641,7 +850,7 @@ class CradleScanner {
           localStorage.setItem("cradle-auto-find-asset", "true");
         }, 3000);
 
-        return;
+        return false;
       }
 
       // ✅ KROK 5: Kliknij "Take"
@@ -659,10 +868,12 @@ class CradleScanner {
       console.log(
         "[CradleScanner] ✅ Asset taken successfully - now Processing"
       );
+      return true;
     } catch (error) {
       console.error("[CradleScanner] Error taking asset:", error);
       this.status = `Error: ${error.message}`;
       this.showNotification(`❌ Error: ${error.message}`, "error");
+      return false;
     }
   }
 
@@ -1490,12 +1701,6 @@ class CradleScanner {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  stopAutomation() {
-    this.isScanning = false;
-    this.status = "Stopped";
-    console.log("[CradleScanner] Automation stopped");
-  }
-
   // ✅ New helper: Extract clean filename from URL (handles query params)
   extractFilenameFromUrl(url) {
     try {
@@ -1582,8 +1787,9 @@ class CradleScanner {
   }
 
   async startVideoCompare(data = {}) {
-    const useApi = data.useApi === true;
-    const actionType = useApi ? "VIDEO_COMPARE_API_REQUEST" : "VIDEO_COMPARE_REQUEST";
+    // Always use API mode — legacy Playwright mode is deprecated
+    const useApi = true;
+    const actionType = "VIDEO_COMPARE_API_REQUEST";
 
     console.log(`[CradleScanner] 🎬 Requesting Video Compare automation (API Mode: ${useApi})...`);
 
@@ -1597,10 +1803,14 @@ class CradleScanner {
     console.log(
       `[CradleScanner] 🎬 Starting Video Compare for CradleID: ${cradleId} via ${actionType}`
     );
-    this.showNotification(`🎬 Starting Video Compare (${useApi ? "API" : "Legacy"})...`, "info");
+    this.showNotification(`🎬 Starting Video Compare (API)...`, "info");
+    
+    // Set flag so VIDEO_COMPARE_RESULTS handler knows to redirect to results page
+    this.isAutoComparing = true;
 
     // Extract metadata for file discovery
     const { templateId, jobNumber, langCode } = this.extractAssetMetadata();
+    const clientName = localStorage.getItem("cradle-current-client") || null;
 
     // Send request to Desktop App
     const sent = desktopConnection.sendMessage({
@@ -1609,6 +1819,7 @@ class CradleScanner {
       templateId: templateId,
       jobNumber: jobNumber,
       langCode: langCode,
+      clientName: clientName,
       timestamp: Date.now(),
     });
 

@@ -3,7 +3,7 @@ New Video Compare - Files API Endpoints
 File upload, management, and metadata handling
 """
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, BackgroundTasks, Request, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -93,6 +93,7 @@ def is_allowed_file(filename: str) -> bool:
 
 import subprocess
 import json
+import asyncio
 
 async def process_file_metadata(file_path: Path) -> dict:
     """Extract file metadata using FFprobe for immediate validation"""
@@ -112,7 +113,7 @@ async def process_file_metadata(file_path: Path) -> dict:
             "audio_codec": None,
         }
         
-        # Run FFprobe to get detailed metadata
+        # Run FFprobe to get detailed metadata asynchronously
         cmd = [
             "ffprobe",
             "-v", "quiet",
@@ -122,18 +123,25 @@ async def process_file_metadata(file_path: Path) -> dict:
             str(file_path)
         ]
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
         
-        if result.returncode != 0:
-            logger.warning(f"FFprobe failed for {file_path}: {result.stderr}")
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45.0)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            logger.warning(f"FFprobe timeout for {file_path}")
             return metadata
         
-        probe_data = json.loads(result.stdout)
+        if process.returncode != 0:
+            logger.warning(f"FFprobe failed for {file_path}: {stderr.decode('utf-8', errors='ignore')}")
+            return metadata
+        
+        probe_data = json.loads(stdout.decode('utf-8'))
         
         # Extract format-level metadata
         if "format" in probe_data:
@@ -190,6 +198,110 @@ async def process_file_metadata(file_path: Path) -> dict:
 # API ENDPOINTS
 # =============================================================================
 
+@router.post("/upload/stream", response_model=FileUploadResponse)
+async def upload_file_stream(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    filename: str = Query(...),
+    file_type: Optional[FileTypeEnum] = Query(None),
+    cradle_id: Optional[str] = Query(None),
+    external_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Stream upload a large file directly (bypassing multipart parsers)
+    Suitable for multi-gigabyte files to avoid freezing the event loop.
+    """
+    try:
+        # Validate file
+        if not filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+        
+        if not is_allowed_file(filename):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File type not allowed. Allowed extensions: {settings.allowed_video_extensions + settings.allowed_audio_extensions}"
+            )
+        
+        content_length = request.headers.get('content-length')
+        if content_length and int(content_length) > settings.max_file_size:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File too large. Maximum size: {settings.max_file_size / 1024 / 1024:.1f} MB"
+            )
+        
+        # Generate unique filename to avoid conflicts
+        unique_id = str(uuid.uuid4())[:8]
+        file_extension = Path(filename).suffix
+        safe_filename = f"{Path(filename).stem}_{unique_id}{file_extension}"
+        upload_path = settings.upload_dir / safe_filename
+        
+        logger.info(f"📤 Stream uploading file: {filename} -> {safe_filename}")
+        
+        # Stream file safely without blocking main event loop
+        loop = asyncio.get_running_loop()
+        with open(upload_path, "wb") as f:
+            async for chunk in request.stream():
+                # For very small chunks (<64k) we could technically write synchronously, 
+                # but run_in_executor ensures zero blocking for slow disks.
+                def write_chunk(data):
+                    f.write(data)
+                await loop.run_in_executor(None, write_chunk, chunk)
+                
+        logger.info(f"✅ Stream upload saved: {upload_path}")
+        
+        # Extract metadata
+        metadata = await process_file_metadata(upload_path)
+        
+        detected_file_type = file_type or detect_file_type_from_name(filename, cradle_id)
+        
+        # Create database record
+        file_record = FileModel(
+            filename=safe_filename,
+            original_name=filename,
+            file_path=str(upload_path),
+            file_type=FileType(detected_file_type.value),
+            file_format=FileFormat(get_file_format_from_extension(filename).value),
+            file_size=metadata["file_size"],
+            duration=metadata.get("duration"),
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+            fps=metadata.get("fps"),
+            bitrate=metadata.get("bitrate"),
+            codec=metadata.get("codec"),
+            audio_channels=metadata.get("audio_channels"),
+            audio_sample_rate=metadata.get("audio_sample_rate"),
+            audio_bitrate=metadata.get("audio_bitrate"),
+            audio_codec=metadata.get("audio_codec"),
+            cradle_id=cradle_id,
+            external_id=external_id,
+            is_processed=False
+        )
+        
+        db.add(file_record)
+        db.commit()
+        db.refresh(file_record)
+        
+        return FileUploadResponse(
+            success=True,
+            message="File uploaded successfully",
+            file_id=file_record.id,
+            filename=safe_filename,
+            file_size=metadata["file_size"],
+            file_type=detected_file_type,
+            processing_started=True
+        )
+        
+    except HTTPException:
+        if 'upload_path' in locals() and upload_path and upload_path.exists():
+            upload_path.unlink()
+        raise
+    except Exception as e:
+        if 'upload_path' in locals() and upload_path and upload_path.exists():
+            upload_path.unlink()
+        logger.error(f"❌ File streaming upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"File streaming upload failed: {str(e)}")
+
 @router.post("/upload", response_model=FileUploadResponse)
 async def upload_file(
     background_tasks: BackgroundTasks,
@@ -235,9 +347,12 @@ async def upload_file(
         logger.info(f"📤 Uploading file: {file.filename} -> {safe_filename}")
         logger.info(f"💾 Upload path: {upload_path}")
         
-        # Save file
-        with open(upload_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Save file without blocking the main event loop
+        loop = asyncio.get_running_loop()
+        def save():
+            with open(upload_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        await loop.run_in_executor(None, save)
         
         logger.info(f"✅ File saved: {upload_path}")
         
@@ -291,7 +406,7 @@ async def upload_file(
         
     except HTTPException:
         # Remove uploaded file if database operation failed
-        if upload_path and upload_path.exists():
+        if 'upload_path' in locals() and upload_path and upload_path.exists():
             upload_path.unlink()
         raise
     except Exception as e:

@@ -174,3 +174,7 @@ media/
 temp/
 */temp/
 new_video_compare/media/downloads/
+*.db
+*.pyc
+__pycache__/
+.DS_Store

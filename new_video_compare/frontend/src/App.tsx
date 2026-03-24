@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import Dashboard from "./components/Dashboard";
 import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
+import KnowledgeBase from "./components/KnowledgeBase";
 import { ComparisonJob } from "./types";
 import {
   Cog6ToothIcon,
@@ -10,7 +11,8 @@ import {
   UserIcon,
   PlusIcon,
   ChartBarIcon,
-  ListBulletIcon
+  ListBulletIcon,
+  BookOpenIcon
 } from "@heroicons/react/24/outline";
 
 import { compareApi } from "./services/api";
@@ -18,7 +20,7 @@ import { compareApi } from "./services/api";
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
-  const [dashboardView, setDashboardView] = useState(false);
+  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb">("list");
   const [backendStatus, setBackendStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
@@ -129,7 +131,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedJob(null); setDashboardView(false); }}>
+              <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedJob(null); setDashboardView("list"); }}>
                 <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg">
                   <svg
                     className="w-6 h-6 text-white"
@@ -180,13 +182,29 @@ function App() {
               {/* Action Buttons */}
               <div className="h-6 w-px bg-gray-200 mx-2"></div>
 
-              <button
-                onClick={() => { setSelectedJob(null); setDashboardView(!dashboardView); }}
-                className={`inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-lg transition-colors ${dashboardView ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                 {dashboardView ? <ListBulletIcon className="w-5 h-5 mr-2" /> : <ChartBarIcon className="w-5 h-5 mr-2" />}
-                 {dashboardView ? "Recent Jobs" : "Dashboard"}
-              </button>
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                <button
+                  onClick={() => { setSelectedJob(null); setDashboardView("list"); }}
+                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "list" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  <ListBulletIcon className="w-5 h-5 mr-1" />
+                  Jobs
+                </button>
+                <button
+                  onClick={() => { setSelectedJob(null); setDashboardView("stats"); }}
+                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "stats" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  <ChartBarIcon className="w-5 h-5 mr-1" />
+                  Stats
+                </button>
+                <button
+                  onClick={() => { setSelectedJob(null); setDashboardView("kb"); }}
+                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "kb" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  <BookOpenIcon className="w-5 h-5 mr-1" />
+                  KB
+                </button>
+              </div>
 
               <button
                 onClick={() => setShowAutoPair(true)}
@@ -251,8 +269,10 @@ function App() {
               onJobReanalyzed={() => handleSelectJob(null)}
             />
           </div>
+        ) : dashboardView === "kb" ? (
+          <KnowledgeBase onSelectJob={handleSelectJob} />
         ) : (
-          <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView ? 'stats' : 'list'} />
+          <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView} />
         )}
       </div>
 

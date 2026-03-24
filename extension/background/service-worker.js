@@ -8,7 +8,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleDownload(request, sendResponse);
     return true; // Keep message channel open for async response
   }
+  
+  if (request.action === 'LOG_TO_DASHBOARD') {
+    handleDashboardLog(request.payload).then(() => sendResponse({success: true}));
+    return true;
+  }
 });
+
+async function handleDashboardLog(payload) {
+  try {
+    const response = await fetch("http://localhost:8001/api/v1/dashboard/logs", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+    console.log("Dashboard log sent:", response.status);
+  } catch (error) {
+    console.error("Dashboard log failed:", error);
+  }
+}
 
 async function handleDownload(request, sendResponse) {
   try {

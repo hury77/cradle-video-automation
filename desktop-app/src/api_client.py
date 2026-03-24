@@ -18,7 +18,8 @@ class APIClient:
     async def _get_session(self):
         """Get or create aiohttp session"""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=7200)  # 2 hours total timeout
+            self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
 
     async def close(self):
@@ -44,24 +45,29 @@ class APIClient:
                 logger.error(f"File not found: {file_path}")
                 return {"success": False, "error": f"File not found: {file_path}"}
             
-            url = f"{self.base_url}/files/upload"
+            url = f"{self.base_url}/files/upload/stream"
             session = await self._get_session()
             
-            logger.info(f"📤 Uploading file: {path.name} to {url}")
-            
-            # Prepare multipart data
-            data = aiohttp.FormData()
-            data.add_field('file',
-                           open(path, 'rb'),
-                           filename=path.name,
-                           content_type='application/octet-stream')
-            
+            params = {"filename": path.name}
             if file_type:
-                data.add_field('file_type', file_type)
+                params["file_type"] = file_type
             if cradle_id:
-                data.add_field('cradle_id', cradle_id)
+                params["cradle_id"] = cradle_id
             
-            async with session.post(url, data=data) as response:
+            logger.info(f"📤 Stream uploading file: {path.name} to {url}")
+            
+            # Async file reading generator to avoid blocking the client event loop
+            async def file_sender(file_path):
+                import asyncio
+                loop = asyncio.get_running_loop()
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = await loop.run_in_executor(None, f.read, 1024 * 1024) # 1MB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+
+            async with session.post(url, params=params, data=file_sender(path)) as response:
                 if response.status in [200, 201]:
                     result = await response.json()
                     logger.info(f"✅ Upload successful: {result.get('filename')} (ID: {result.get('file_id')})")
@@ -78,6 +84,7 @@ class APIClient:
     async def create_comparison_job(self, acceptance_id: int, emission_id: int, 
                                     cradle_id: str = None, 
                                     job_name: str = None,
+                                    client_name: str = None,
                                     comparison_type: str = "automation"):
         """
         Create a new comparison job
@@ -108,6 +115,8 @@ class APIClient:
                 payload["cradle_id"] = cradle_id
             if job_name:
                 payload["job_name"] = job_name
+            if client_name:
+                payload["client_name"] = client_name
             
             logger.info(f"🚀 Creating job: {payload}")
             
@@ -138,3 +147,24 @@ class APIClient:
                     return {"success": False, "error": f"HTTP {response.status}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def log_system_event(self, component: str, action: str, message: str, is_error: bool = True, cradle_id: str = None, details: dict = None):
+        """Send a log to the backend dashboard"""
+        try:
+            url = f"{self.base_url}/dashboard/logs"
+            session = await self._get_session()
+            
+            payload = {
+                "component": component,
+                "action": action,
+                "message": message,
+                "is_error": is_error
+            }
+            if cradle_id: payload["cradle_id"] = cradle_id
+            if details: payload["details"] = details
+            
+            async with session.post(url, json=payload) as response:
+                if response.status not in [200, 201]:
+                    logger.warning(f"Failed to send log to dashboard: {await response.text()}")
+        except Exception as e:
+            logger.warning(f"Exception sending log to dashboard: {str(e)}")

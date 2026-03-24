@@ -97,6 +97,21 @@ class SeverityLevel(enum.Enum):
     CRITICAL = "critical"
 
 
+class DecisionVerdict(enum.Enum):
+    """QA decision verdict"""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    REVIEW = "review"  # Human review required
+
+
+class HallucinationMatchType(enum.Enum):
+    """How to match whisper hallucinations"""
+    
+    EXACT = "exact"      # Whole segment must match phrase (e.g. "you", "you.")
+    CONTAINS = "contains" # Segment contains phrase (e.g. "amara.org")
+
+
 # =============================================================================
 # MODELS
 # =============================================================================
@@ -211,6 +226,7 @@ class ComparisonJob(Base):
 
     # Integration fields
     cradle_id = Column(String(100), nullable=True, index=True)
+    client_name = Column(String(200), nullable=True, index=True)  # Client name from Cradle
     external_job_id = Column(String(100), nullable=True, index=True)
 
     # User/system identification
@@ -248,6 +264,12 @@ class ComparisonJob(Base):
     )
     differences = relationship(
         "DifferenceTimestamp", back_populates="job", cascade="all, delete-orphan"
+    )
+    qa_decision = relationship(
+        "QADecision",
+        back_populates="job",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
@@ -474,6 +496,88 @@ class DifferenceTimestamp(Base):
 
     def __repr__(self):
         return f"<DifferenceTimestamp(job_id={self.job_id}, time={self.timestamp_seconds}s, type={self.difference_type.value})>"
+
+
+class AutomationLog(Base):
+    """System and automation logs from agents"""
+
+    __tablename__ = "automation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cradle_id = Column(String(100), nullable=True, index=True)
+    component = Column(String(100), nullable=False)  # "extension", "desktop_app", "backend"
+    action = Column(String(100), nullable=False)  # "FIND_ASSET", "DOWNLOAD", etc.
+    message = Column(Text, nullable=False)
+    is_error = Column(Boolean, default=True)
+    
+    # Optional JSON details
+    details = Column(JSON, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self):
+        return f"<AutomationLog(comp={self.component}, action={self.action}, error={self.is_error})>"
+
+
+class QADecision(Base):
+    """QA decisions — human verdicts on comparison jobs"""
+
+    __tablename__ = "qa_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("comparison_jobs.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # Decision data
+    verdict = Column(Enum(DecisionVerdict), nullable=False, index=True)
+    reasoning = Column(Text, nullable=True)  # User-provided justification
+
+    # Context
+    client_name = Column(String(200), nullable=True, index=True)
+    cradle_id = Column(String(100), nullable=True, index=True)
+
+    # Metrics snapshot at time of decision (for Agent 2 learning)
+    metrics_snapshot = Column(JSON, nullable=True)
+
+    # Attribution
+    decided_by = Column(String(100), default="human")  # 'human' or 'agent'
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationship
+    job = relationship("ComparisonJob", back_populates="qa_decision")
+
+    def __repr__(self):
+        return f"<QADecision(job_id={self.job_id}, verdict={self.verdict.value}, client='{self.client_name}')>"
+
+
+class WhisperHallucination(Base):
+    """Whisper transcription hallucination filters"""
+
+    __tablename__ = "whisper_hallucinations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phrase = Column(String(500), nullable=False, index=True)
+    language = Column(String(10), nullable=True, index=True)  # 'en', 'pl', or None for global
+    match_type = Column(Enum(HallucinationMatchType), default=HallucinationMatchType.CONTAINS, nullable=False)
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self):
+        return f"<WhisperHallucination(phrase='{self.phrase}', lang={self.language}, match='{self.match_type.value}')>"
 
 
 # =============================================================================

@@ -870,19 +870,50 @@ def transcribe_audio(
         
         # Extract segments with timestamps
         segments = []
-        hallucination_phrases = [
-            "amara.org", "subtitles by", "captioned by", "transcribed by", 
-            "sous-titres", "legendas pela comunidade"
-        ]
+        
+        # Fetch active hallucinations from database
+        db_hallucinations = []
+        try:
+            from models.database import SessionLocal
+            from models.models import WhisperHallucination
+            with SessionLocal() as db:
+                db_hallucinations = db.query(WhisperHallucination).filter(WhisperHallucination.is_active == True).all()
+        except Exception as e:
+            logger.error(f"Failed to fetch hallucinations from DB: {e}")
         
         filtered_text = []
         
         for seg in result.get("segments", []):
             text = seg["text"].strip()
+            text_lower = text.lower()
+            text_clean = text_lower.strip('.!?, ')
             
-            # Simple hallucination filter
-            if any(h in text.lower() for h in hallucination_phrases):
-                logger.warning(f"⚠️ Filtered hallucination: '{text}'")
+            # Database hallucination filter
+            is_hallucination = False
+            for h in db_hallucinations:
+                # If language is set, it must match the requested language (or if no language requested, we apply all)
+                if h.language and language and h.language != language:
+                    continue
+                    
+                phrase = h.phrase.lower()
+                if h.match_type.value == "exact":
+                    if text_clean == phrase or text_lower == phrase:
+                        is_hallucination = True
+                        break
+                else: # CONTAINS
+                    if phrase in text_lower:
+                        is_hallucination = True
+                        break
+                        
+            if is_hallucination:
+                logger.warning(f"⚠️ Filtered hallucination (DB): '{text}'")
+                continue
+            
+            # Segment-level: filter out very low-confidence segments
+            # Whisper provides 'no_speech_prob' per segment - high value = likely silence/noise
+            no_speech_prob = seg.get("no_speech_prob", 0.0)
+            if no_speech_prob > 0.6:
+                logger.warning(f"⚠️ Filtered low-confidence segment (no_speech_prob={no_speech_prob:.2f}): '{text}'")
                 continue
                 
             segments.append({
@@ -1258,7 +1289,8 @@ def compare_spoken_text(
     language: Optional[str] = None,
     model_name: str = "base",
     use_separated_vocals: bool = True,
-    filter_song: bool = False
+    filter_song: bool = False,
+    audio_similarity_score: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
@@ -1282,6 +1314,32 @@ def compare_spoken_text(
     import gc
     
     logger.info("🎙️ Starting spoken text comparison (independent pipeline)...")
+    
+    # FAST PATH: If audio is already confirmed identical by MFCC, skip Demucs + Whisper.
+    # Demucs is non-deterministic - identical files can produce different separation results,
+    # causing Whisper to transcribe a different subset of audio: false VO positives.
+    if audio_similarity_score is not None and audio_similarity_score >= 0.99:
+        logger.info(f"✅ SKIPPING STT: Audio similarity {audio_similarity_score:.4f} >= 0.99. Files are identical. Returning is_text_match=True.")
+        return {
+            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
+            "transcript_emission": {"text": "", "segments": [], "word_count": 0},
+            "comparison": {
+                "text_similarity": 1.0,
+                "is_text_match": True,
+                "word_count_a": 0,
+                "word_count_b": 0,
+                "word_differences": [],
+                "segment_differences": [],
+                "total_differences": 0,
+                "acceptance_text": "",
+                "emission_text": ""
+            },
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "skipped_reason": f"Audio similarity {audio_similarity_score:.4f} is near-perfect, STT skipped to avoid false positives from source separation non-determinism.",
+            "pipeline_info": {"skipped": True},
+            "detected_language": language or "unknown",
+        }
     
     # Process acceptance file
     logger.info("=" * 60)

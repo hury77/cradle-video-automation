@@ -70,7 +70,7 @@ const JobTimer: React.FC<{ startedAt?: string }> = ({ startedAt }) => {
 
 interface DashboardProps {
   onSelectJob: (job: ComparisonJob) => void;
-  viewMode: 'list' | 'stats';
+  viewMode: 'list' | 'stats' | 'kb';
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
@@ -428,6 +428,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                         </table>
                     </div>
                 </div>
+                
+                {/* System Logs (Recent 10) */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[400px]">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                         <div className="flex items-center gap-2">
+                            <DocumentTextIcon className="w-5 h-5 text-gray-400" />
+                            <h3 className="font-semibold text-gray-900">System Logs</h3>
+                         </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 p-4 space-y-3">
+                        {dashboardStats?.recent_logs && dashboardStats.recent_logs.length > 0 ? (
+                            dashboardStats.recent_logs.map(log => (
+                                <div key={log.id} className={`p-3 text-sm rounded-lg border flex gap-3 ${log.is_error ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100'}`}>
+                                    <div className="mt-0.5 shrink-0">
+                                        {log.is_error ? <XCircleIcon className="w-5 h-5 text-red-500"/> : <CheckCircleIcon className="w-5 h-5 text-blue-500"/>}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={`font-semibold ${log.is_error ? 'text-red-700' : 'text-blue-700'}`}>{log.component}</span>
+                                            {log.cradle_id && <span className="bg-white px-1.5 rounded border text-xs text-gray-600">{log.cradle_id}</span>}
+                                            <span className="text-xs text-gray-400">{new Date(log.created_at).toLocaleTimeString()}</span>
+                                        </div>
+                                        <p className="text-gray-700">{log.message}</p>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                                No recent logs
+                            </div>
+                        )}
+                    </div>
+                </div>
+
             </div>
           </div>
         </div>

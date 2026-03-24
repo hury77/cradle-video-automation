@@ -29,6 +29,8 @@ from models.schemas import (
     ComparisonJobUpdate,
     JobStatusEnum,
     ComparisonTypeEnum,
+    QADecisionCreate,
+    QADecisionResponse,
 )
 from config import settings
 from services.comparison_service import process_comparison_job
@@ -751,3 +753,99 @@ async def retry_comparison_job(
     background_tasks.add_task(start_comparison_processing, job.id)
     
     return job
+
+
+# =============================================================================
+# QA KNOWLEDGE BASE ENDPOINTS
+# =============================================================================
+
+
+@router.post("/{job_id}/decision")
+async def save_qa_decision(
+    job_id: int,
+    decision_data: "QADecisionCreate",
+    db: Session = Depends(get_db),
+):
+    """
+    Save a QA decision (verdict + reasoning) for a comparison job.
+    This is the primary data source for Agent 2 (Analyst) learning.
+    """
+    from models.schemas import QADecisionCreate, QADecisionResponse
+    from models.models import QADecision, DecisionVerdict, ComparisonResult, VideoComparisonResult, AudioComparisonResult
+
+    job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # If a decision already exists for this job, update it
+    existing = db.query(QADecision).filter(QADecision.job_id == job_id).first()
+
+    # Build metrics snapshot from existing results
+    metrics_snapshot = {}
+    try:
+        video_result = db.query(VideoComparisonResult).filter(VideoComparisonResult.job_id == job_id).first()
+        audio_result = db.query(AudioComparisonResult).filter(AudioComparisonResult.job_id == job_id).first()
+        comp_result = db.query(ComparisonResult).filter(ComparisonResult.job_id == job_id).first()
+        if video_result:
+            metrics_snapshot["video_similarity"] = video_result.similarity_score
+            metrics_snapshot["different_frames"] = video_result.different_frames
+            metrics_snapshot["total_frames"] = video_result.total_frames
+        if audio_result:
+            metrics_snapshot["audio_similarity"] = audio_result.similarity_score
+            metrics_snapshot["mfcc_similarity"] = audio_result.mfcc_similarity
+            metrics_snapshot["spectral_similarity"] = audio_result.spectral_similarity
+        if comp_result:
+            metrics_snapshot["overall_similarity"] = comp_result.overall_similarity
+            metrics_snapshot["is_match"] = comp_result.is_match
+    except Exception as e:
+        logger.warning(f"Could not build metrics snapshot for job {job_id}: {e}")
+
+    verdict_enum = DecisionVerdict(decision_data.verdict.value)
+    client_name = decision_data.client_name or job.client_name
+
+    if existing:
+        existing.verdict = verdict_enum
+        existing.reasoning = decision_data.reasoning
+        existing.client_name = client_name
+        existing.decided_by = decision_data.decided_by
+        existing.metrics_snapshot = metrics_snapshot
+        db.commit()
+        db.refresh(existing)
+        logger.info(f"✅ Updated QA decision for job {job_id}: {verdict_enum.value}")
+        return {"success": True, "decision_id": existing.id, "job_id": job_id, "verdict": verdict_enum.value}
+    else:
+        new_decision = QADecision(
+            job_id=job_id,
+            verdict=verdict_enum,
+            reasoning=decision_data.reasoning,
+            client_name=client_name,
+            cradle_id=job.cradle_id,
+            metrics_snapshot=metrics_snapshot,
+            decided_by=decision_data.decided_by,
+        )
+        db.add(new_decision)
+        db.commit()
+        db.refresh(new_decision)
+        logger.info(f"✅ Saved new QA decision for job {job_id}: {verdict_enum.value}")
+        return {"success": True, "decision_id": new_decision.id, "job_id": job_id, "verdict": verdict_enum.value}
+
+
+@router.get("/{job_id}/decision")
+async def get_qa_decision(job_id: int, db: Session = Depends(get_db)):
+    """Get existing QA decision for a comparison job"""
+    from models.models import QADecision
+
+    decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
+    if not decision:
+        return {"exists": False}
+
+    return {
+        "exists": True,
+        "id": decision.id,
+        "verdict": decision.verdict.value,
+        "reasoning": decision.reasoning,
+        "client_name": decision.client_name,
+        "decided_by": decision.decided_by,
+        "created_at": decision.created_at.isoformat() if decision.created_at else None,
+    }
+
