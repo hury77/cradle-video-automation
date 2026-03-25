@@ -117,6 +117,23 @@ export interface CleanupResult {
   freed_space_mb: number;
 }
 
+export interface AutomationLog {
+  id: number;
+  cradle_id: string | null;
+  component: string;
+  action: string;
+  message: string;
+  is_error: boolean;
+  details: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface AutomationLogsResponse {
+  total: number;
+  results: AutomationLog[];
+  components: string[];
+}
+
 class CompareAPI {
   async getJobs(): Promise<ComparisonJob[]> {
     const response = await fetch(`${API_BASE_URL}/compare/`);
@@ -212,6 +229,25 @@ class CompareAPI {
     });
     if (!response.ok) {
         throw new Error("Failed to cleanup jobs");
+    }
+    return response.json();
+  }
+
+  async getAutomationLogs(
+    skip: number = 0,
+    limit: number = 50,
+    component?: string,
+    onlyErrors: boolean = false,
+    cradleId?: string
+  ): Promise<AutomationLogsResponse> {
+    let url = `${API_BASE_URL}/dashboard/automation-logs?skip=${skip}&limit=${limit}`;
+    if (component) url += `&component=${encodeURIComponent(component)}`;
+    if (onlyErrors) url += `&only_errors=true`;
+    if (cradleId) url += `&cradle_id=${encodeURIComponent(cradleId)}`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("Failed to fetch automation logs");
     }
     return response.json();
   }

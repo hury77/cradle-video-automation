@@ -4,6 +4,7 @@ import Dashboard from "./components/Dashboard";
 import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
 import KnowledgeBase from "./components/KnowledgeBase";
+import AutomationLogs from "./components/AutomationLogs";
 import { ComparisonJob } from "./types";
 import {
   Cog6ToothIcon,
@@ -20,7 +21,7 @@ import { compareApi } from "./services/api";
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb">("list");
+  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs">("list");
   const [backendStatus, setBackendStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
@@ -204,6 +205,13 @@ function App() {
                   <BookOpenIcon className="w-5 h-5 mr-1" />
                   KB
                 </button>
+                <button
+                  onClick={() => { setSelectedJob(null); setDashboardView("logs"); }}
+                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "logs" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  <ListBulletIcon className="w-5 h-5 mr-1" />
+                  Logs
+                </button>
               </div>
 
               <button
@@ -271,8 +279,10 @@ function App() {
           </div>
         ) : dashboardView === "kb" ? (
           <KnowledgeBase onSelectJob={handleSelectJob} />
+        ) : dashboardView === "logs" ? (
+          <AutomationLogs />
         ) : (
-          <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView} />
+          <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView as "list" | "stats"} />
         )}
       </div>
 

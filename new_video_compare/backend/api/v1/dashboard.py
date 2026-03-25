@@ -1,14 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
 import os
+import csv
+import io
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
 from models.database import get_db
-from models.models import ComparisonJob, File, JobStatus, AutomationLog
+from models.models import ComparisonJob, File, JobStatus, AutomationLog, QADecision, DecisionVerdict
 from pydantic import BaseModel
-from typing import Optional, List
 
 class AutomationLogCreate(BaseModel):
     cradle_id: Optional[str] = None
@@ -433,6 +441,110 @@ async def get_automation_logs(
         "results": results,
         "components": sorted(all_components)
     }
+
+@router.get("/kb/export/csv")
+async def export_kb_csv(
+    client_name: Optional[str] = None,
+    verdict: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export Knowledge Base to CSV"""
+    query = db.query(QADecision)
+    if client_name:
+        query = query.filter(QADecision.client_name.ilike(f"%{client_name}%"))
+    if verdict:
+        try:
+            query = query.filter(QADecision.verdict == DecisionVerdict(verdict))
+        except ValueError:
+            pass
+            
+    decisions = query.order_by(QADecision.created_at.desc()).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(["ID", "Date", "Cradle ID", "Client", "Verdict", "Reasoning", "Decided By"])
+    
+    for d in decisions:
+        writer.writerow([
+            d.id,
+            d.created_at.strftime("%Y-%m-%d %H:%M:%S") if d.created_at else "",
+            d.cradle_id or "",
+            d.client_name or "",
+            d.verdict.value,
+            d.reasoning or "",
+            d.decided_by or ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=kb_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"}
+    )
+
+@router.get("/kb/export/pdf")
+async def export_kb_pdf(
+    client_name: Optional[str] = None,
+    verdict: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export Knowledge Base to PDF"""
+    query = db.query(QADecision)
+    if client_name:
+        query = query.filter(QADecision.client_name.ilike(f"%{client_name}%"))
+    if verdict:
+        try:
+            query = query.filter(QADecision.verdict == DecisionVerdict(verdict))
+        except ValueError:
+            pass
+            
+    decisions = query.order_by(QADecision.created_at.desc()).all()
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    elements.append(Paragraph("QA Knowledge Base Export", styles['Title']))
+    elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Paragraph("<br/><br/>", styles['Normal']))
+    
+    # Table data
+    data = [["Date", "Cradle ID", "Client", "Verdict", "Decided By"]]
+    for d in decisions:
+        data.append([
+            d.created_at.strftime("%Y-%m-%d") if d.created_at else "",
+            d.cradle_id or "",
+            d.client_name or "",
+            d.verdict.value,
+            d.decided_by or ""
+        ])
+    
+    # Create Table
+    t = Table(data)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+    ]))
+    
+    elements.append(t)
+    doc.build(elements)
+    
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=kb_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"}
+    )
 
 
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { BookOpenIcon, FunnelIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { BookOpenIcon, FunnelIcon, MagnifyingGlassIcon, ArrowDownTrayIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 
 export interface QADecision {
   id: number;
@@ -42,6 +42,14 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExport = (format: 'csv' | 'pdf') => {
+    const query = new URLSearchParams();
+    if (filters.client_name) query.append("client_name", filters.client_name);
+    if (filters.verdict) query.append("verdict", filters.verdict);
+    
+    window.open(`/api/v1/dashboard/kb/export/${format}?${query.toString()}`, '_blank');
   };
 
   useEffect(() => {
@@ -102,6 +110,25 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
             <option value="reject">Reject</option>
             <option value="review">Review</option>
           </select>
+
+          <div className="flex-grow"></div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleExport('csv')}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+              Export CSV
+            </button>
+            <button
+              onClick={() => handleExport('pdf')}
+              className="inline-flex items-center px-4 py-2 border border-blue-600 shadow-sm text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            >
+              <DocumentTextIcon className="w-4 h-4 mr-2" />
+              Export PDF
+            </button>
+          </div>
         </div>
 
         {/* Table */}
