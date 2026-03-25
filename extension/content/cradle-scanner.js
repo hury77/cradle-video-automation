@@ -1722,7 +1722,7 @@ class CradleScanner {
 
   // ✅ Extract Template ID and Job Number from asset metadata sidebar
   extractAssetMetadata() {
-    const result = { templateId: null, jobNumber: null, langCode: null };
+    const result = { templateId: null, jobNumber: null, langCode: null, clientName: null };
     try {
       const allElements = document.querySelectorAll('td, th, dt, dd, li, span, div');
       for (const el of allElements) {
@@ -1747,6 +1747,17 @@ class CradleScanner {
           if (parentRow) {
             const tds = parentRow.querySelectorAll('td');
             if (tds.length >= 2) result.jobNumber = tds[tds.length - 1].textContent.trim();
+          }
+        }
+        
+        // Client / Brand
+        if (text === 'Client' || text === 'Brand' || text === 'Organisation' || text === 'Client Name') {
+          const next = el.nextElementSibling;
+          if (next) { result.clientName = next.textContent.trim(); continue; }
+          const parentRow = el.closest('tr');
+          if (parentRow) {
+            const tds = parentRow.querySelectorAll('td');
+            if (tds.length >= 2) result.clientName = tds[tds.length - 1].textContent.trim();
           }
         }
 
@@ -1809,8 +1820,21 @@ class CradleScanner {
     this.isAutoComparing = true;
 
     // Extract metadata for file discovery
-    const { templateId, jobNumber, langCode } = this.extractAssetMetadata();
-    const clientName = localStorage.getItem("cradle-current-client") || null;
+    const extractedMeta = this.extractAssetMetadata();
+    const templateId = extractedMeta.templateId;
+    const jobNumber = extractedMeta.jobNumber;
+    const langCode = extractedMeta.langCode;
+    
+    // Prefer locally saved client from MyTeam, but fallback to metadata extraction
+    let clientName = localStorage.getItem("cradle-current-client");
+    if (!clientName && extractedMeta.clientName) {
+        clientName = extractedMeta.clientName;
+        console.log(`[CradleScanner] 🏢 Client extracted from asset metadata fallback: ${clientName}`);
+    } else if (clientName) {
+        console.log(`[CradleScanner] 🏢 Client retrieved from localStorage: ${clientName}`);
+    } else {
+        console.log(`[CradleScanner] ⚠️ Client name not found in localStorage or metadata`);
+    }
 
     // Send request to Desktop App
     const sent = desktopConnection.sendMessage({

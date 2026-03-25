@@ -297,7 +297,29 @@ class FileHandler:
             # Remove trailing slashes
             search_path = search_path.rstrip("/")
 
-            self.logger.info(f"🔍 Searching in: {search_path}")
+            # ✅ SCENARIO 1: The path is already an exact file
+            if os.path.isfile(search_path):
+                self.logger.info(f"✅ Exact file found at network path: {search_path}")
+                filename = os.path.basename(search_path)
+                destination = cradle_folder / filename
+
+                self.logger.info(f"📁 Copying direct network file: {search_path} → {destination}")
+                shutil.copy2(search_path, destination)
+
+                file_size = destination.stat().st_size
+                self.logger.info(f"✅ Direct network file copied: {filename} ({file_size:,} bytes)")
+
+                return {
+                    "success": True,
+                    "type": "emission_network",
+                    "filename": filename,
+                    "path": str(destination),
+                    "source": search_path,
+                    "size": file_size,
+                    "exact_match": True,
+                }
+
+            self.logger.info(f"🔍 Path is a directory or doesn't exist directly. Searching in: {search_path}")
 
             # Common video extensions
             extensions = ["mp4", "mov", "avi", "mkv", "mxf", "prores", "MOV", "MP4"]
@@ -497,12 +519,16 @@ class FileHandler:
                         f"*{template_id}*{lang_code}*",    # exact lang version first
                         f"*{template_id}*{lang_code.lower()}*",  # lowercase variant
                         f"*{template_id}*",                # any language (fallback)
+                        f"*{cradle_id}*{lang_code}*",      # fallback to cradle_id + lang_code
+                        f"*{cradle_id}*",                  # fallback to cradle_id only
                     ]
-                    self.logger.info(f"🌍 Lang code '{lang_code}' — will prefer *{template_id}*{lang_code}* pattern")
+                    self.logger.info(f"🌍 Lang code '{lang_code}' — will prefer *{template_id}*{lang_code}* pattern, fallback to *{cradle_id}*")
                 else:
                     search_patterns = [
                         f"*{template_id}*",
                         f"{template_id}*",
+                        f"*{cradle_id}*",                  # fallback
+                        f"{cradle_id}*",                   # fallback
                     ]
             else:
                 search_patterns = [f"*{cradle_id}*"]

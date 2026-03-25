@@ -166,6 +166,7 @@ async def create_comparison_job(
             sensitivity_level=sensitivity_enum,
             processing_config=proc_config,
             cradle_id=job_data.cradle_id,
+            client_name=job_data.client_name,
             created_by=job_data.created_by,
             status=JobStatus.PENDING,
         )

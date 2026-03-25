@@ -384,3 +384,55 @@ async def get_knowledge_base(
         "clients": sorted(all_clients),
     }
 
+@router.get("/automation-logs")
+async def get_automation_logs(
+    skip: int = 0,
+    limit: int = 50,
+    component: Optional[str] = None,
+    only_errors: bool = False,
+    cradle_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get automation logs with filtering and pagination."""
+    query = db.query(AutomationLog)
+    
+    if component:
+        query = query.filter(AutomationLog.component == component)
+    if only_errors:
+        query = query.filter(AutomationLog.is_error == True)
+    if cradle_id:
+        query = query.filter(AutomationLog.cradle_id.ilike(f"%{cradle_id}%"))
+        
+    total = query.count()
+    logs = query.order_by(AutomationLog.created_at.desc()).offset(skip).limit(limit).all()
+    
+    results = [
+        {
+            "id": log.id,
+            "cradle_id": log.cradle_id,
+            "component": log.component,
+            "action": log.action,
+            "message": log.message,
+            "is_error": log.is_error,
+            "details": log.details,
+            "created_at": log.created_at.isoformat() if log.created_at else None
+        }
+        for log in logs
+    ]
+    
+    # Get distinct components for filtering dropdown
+    all_components = [
+        row[0] for row in db.query(AutomationLog.component)
+        .distinct()
+        .filter(AutomationLog.component.isnot(None))
+        .all()
+    ]
+    
+    return {
+        "total": total,
+        "results": results,
+        "components": sorted(all_components)
+    }
+
+
+
