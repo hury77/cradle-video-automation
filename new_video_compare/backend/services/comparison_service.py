@@ -194,15 +194,10 @@ class ComparisonService:
             processing_config["ssim_min"] = sensitivity_config.get("ssim_min", 0.92)
             logger.info(f"⚙️ Sensitivity '{sensitivity}': pixel_diff_tolerance={processing_config['pixel_diff_tolerance']:.0%}, ssim_min={processing_config['ssim_min']}")
 
-            # Process based on comparison type
-            logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Enum: {ComparisonType.FULL}, {ComparisonType.VIDEO_ONLY})")
-
-
-
-            # Process based on comparison type
+            # Normalize comparison type check
             logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Type: {type(job.comparison_type)})")
-            print(f"DEBUG: Processing job {job.id} with type {job.comparison_type}")
-
+            
+            # 1. Video Comparison
             if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY, ComparisonType.AUTOMATION]):
                 logger.info("🎬 Starting video comparison logic...")
                 job.progress = 10.0
@@ -215,17 +210,22 @@ class ComparisonService:
                         emission_file=emission_path,
                         processing_config=processing_config,
                     )
+                    
+                    if video_result and video_result.error_message:
+                        logger.error(f"❌ Video comparison reported an error: {video_result.error_message}")
+                        raise Exception(f"Video processing failed: {video_result.error_message}")
+                        
                     logger.info(f"💾 Video Result Obtained: {video_result}")
                     results["video_result"] = video_result
                 except Exception as e:
-                    logger.error(f"❌ CRITICAL ERROR in process_comparison: {e}", exc_info=True)
-                    results["video_result"] = None
+                    logger.error(f"❌ CRITICAL ERROR in video comparison: {e}", exc_info=True)
+                    # Re-raise to trigger job failure
+                    raise Exception(str(e))
 
-                
                 job.progress = 50.0
                 db.commit()
                 
-                # MEMORY CLEANUP after video (especially important for AUTOMATION mode)
+                # MEMORY CLEANUP after video
                 if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION):
                     logger.info("🧹 AUTOMATION: Releasing video memory before audio phase...")
                     import gc
@@ -233,6 +233,7 @@ class ComparisonService:
             else:
                 logger.warning(f"⚠️ Skipping video comparison (Type mismatch: {job.comparison_type})")
 
+            # 2. Audio Comparison
             if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
                 logger.info("🔊 Starting audio comparison...")
                 job.progress = 65.0
@@ -279,7 +280,6 @@ class ComparisonService:
                 db.commit()
                 
                 # Extended Audio Analysis (Demucs + Whisper)
-                # Run in AUDIO_ONLY mode AND AUTOMATION mode
                 if check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
                     mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else "Audio-Only"
                     logger.info(f"🎧 {mode_label} Mode: Running enhanced analysis (Demucs + Whisper)...")
@@ -287,19 +287,10 @@ class ComparisonService:
                     import gc
                     gc.collect()
                     
-                    # Speech-to-Text (Whisper + Demucs)
-                    # The new pipeline handles Demucs internally per-file:
-                    # acceptance → extract → Demucs → Whisper → result_a
-                    # emission   → extract → Demucs → Whisper → result_b
-                    # Then compares both transcripts
                     try:
                         logger.info("🎙️ Running Speech-to-Text pipeline (independent per file)...")
                         
-                        # Enable Song Filtering for High/Automation modes to remove singing
                         should_filter_song = effective_sensitivity in ["high", "automation"]
-                        if should_filter_song:
-                            logger.info("🎵 Song Filtering ENABLED (High/Automation mode)")
-                        
                         stt_result = compare_spoken_text(
                             acceptance_path,
                             emission_path,
@@ -308,9 +299,12 @@ class ComparisonService:
                             audio_similarity_score=audio_result.get("similarity_score")
                         )
                         
-                        # Extract pipeline info (source separation stats)
-                        pipeline_info = stt_result.get("pipeline_info", {})
+                        if stt_result and stt_result.get("error"):
+                             logger.error(f"❌ Audio STT reported an error: {stt_result.get('error')}")
+                             # Note: WE DON'T FAIL THE WHOLE JOB for STT errors yet as they can be flaky
                         
+                        # Extract pipeline info
+                        pipeline_info = stt_result.get("pipeline_info", {})
                         audio_result["source_separation"] = {
                             "acceptance": pipeline_info.get("acceptance_separation"),
                             "emission": pipeline_info.get("emission_separation"),
@@ -327,31 +321,19 @@ class ComparisonService:
                                 "acceptance_segments": stt_result.get("transcript_acceptance", {}).get("segments", []),
                                 "emission_segments": stt_result.get("transcript_emission", {}).get("segments", []),
                             },
-                            "language": stt_result.get("transcript_acceptance", {}).get("language"),
                         }
-                        
-                        # Voiceover comparison is derived from source separation stats
                         audio_result["voiceover"] = stt_result.get("voiceover")
                         
                         logger.info(f"✅ Speech-to-Text complete: {stt_result.get('text_similarity', 0):.1%} match")
                         
-                        del stt_result
-                        gc.collect()
-                        
                     except Exception as stt_err:
                         logger.warning(f"Speech-to-Text pipeline failed: {stt_err}")
                         audio_result["speech_to_text"] = {"error": str(stt_err)}
-                        audio_result["source_separation"] = {"error": str(stt_err)}
+                        # Fail job if audio comparison is CRITICAL for this job type
+                        if check_comp_type(job.comparison_type, ComparisonType.AUDIO_ONLY):
+                             raise Exception(f"Audio processing failed: {str(stt_err)}")
 
-                else:
-                    # FULL / VIDEO_ONLY Mode — skip heavy audio processing
-                    logger.info("⏩ Standard Mode: Skipping Demucs/Whisper to optimize performance.")
-                    audio_result["source_separation"] = {"status": "skipped", "reason": "Available in Audio Only or Automation mode"}
-                    audio_result["speech_to_text"] = None 
-                    audio_result["voiceover"] = None
-                
                 results["audio_result"] = audio_result
-                
                 job.progress = 90.0
                 db.commit()
 
@@ -369,7 +351,6 @@ class ComparisonService:
                     start = job.started_at
                     end = job.completed_at
                     
-                    # Handle potential timezone mismatch (SQLite often returns naive datetimes)
                     if start and end:
                         if start.tzinfo is not None and end.tzinfo is None:
                             start = start.replace(tzinfo=None)
@@ -428,15 +409,28 @@ class ComparisonService:
         # Calculate overall similarity
         overall_similarity = 1.0
         has_differences = False
+        has_error = False
         
         if video_result:
-            overall_similarity = min(overall_similarity, video_result.overall_similarity)
-            has_differences = has_differences or video_result.frames_with_differences > 0
+            # Handle ProcessingResult object
+            error_msg = getattr(video_result, "error_message", None)
+            if error_msg:
+                has_error = True
+                has_differences = True
+                overall_similarity = 0.0
+            else:
+                overall_similarity = min(overall_similarity, video_result.overall_similarity)
+                has_differences = has_differences or video_result.frames_with_differences > 0
             
         if audio_result and isinstance(audio_result, dict):
-            audio_similarity = audio_result.get("similarity_score", 1.0)
-            overall_similarity = min(overall_similarity, audio_similarity)
-            has_differences = has_differences or audio_similarity < 0.99
+            if "error" in audio_result:
+                has_error = True
+                has_differences = True
+                overall_similarity = 0.0
+            else:
+                audio_similarity = audio_result.get("similarity_score", 1.0)
+                overall_similarity = min(overall_similarity, audio_similarity)
+                has_differences = has_differences or audio_similarity < 0.99
 
         # Build report data
         report_data = {}

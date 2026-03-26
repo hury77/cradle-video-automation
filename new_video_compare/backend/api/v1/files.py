@@ -621,14 +621,18 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
             logger.info(f"✅ Transcoding complete: {output_path}")
             return True
         else:
-            logger.error(f"❌ Transcoding failed: {result.stderr}")
+            error_details = result.stderr or "Unknown FFmpeg error"
+            logger.error(f"❌ Transcoding failed for {input_path.name}: {error_details}")
+            # Detect specific errors like moov atom
+            if "moov atom not found" in error_details:
+                logger.error(f"⚠️ CORRUPTION DETECTED: {input_path.name} is missing moov atom (incomplete file)")
             return False
             
     except subprocess.TimeoutExpired:
-        logger.error(f"❌ Transcoding timeout for {input_path}")
+        logger.error(f"❌ Transcoding timeout (600s) reached for {input_path}")
         return False
     except Exception as e:
-        logger.error(f"❌ Transcoding error: {e}")
+        logger.error(f"❌ Transcoding unexpected error: {e}")
         return False
 
 
@@ -717,12 +721,13 @@ async def stream_video(
                 logger.error(f"❌ Original and proxy file not found on disk: {file_path_str}")
                 raise HTTPException(status_code=404, detail="File not found on disk")
                 
-            # Transcode asynchronously in thread pool to avoid blocking event loop
+            # Transcode asynchronously in thread pool
             success = await run_in_threadpool(transcode_to_mp4, file_path, proxy_path)
             if not success:
+                logger.error(f"❌ Streaming failed for {file_id}: Transcoding unsuccessful")
                 raise HTTPException(
                     status_code=500, 
-                    detail="Failed to transcode video for web playback"
+                    detail="Failed to transcode video for web playback. The file may be corrupted (e.g., moov atom not found)."
                 )
         
         # Use proxy for streaming
