@@ -4,7 +4,7 @@ Create and manage video/audio comparison jobs
 """
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 import logging
 from datetime import datetime, timezone
@@ -215,7 +215,9 @@ async def list_comparison_jobs(
     - **cradle_id**: Filter by Cradle ID
     - **comparison_type**: Filter by comparison type
     """
-    query = db.query(ComparisonJobModel)
+    query = db.query(ComparisonJobModel)\
+             .options(joinedload(ComparisonJobModel.results))\
+             .order_by(ComparisonJobModel.created_at.desc())
 
     if status:
         query = query.filter(ComparisonJobModel.status == JobStatus(status.value))
@@ -228,7 +230,21 @@ async def list_comparison_jobs(
             ComparisonJobModel.comparison_type == ComparisonType(comparison_type.value)
         )
 
-    jobs = query.order_by(ComparisonJobModel.created_at.desc()).offset(skip).limit(limit).all()
+    jobs = query.offset(skip).limit(limit).all()
+    
+    # Populate metrics field for response
+    for job in jobs:
+        if job.status == JobStatus.COMPLETED and job.results:
+            # Get the latest result
+            latest_res = sorted(job.results, key=lambda x: x.created_at, reverse=True)[0]
+            job.metrics = {
+                "video_similarity": latest_res.video_similarity,
+                "audio_similarity": latest_res.audio_similarity,
+                "overall_similarity": latest_res.overall_similarity
+            }
+        else:
+            job.metrics = None
+            
     return jobs
 
 
@@ -382,9 +398,29 @@ async def get_jobs_by_cradle_id(cradle_id: str, db: Session = Depends(get_db)):
     """
     jobs = (
         db.query(ComparisonJobModel)
+        .options(
+            joinedload(ComparisonJobModel.acceptance_file),
+            joinedload(ComparisonJobModel.emission_file),
+            joinedload(ComparisonJobModel.results)
+        )
         .filter(ComparisonJobModel.cradle_id == cradle_id)
+        .order_by(ComparisonJobModel.created_at.desc())
         .all()
     )
+    
+    # Populate metrics field for response
+    for job in jobs:
+        if job.status == JobStatus.COMPLETED and job.results:
+            # Get the latest result
+            latest_res = sorted(job.results, key=lambda x: x.created_at, reverse=True)[0]
+            job.metrics = {
+                "video_similarity": latest_res.video_similarity,
+                "audio_similarity": latest_res.audio_similarity,
+                "overall_similarity": latest_res.overall_similarity
+            }
+        else:
+            job.metrics = None
+            
     return jobs
 
 

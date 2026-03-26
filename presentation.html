@@ -1,40 +1,80 @@
 <!doctype html>
-<html lang="pl">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <title>Cradle Video Automation & AI QA</title>
-    <meta name="description" content="Projekt Cradle Video Automation">
+    <meta name="description" content="Cradle Video Automation Project Overview">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css" id="theme">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     
     <style>
+        :root {
+            --accent-color: #6366f1; /* Indigo */
+            --secondary-accent: #f43f5e; /* Rose */
+            --bg-gradient: radial-gradient(circle at center, #1e1b4b 0%, #030712 100%);
+        }
+        .reveal {
+            font-family: 'Inter', sans-serif !important;
+            background: var(--bg-gradient);
+        }
         .reveal h1, .reveal h2, .reveal h3 {
-            text-transform: none;
-            color: #4da6ff;
+            font-family: 'Inter', sans-serif !important;
+            text-transform: none !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.02em !important;
         }
-        .reveal h1 { font-size: 1.6em; margin-bottom: 20px !important; }
-        .reveal h2 { font-size: 1.3em; color: #fff; margin-bottom: 20px !important; }
-        .reveal h3 { font-size: 1.1em; color: #4da6ff; }
+        .reveal h1 { color: #fff; font-size: 1.8em !important; margin-bottom: 30px !important; }
+        .reveal h2 { color: var(--accent-color); font-size: 1.4em !important; margin-bottom: 25px !important; }
+        .reveal h3 { color: #fff; font-size: 1.1em !important; opacity: 0.9; }
+        
         .reveal p, .reveal li {
-            font-size: 0.65em;
+            font-size: 0.75em;
+            color: #d1d5db;
+            line-height: 1.5;
+            font-weight: 300;
+        }
+        .reveal ul { margin-top: 20px; }
+        .reveal li { margin-bottom: 12px; }
+        
+        .highlight { color: #fff; font-weight: 600; border-bottom: 2px solid var(--accent-color); }
+        .rose-highlight { color: var(--secondary-accent); font-weight: 600; }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             text-align: left;
-            line-height: 1.35;
-            margin-bottom: 10px;
         }
-        .reveal ul {
-            display: block;
-            margin-left: 5%;
-            margin-right: 5%;
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 30px;
         }
-        .highlight { color: #fe5186; font-weight: bold; }
-        .box {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-top: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        
+        .footer-note {
+            font-size: 0.4em !important;
+            color: #6b7280 !important;
+            margin-top: 60px !important;
+            text-align: center !important;
+        }
+        
+        /* Fix for slide overlap */
+        .reveal .slides section:not(.present) {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            transition: opacity 0.5s ease;
+        }
+        .reveal .slides section.present {
+            opacity: 1 !important;
+            visibility: visible !important;
         }
     </style>
 </head>
@@ -42,87 +82,158 @@
     <div class="reveal">
         <div class="slides">
 
-            <!-- Slide 1 -->
-            <section>
-                <h1>Cradle Video Automation & AI QA</h1>
-                <h3>Przegląd Systemu Analizy i Automatyzacji Wideo</h3>
-                <p style="text-align: center; margin-top: 50px; color: #aaa;">Użyj strzałek na klawiaturze (lub przesuń palcem na ekranie), aby przełączać slajdy</p>
+            <!-- Slide 1: Welcome -->
+            <section data-background-image="/Users/hubert.rycaj/.gemini/antigravity/brain/1291582b-3019-4872-887f-935e21adeb96/tech_automation_hand_1774518660369.png" data-background-opacity="0.3">
+                <div class="card" style="background: rgba(3, 7, 18, 0.7); backdrop-filter: blur(10px);">
+                    <div style="width: 80px; height: 4px; background: var(--accent-color); margin: 0 auto 30px;"></div>
+                    <h1 style="font-size: 2.2em;">New Video Compare</h1>
+                    <h3>How we're automating our QA checks</h3>
+                    <p style="text-align: center; color: #d1d5db; font-size: 0.6em; margin-top: 40px;">March 2026</p>
+                </div>
             </section>
 
-            <!-- Slide 2 -->
+            <!-- Slide 2: The Problem -->
             <section>
-                <h2>1. Założenia i Wizja 🎯</h2>
-                <div class="box">
-                    <p><span class="highlight">Problem:</span> Ręczny proces pobierania plików, porównywania wersji (Acceptance vs. Emission) pod kątem zbieżności obrazu i dźwięku zabiera mnóstwo czasu i jest podatny na błędy ludzkie (np. drobne defekty kompresji).</p>
-                    <p><span class="highlight">Wizja (Rozwiązanie):</span> W pełni zautomatyzowana linia weryfikacji wideo zarządzana ostatecznie przez "cyfrowych agentów". System musi:</p>
-                    <ul>
-                        <li>Niestrudzenie pobierać prace od dostawców.</li>
-                        <li>Z matematyczną precyzją weryfikować różnice kompresji na poziomie pikseli i decybeli (SSIM/PSNR/LUFS).</li>
-                        <li>Gromadzić historię ocen dla systemu przewidującego (Machine Learning).</li>
+                <h2>The Problem</h2>
+                <div class="grid">
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h4 style="color: var(--secondary-accent);">Time Sink</h4>
+                        <p style="font-size: 0.6em;">Manual video checks are the slowest part of our work.</p>
+                    </div>
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h4 style="color: var(--secondary-accent);">Fatigue</h4>
+                        <p style="font-size: 0.6em;">It's easy to miss micro-glitches when checking files all day.</p>
+                    </div>
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h4 style="color: var(--secondary-accent);">Routine</h4>
+                        <p style="font-size: 0.6em;">70% of our time goes to file handling instead of real QA work.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 3: What we're building -->
+            <section data-background-image="/Users/hubert.rycaj/.gemini/antigravity/brain/1291582b-3019-4872-887f-935e21adeb96/tech_video_comparison_split_1774518700159.png" data-background-opacity="0.2">
+                <h2>What we're building</h2>
+                <div class="grid">
+                    <div class="card" style="background: rgba(30, 27, 75, 0.4);">
+                        <h3 style="font-size: 0.8em; color: var(--accent-color);">Auto-fetching</h3>
+                        <p style="font-size: 0.6em;">System picks up files from Cradle automatically.</p>
+                    </div>
+                    <div class="card" style="background: rgba(30, 27, 75, 0.4);">
+                        <h3 style="font-size: 0.8em; color: var(--accent-color);">Automated Checks</h3>
+                        <p style="font-size: 0.6em;">Checks video and audio including VO.</p>
+                    </div>
+                    <div class="card" style="background: rgba(30, 27, 75, 0.4);">
+                        <h3 style="font-size: 0.8em; color: var(--accent-color);">Knowledge Base</h3>
+                        <p style="font-size: 0.6em;">A growing Knowledge Base of QA decisions to train autonomous approval agents.</p>
+                    </div>
+                    <div class="card" style="background: rgba(30, 27, 75, 0.4);">
+                        <h3 style="font-size: 0.8em; color: var(--accent-color);">Scaling up</h3>
+                        <p style="font-size: 0.6em;">One of us can oversee multiple project checks at once.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 4: System Architecture -->
+            <section data-background-image="/Users/hubert.rycaj/.gemini/antigravity/brain/1291582b-3019-4872-887f-935e21adeb96/tech_ai_brain_nodes_1774518684481.png" data-background-opacity="0.2">
+                <h2>System Architecture</h2>
+                <div class="card" style="background: rgba(3, 7, 18, 0.6);">
+                    <p style="font-size: 0.5em; margin-bottom: 30px; color: #d1d5db;">Operational Status: Human-in-the-loop automation (Agent 1 & 2 active, supporting final QA judgment).</p>
+                    <ul style="list-style: none;">
+                        <li style="margin-bottom: 20px;"><strong style="color: var(--accent-color);">1. Agent 1 (The Hands):</strong> Monitors tasks and fetches brand files automatically.</li>
+                        <li style="margin-bottom: 20px;"><strong style="color: var(--accent-color);">2. Agent 2 (The Brain):</strong> Compares videos and flags differences for us to review.</li>
+                        <li><strong style="color: grey;">3. The Engineer:</strong> Last stage in the rather distant future.</li>
                     </ul>
                 </div>
             </section>
 
-            <!-- Slide 3 -->
+            <!-- Slide 5: The Workflow -->
             <section>
-                <h2>2. Użyte Technologie 🛠️</h2>
-                <ul>
-                    <li><span class="highlight">Backend (Szybki Serwis Analityczny)</span>
-                        <ul>
-                            <li><strong>FastAPI (Python)</strong> — Asynchroniczne operacje i koordynowanie analizą wideo.</li>
-                            <li><strong>SQLite / SQLAlchemy</strong> — Baza danych (logi, baza wiedzy decyzji).</li>
-                            <li><strong>FFmpeg + OpenCV</strong> — Nakładanie klatek (Heatmap) dla miar podobieństwa.</li>
-                            <li><strong>OpenAI Whisper + Pyloudnorm</strong> — Detekcja mowy i weryfikacja głośności zgodnej z TV (LUFS).</li>
-                        </ul>
-                    </li>
-                    <li style="margin-top: 15px;"><span class="highlight">Frontend (Dashboard & UI)</span>
-                        <ul><li><strong>React + Tailwind CSS</strong> — Bardzo nowoczesny panel QA z interaktywną wizualizacją różnic (Twin-Video Player).</li></ul>
-                    </li>
-                    <li style="margin-top: 15px;"><span class="highlight">Integracje Pośrednie</span>
-                        <ul>
-                            <li><strong>Chrome Extension (JavaScript)</strong> — Wtyczka udająca człowieka; bot pobierający zlecenia na frontendzie strony Cradle.</li>
-                            <li><strong>WebSocket Server (Python)</strong> — Lokalny most przerzucający ciężkie gigabajty wideo między przeglądarką a serwerem w tle.</li>
-                        </ul>
-                    </li>
-                </ul>
-            </section>
+                <h2>How files move</h2>
+                <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 450px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; position: relative;">
+                        <!-- Step 1 -->
+                        <div style="text-align: center; flex: 1;">
+                            <div style="width: 70px; height: 70px; background: rgba(99, 102, 241, 0.2); border: 2px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-layout-dashboard"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+                            </div>
+                            <p style="font-size: 0.5em; font-weight: 600; color: #fff; margin: 0;">CRADLE</p>
+                            <p style="font-size: 0.35em; color: #fff; margin: 0;">Project Platform</p>
+                        </div>
 
-            <!-- Slide 4 -->
-            <section>
-                <h2>3. Architektura "Trzech Agentów" 🤖</h2>
-                <p style="text-align: center; margin-bottom: 30px;">Zarządzamy AI jak prawdziwymi pracownikami:</p>
-                <ul>
-                    <li><span class="highlight">Agent 1: Controller ("Ręce") 🖐️</span><br/>
-                        Wykrywa zlecenia, ściąga pliki, rozpakowuje archiwa w tle. Nie ocenia wideo, a dostarcza je na biurko. <em>(Pełna operacyjność w naszej wtyczce Cradle i Pulpicie)</em></li>
-                    <li style="margin-top: 15px;"><span class="highlight">Agent 2: Analyst ("Mózg") 🧠</span><br/>
-                        Odczytuje wyniki i podejmuje samodzielnie za człowieka decyzję "Approve" na stronie, jeżeli ma na to dowody (>80% pewności). <em>(Obecnie napełniamy jego bazę danych)</em></li>
-                    <li style="margin-top: 15px;"><span class="highlight">Agent 3: Developer ("Inżynier") 🔧</span><br/>
-                        Przyszła faza – będzie analizował skuteczność Agenta 2 i automatycznie polecał nam optymalizacje systemu dla redukcji kosztów.</li>
-                </ul>
-            </section>
+                        <!-- Arrow 1 -->
+                        <div style="flex: 1.2; text-align: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24" fill="none" stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M0 12h46"/><path d="m38 5 8 7-8 7"/></svg>
+                        </div>
 
-            <!-- Slide 5 -->
-            <section>
-                <h2>4. Co działa na ten moment? ✅</h2>
-                <div class="box">
-                    <ul>
-                        <li><strong>Pełna analiza Video/Audio w React</strong>: Automatyczna lokalizacja problemów klatkowych i różnic natężenia mowy na przejrzystym kokpicie w przeglądarce.</li>
-                        <li><strong>Cradle Controller (Automatyczny Bot)</strong>: Udostępniając maszynie pulpit, nasza wtyczka wyciąga dane projektowe KLIENTÓW z HTMLa strony, znajduje statusy i sama wrzuca pliki do testów.</li>
-                        <li><strong>QA Knowledge Base i Human-in-the-Loop ✨</strong>: Włączyliśmy przełomową architekturę "pauzy bezpieczeństwa". Wtyczka nie zatwierdza wyniku od razu w ciemno. Zatrzymuje pętlę pobierania po skończeniu analizy jednego klipu, pozwalając Człowiekowi (QA) kliknąć i zapisać poprawny "Wyrok" dla Agenta 2 – co automatycznie odmraża bota, by pobierał kolejny klip!</li>
-                    </ul>
+                        <!-- Step 2 -->
+                        <div style="text-align: center; flex: 1;">
+                            <div style="width: 70px; height: 70px; background: rgba(99, 102, 241, 0.4); border: 2px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/><path d="m9 12 2 2 4-4"/></svg>
+                            </div>
+                            <p style="font-size: 0.5em; font-weight: 600; color: #fff; margin: 0;">AGENT 1</p>
+                            <p style="font-size: 0.35em; color: #fff; margin: 0;">"Hands" / Retrieval</p>
+                        </div>
+
+                        <!-- Arrow 2 -->
+                        <div style="flex: 1.2; text-align: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24" fill="none" stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M0 12h46"/><path d="m38 5 8 7-8 7"/></svg>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div style="text-align: center; flex: 1;">
+                            <div style="width: 70px; height: 70px; background: rgba(244, 63, 94, 0.2); border: 2px solid var(--secondary-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M12 16h.01"/><path d="M16 20h.01"/><path d="M8 20h.01"/><path d="M12 4v4"/><path d="M16 4v4"/><path d="M8 4v4"/><rect width="20" height="12" x="2" y="8" rx="2"/></svg>
+                            </div>
+                            <p style="font-size: 0.5em; font-weight: 600; color: #fff; margin: 0;">ENGINE</p>
+                            <p style="font-size: 0.35em; color: #fff; margin: 0;">Video Analysis</p>
+                        </div>
+
+                        <!-- Arrow 3 -->
+                        <div style="flex: 1.2; text-align: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24" fill="none" stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M0 12h46"/><path d="m38 5 8 7-8 7"/></svg>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div style="text-align: center; flex: 1;">
+                            <div style="width: 70px; height: 70px; background: rgba(99, 102, 241, 0.4); border: 2px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+                            </div>
+                            <p style="font-size: 0.5em; font-weight: 600; color: #fff; margin: 0;">AGENT 2</p>
+                            <p style="font-size: 0.35em; color: #fff; margin: 0;">"Brain" / Decision</p>
+                        </div>
+                    </div>
+
+                    <!-- Return Curve -->
+                    <div style="margin-top: 40px; width: 85%; border-top: 2px dashed rgba(255,255,255,0.1); position: relative; height: 50px;">
+                         <div style="position: absolute; right: 0; top: -11px; color: var(--accent-color);">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="m3 12 4-4"/><path d="m3 12 4 4"/></svg>
+                         </div>
+                         <p style="text-align: center; width: 100%; position: absolute; bottom: 0; font-size: 0.4em; letter-spacing: 0.1em; color: var(--accent-color); font-weight: 600;">BACK TO CRADLE (AUTO-RESPONSE)</p>
+                    </div>
                 </div>
             </section>
 
-            <!-- Slide 6 -->
+            <!-- Slide 6: What's ready -->
             <section>
-                <h2>5. Roadmap (Bliższa i dalsza przyszłość) 🚀</h2>
+                <h2>What's ready now</h2>
+                <div class="card">
+                    <p>&check; <span class="highlight">Visual Heatmaps:</span> Seeing exactly where frames differ.</p>
+                    <p>&check; <span class="highlight">Auto-Fetcher:</span> No more manual downloading from Cradle.</p>
+                    <p>&check; <span class="highlight">Decision Registry:</span> Every decision we make helps the system learn.</p>
+                </div>
+            </section>
+
+            <!-- Slide 7: Next Steps -->
+            <section>
+                <h2>Next Steps</h2>
                 <ul>
-                    <li><span class="highlight">Wdrożenie Agenta 2 (Model LLM)</span>: Uruchomienie "mózgu" na bazie wyuczonych rekordów ułatwiające zatwierdzanie całych potoków.</li>
-                    <li><span class="highlight">Zamykanie cyklu w chmurze</span>: Nakazanie wtyczce odpowiadanie gotowymi wzorcami komentarzy odrzucających na pulpicie Cradle twórcy.</li>
-                    <li><span class="highlight">Pełne raportowanie dla Zarządu</span>: Zgrupowanie danych Agenta do zgrabnego raportu PDF lub Arkusza Excel za pomocą jednego przycisku z ogólnymi statystykami defektów per klient (SLA).</li>
-                    <li><span class="highlight">Zrównoleglenie działania</span>: Sprawienie, aby jedna wtyczka z rzędu weryfikowała nawet dziesiątki mniejszych projektów jednocześnie na wielu procesach komputera.</li>
+                    <li>Auto-commenting on Cradle tasks based on comparison results.</li>
+                    <li>Full dashboard for team-wide project tracking.</li>
+                    <li>Integration with global cloud infrastructure for infinite parallel processing.</li>
+                    <li>Need API or LLM capability for full system automation.</li>
                 </ul>
-                <h3 style="text-align: center; margin-top: 40px; color: #fe5186;">Dziękuję za uwagę!</h3>
+                <div class="footer-note">Internal tool &bull; 2026</div>
             </section>
 
         </div>
@@ -132,13 +243,15 @@
     <script>
         Reveal.initialize({
             hash: true,
-            slideNumber: true,
-            transition: 'slide',
-            margin: 0.05,
-            width: 1024,
-            height: 768,
-            minScale: 0.2,
-            maxScale: 2.0
+            slideNumber: 'c/t',
+            transition: 'fade',
+            backgroundTransition: 'convex',
+            margin: 0.1,
+            width: 1200,
+            height: 800,
+            center: true,
+            controls: true,
+            progress: true
         });
     </script>
 </body>

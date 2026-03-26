@@ -505,6 +505,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Details</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrics</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -531,6 +532,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                             {(job.status === "pending" || job.status === "processing") ? "Processing" : job.status}
                           </span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
+                        {job.status === "completed" && job.metrics ? (
+                          <>
+                            V: {job.metrics.video_similarity ? Math.round(job.metrics.video_similarity * 100) + '%' : '-'} | 
+                            A: {job.metrics.audio_similarity ? Math.round(job.metrics.audio_similarity * 100) + '%' : '-'} | 
+                            O: {job.metrics.overall_similarity ? Math.round(job.metrics.overall_similarity * 100) + '%' : '-'}
+                          </>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(job.created_at)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

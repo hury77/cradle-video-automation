@@ -148,6 +148,22 @@ class APIClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def get_jobs_by_cradle_id(self, cradle_id: str):
+        """Get all jobs for a specific Cradle ID"""
+        try:
+            url = f"{self.base_url}/compare/cradle/{cradle_id}"
+            session = await self._get_session()
+            
+            async with session.get(url) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    logger.error(f"❌ Failed to get jobs for cradle_id {cradle_id} (HTTP {response.status})")
+                    return []
+        except Exception as e:
+            logger.error(f"❌ Exception getting jobs for cradle_id {cradle_id}: {str(e)}")
+            return []
+
     async def log_system_event(self, component: str, action: str, message: str, is_error: bool = True, cradle_id: str = None, details: dict = None):
         """Send a log to the backend dashboard"""
         try:

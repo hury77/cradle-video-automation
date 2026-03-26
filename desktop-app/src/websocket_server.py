@@ -496,15 +496,55 @@ class WebSocketServer:
                 return
 
             # Identify files
-            acceptance_file, emission_file = await self.identify_video_files(video_files, cradle_id)
+            acceptance_path, emission_path = await self.identify_video_files(video_files, cradle_id)
             
-            if not acceptance_file or not emission_file:
+            if not acceptance_path or not emission_path:
                 await self.send_error(websocket, "Could not identify acceptance and emission files")
                 return
 
+            # ────────── DUPLICATE CHECK ──────────
+            try:
+                existing_jobs = await self.api_client.get_jobs_by_cradle_id(cradle_id)
+                acc_name = Path(acceptance_path).name
+                emi_name = Path(emission_path).name
+                
+                for job in existing_jobs:
+                    status = job.get("status")
+                    
+                    # 1. If job is already running or pending - STOP
+                    if status in ["pending", "processing"]:
+                        logger.info(f"🚫 [API] Skipping job for {cradle_id} - Job {job['id']} already in progress ({status})")
+                        await self.send_response(websocket, "VIDEO_COMPARE_RESULTS", {
+                            "success": True,
+                            "job_id": job["id"],
+                            "message": f"Job for {cradle_id} is already in progress ({status}). Reusing existing job ID.",
+                            "is_duplicate": True
+                        })
+                        return
+
+                    # 2. If job is completed - check if files are the same
+                    if status == "completed":
+                        # Check if original filenames match
+                        # (job["filename"] has a unique suffix, but original_name is the one from disk)
+                        job_acc_orig = job.get("acceptance_file", {}).get("original_name")
+                        job_emi_orig = job.get("emission_file", {}).get("original_name")
+                        
+                        if job_acc_orig == acc_name and job_emi_orig == emi_name:
+                            logger.info(f"🚫 [API] Skipping job for {cradle_id} - Identical original files already compared (Job {job['id']})")
+                            await self.send_response(websocket, "VIDEO_COMPARE_RESULTS", {
+                                "success": True,
+                                "job_id": job["id"],
+                                "message": f"Identical comparison for {cradle_id} was already completed. Reusing results.",
+                                "is_duplicate": True
+                            })
+                            return
+            except Exception as e:
+                logger.warning(f"⚠️ [API] Failed to check for existing jobs: {str(e)}")
+            # ──────────────────────────────────────
+
             logger.info(f"🚀 [API] Starting API Job for {cradle_id}")
-            logger.info(f"   📂 Acceptance: {Path(acceptance_file).name}")
-            logger.info(f"   📂 Emission: {Path(emission_file).name}")
+            logger.info(f"   📂 Acceptance: {acc_name}")
+            logger.info(f"   📂 Emission: {emi_name}")
 
             # Send status: Started
             await self.send_status_update(websocket, "VIDEO_COMPARE_STARTED", {
@@ -514,12 +554,12 @@ class WebSocketServer:
             })
 
             # 1. Upload Acceptance
-            acc_result = await self.api_client.upload_file(acceptance_file, "acceptance", cradle_id)
+            acc_result = await self.api_client.upload_file(acceptance_path, "acceptance", cradle_id)
             if not acc_result or "file_id" not in acc_result:
                 raise Exception(f"Acceptance upload failed: {acc_result}")
             
             # 2. Upload Emission
-            emi_result = await self.api_client.upload_file(emission_file, "emission", cradle_id)
+            emi_result = await self.api_client.upload_file(emission_path, "emission", cradle_id)
             if not emi_result or "file_id" not in emi_result:
                  raise Exception(f"Emission upload failed: {emi_result}")
 

@@ -206,6 +206,15 @@ class ComparisonJobUpdate(BaseModel):
     processing_config: Optional[Dict[str, Any]] = None
 
 
+class JobMetricsResponse(BaseModel):
+    """Simplified metrics for job list view"""
+
+    video_similarity: Optional[float] = None
+    audio_similarity: Optional[float] = None
+    overall_similarity: Optional[float] = None
+
+
+
 class ComparisonJobResponse(ComparisonJobBase):
     """Schema for comparison job API response"""
 
@@ -233,6 +242,9 @@ class ComparisonJobResponse(ComparisonJobBase):
     # Related files (optional, can be loaded)
     acceptance_file: Optional[FileResponse] = None
     emission_file: Optional[FileResponse] = None
+
+    # Results summary (optional metrics)
+    metrics: Optional[JobMetricsResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 

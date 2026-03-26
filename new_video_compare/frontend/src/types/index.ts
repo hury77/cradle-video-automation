@@ -27,6 +27,11 @@ export interface ComparisonJob {
   progress?: number;
   completed_at?: string;
   results?: any;
+  metrics?: {
+    video_similarity?: number;
+    audio_similarity?: number;
+    overall_similarity?: number;
+  };
 }
 
 export interface FileUpload {
