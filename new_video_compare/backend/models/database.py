@@ -26,7 +26,7 @@ is_sqlite = DATABASE_URL.startswith("sqlite")
 if is_sqlite:
     engine = create_engine(
         DATABASE_URL,
-        connect_args={"check_same_thread": False},  # SQLite specific
+        connect_args={"check_same_thread": False, "timeout": 30},
         echo=settings.debug
     )
 else:

@@ -22,6 +22,11 @@ from models.models import (
     ComparisonType,
     FileType,
     SensitivityLevel,
+    QADecision,
+    DecisionVerdict,
+    ComparisonResult,
+    VideoComparisonResult,
+    AudioComparisonResult,
 )
 from models.schemas import (
     ComparisonJobCreate,
@@ -805,16 +810,13 @@ async def retry_comparison_job(
 @router.post("/{job_id}/decision")
 async def save_qa_decision(
     job_id: int,
-    decision_data: "QADecisionCreate",
+    decision_data: QADecisionCreate,
     db: Session = Depends(get_db),
 ):
     """
     Save a QA decision (verdict + reasoning) for a comparison job.
     This is the primary data source for Agent 2 (Analyst) learning.
     """
-    from models.schemas import QADecisionCreate, QADecisionResponse
-    from models.models import QADecision, DecisionVerdict, ComparisonResult, VideoComparisonResult, AudioComparisonResult
-
     job = db.query(ComparisonJobModel).filter(ComparisonJobModel.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -822,23 +824,31 @@ async def save_qa_decision(
     # If a decision already exists for this job, update it
     existing = db.query(QADecision).filter(QADecision.job_id == job_id).first()
 
-    # Build metrics snapshot from existing results
+    # Build metrics snapshot from existing results (streamlined)
     metrics_snapshot = {}
     try:
-        video_result = db.query(VideoComparisonResult).filter(VideoComparisonResult.job_id == job_id).first()
-        audio_result = db.query(AudioComparisonResult).filter(AudioComparisonResult.job_id == job_id).first()
-        comp_result = db.query(ComparisonResult).filter(ComparisonResult.job_id == job_id).first()
+        # Combined query or sequential check
+        video_result = db.query(VideoComparisonResult).filter(VideoComparisonResult.job_id == job_id).order_by(VideoComparisonResult.created_at.desc()).first()
+        audio_result = db.query(AudioComparisonResult).filter(AudioComparisonResult.job_id == job_id).order_by(AudioComparisonResult.created_at.desc()).first()
+        comp_result = db.query(ComparisonResult).filter(ComparisonResult.job_id == job_id).order_by(ComparisonResult.created_at.desc()).first()
+        
         if video_result:
-            metrics_snapshot["video_similarity"] = video_result.similarity_score
-            metrics_snapshot["different_frames"] = video_result.different_frames
-            metrics_snapshot["total_frames"] = video_result.total_frames
+            metrics_snapshot.update({
+                "video_similarity": video_result.similarity_score,
+                "different_frames": video_result.different_frames,
+                "total_frames": video_result.total_frames
+            })
         if audio_result:
-            metrics_snapshot["audio_similarity"] = audio_result.similarity_score
-            metrics_snapshot["mfcc_similarity"] = audio_result.mfcc_similarity
-            metrics_snapshot["spectral_similarity"] = audio_result.spectral_similarity
+            metrics_snapshot.update({
+                "audio_similarity": audio_result.similarity_score,
+                "mfcc_similarity": audio_result.mfcc_similarity,
+                "spectral_similarity": audio_result.spectral_similarity
+            })
         if comp_result:
-            metrics_snapshot["overall_similarity"] = comp_result.overall_similarity
-            metrics_snapshot["is_match"] = comp_result.is_match
+            metrics_snapshot.update({
+                "overall_similarity": comp_result.overall_similarity,
+                "is_match": comp_result.is_match
+            })
     except Exception as e:
         logger.warning(f"Could not build metrics snapshot for job {job_id}: {e}")
 
