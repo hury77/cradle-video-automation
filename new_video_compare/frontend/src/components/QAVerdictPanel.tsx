@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 interface QAVerdictPanelProps {
   jobId: number;
   clientName: string;
+  onSaveSuccess?: () => void;
 }
 
 const VERDICT_LABELS = {
@@ -11,7 +12,7 @@ const VERDICT_LABELS = {
   review: { label: "👤 REVIEW", bg: "bg-amber-500 hover:bg-amber-600", ring: "ring-amber-500", text: "text-amber-700", light: "bg-amber-50 border-amber-200" },
 };
 
-const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) => {
+const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSaveSuccess }) => {
   const [verdict, setVerdict] = useState<"approve" | "reject" | "review" | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [saving, setSaving] = useState(false);
@@ -36,7 +37,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
 
   const handleSave = async () => {
     if (!verdict) {
-      setError("Wybierz werdykt przed zapisaniem.");
+      setError("Select a verdict before saving.");
       return;
     }
     setSaving(true);
@@ -56,11 +57,15 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
       setSaved(true);
 
       // Signal to base tab that automation can continue (next asset)
-      localStorage.setItem("cradle-trigger-next", Date.now().toString());
       // Clear auto-compare flag so automation doesn't loop
       localStorage.removeItem("cradle-auto-video-compare");
+      
+      // Auto-navigate back to dashboard after 2s
+      if (onSaveSuccess) {
+          setTimeout(onSaveSuccess, 2000);
+      }
     } catch (e: any) {
-      setError(`Błąd zapisu: ${e.message}`);
+      setError(`Save error: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -84,7 +89,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
               <h2 className="text-xl font-bold text-gray-900">QA Decision</h2>
               {clientName && (
                 <p className="text-sm text-gray-500">
-                  Klient: <span className="font-semibold text-gray-700">{clientName}</span>
+                  Client: <span className="font-semibold text-gray-700">{clientName}</span>
                 </p>
               )}
             </div>
@@ -93,7 +98,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
             <span
               className={`px-4 py-1.5 rounded-full text-sm font-bold ${selectedStyle?.text} ${selectedStyle?.light} border`}
             >
-              {VERDICT_LABELS[verdict].label} — zapisano
+              {VERDICT_LABELS[verdict].label} — saved
             </span>
           )}
         </div>
@@ -120,13 +125,13 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
         {/* Reasoning */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Uzasadnienie <span className="text-gray-400 font-normal">(opcjonalne, ale pomocne dla Agent 2)</span>
+            Reasoning <span className="text-gray-400 font-normal">(optional, but helpful for Agent 2)</span>
           </label>
           <textarea
             value={reasoning}
             onChange={(e) => { setReasoning(e.target.value); setSaved(false); }}
             rows={3}
-            placeholder="Np. 'Różnica kolorem tła w 0:04-0:07, akceptowalna ze względu na kompresję. Audio identyczne.'"
+            placeholder="e.g. 'Background color difference in 0:04-0:07, acceptable due to compression. Audio identical.'"
             className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none transition"
           />
         </div>
@@ -146,12 +151,12 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName }) =>
               : "bg-blue-600 hover:bg-blue-700 active:scale-[0.98]"
           }`}
         >
-          {saving ? "Zapisywanie..." : saved ? "✓ Zapisano — Automatyzacja może kontynuować" : "💾 Zapisz decyzję i kontynuuj automatyzację"}
+          {saving ? "Saving..." : saved ? "✓ Saved — Automation can continue" : "💾 Save decision and continue automation"}
         </button>
 
         {saved && (
           <p className="text-center text-sm text-gray-500 mt-3">
-            Decyzja zapisana do bazy wiedzy. Automatyzacja przejdzie do następnego assetu.
+            Decision saved to Knowledge Base. Automation will proceed to the next asset.
           </p>
         )}
       </div>

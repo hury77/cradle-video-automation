@@ -13,6 +13,7 @@ export interface ComparisonJob {
   id: number;
   job_name: string;
   cradle_id: string;
+  client_name?: string;
   acceptance_file_id: number;
   emission_file_id: number;
   acceptance_file?: FileInfo;

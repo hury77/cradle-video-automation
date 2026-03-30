@@ -194,6 +194,33 @@ async def process_file_metadata(file_path: Path) -> dict:
         logger.error(f"Error extracting metadata from {file_path}: {e}")
         return {"file_size": 0}
 
+async def process_file_background(file_id: int):
+    """Background task to finalize file processing"""
+    from models.database import SessionLocal
+    from models.models import File as FileModel
+    import time
+    
+    # Wait a moment for the DB commit from the main request to finish
+    time.sleep(1)
+    
+    with SessionLocal() as db:
+        file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+        if not file_record:
+            logger.error(f"Background process: File {file_id} not found")
+            return
+            
+        try:
+            logger.info(f"⚙️ Background processing for file {file_id} started")
+            # For now, we already have basic metadata, so we just mark it as processed.
+            # In the future, this could trigger deep analysis or scene detection.
+            file_record.is_processed = True
+            db.commit()
+            logger.info(f"✅ File {file_id} marked as processed")
+        except Exception as e:
+            logger.error(f"❌ Background process failed for {file_id}: {e}")
+            file_record.processing_error = str(e)
+            db.commit()
+
 # =============================================================================
 # API ENDPOINTS
 # =============================================================================
@@ -281,6 +308,9 @@ async def upload_file_stream(
         db.add(file_record)
         db.commit()
         db.refresh(file_record)
+        
+        # Schedule background processing
+        background_tasks.add_task(process_file_background, file_record.id)
         
         return FileUploadResponse(
             success=True,
@@ -385,14 +415,13 @@ async def upload_file(
             is_processed=False
         )
         
-        db.add(file_record)
         db.commit()
         db.refresh(file_record)
         
         logger.info(f"✅ File record created: ID={file_record.id}")
         
-        # Schedule background processing (metadata extraction with FFmpeg)
-        # background_tasks.add_task(process_file_full_metadata, file_record.id)
+        # Schedule background processing
+        background_tasks.add_task(process_file_background, file_record.id)
         
         return FileUploadResponse(
             success=True,
@@ -576,6 +605,11 @@ def needs_transcoding(file_record) -> bool:
     if file_format == "mov" and not codec:
         return True
         
+    # NEW: Force proxy for UI responsiveness if file is larger than 20MB
+    if (file_record.file_size or 0) > 20 * 1024 * 1024:
+        logger.info(f"⏩ Forcing proxy for large file: {file_record.filename} ({file_record.file_size / 1024 / 1024:.1f} MB)")
+        return True
+        
     return False
 
 def get_proxy_path(original_path: Path) -> Path:
@@ -669,16 +703,7 @@ async def stream_video(
             else:
                 file_format = ""
                 
-            needs_transcoding_flag = False
-            # ProRes, DNxHD, and similar professional codecs need transcoding
-            if codec in ["prores", "dnxhd", "dnxhr", "mpeg2video", "rawvideo"]:
-                needs_transcoding_flag = True
-            # MOV files with non-H264 codecs need transcoding
-            elif file_format == "mov" and codec not in WEB_COMPATIBLE_CODECS:
-                needs_transcoding_flag = True
-            # If codec is unknown but format is MOV, assume it needs transcoding
-            elif file_format == "mov" and not codec:
-                needs_transcoding_flag = True
+            needs_transcoding_flag = needs_transcoding(file_record)
                 
     except Exception as e:
         logger.error(f"Error retrieving file {file_id}: {e}")

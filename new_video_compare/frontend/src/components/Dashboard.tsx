@@ -78,20 +78,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
   const [loading, setLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
+  
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [cradleIdFilter, setCradleIdFilter] = useState<string>("");
+  const [clientFilter, setClientFilter] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<string>("");
 
   useEffect(() => {
     fetchJobs();
-    const interval = setInterval(fetchJobs, 30000); // Auto-refresh every 30s
+    const interval = setInterval(() => fetchJobs(true), 30000); // Background refresh
     return () => clearInterval(interval);
-  }, []);
+  }, [statusFilter, cradleIdFilter, clientFilter, typeFilter]);
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (isBackground = false) => {
     try {
-      // Don't set loading on background refresh
-      if (!jobs.length) setLoading(true);
+      if (!isBackground) setLoading(true);
 
       const [jobsResponse, statsResponse] = await Promise.all([
-        compareApi.getJobs(),
+        compareApi.getJobs({
+          status: statusFilter || undefined,
+          cradleId: cradleIdFilter || undefined,
+          clientName: clientFilter || undefined,
+          comparisonType: typeFilter || undefined,
+          limit: 50
+        }),
         compareApi.getDashboardStats().catch(err => null)
       ]);
       
@@ -101,7 +112,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
     } catch (error) {
       console.error("Failed to fetch jobs:", error);
     } finally {
-      if (loading) setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
@@ -144,10 +155,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
   };
 
   const handleCleanup = async () => {
-    if (!window.confirm("Delete 10 oldest jobs + associated files?")) return;
+    const daysStr = window.prompt("Delete jobs and files older than how many days?", "14");
+    if (daysStr === null) return;
+    const days = parseInt(daysStr, 10);
+    if (isNaN(days)) return;
+
+    if (!window.confirm(`Are you sure you want to delete ALL jobs and associated files older than ${days} days?`)) return;
+    
     setCleaningUp(true);
     try {
-      const result = await compareApi.cleanupOldJobs(10);
+      const result = await compareApi.cleanupOldJobs(days, 100);
       alert(`Cleanup complete!\n${result.message}\nFreed: ${result.freed_space_mb} MB`);
       fetchJobs();
     } catch (error) {
@@ -176,6 +193,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
       case "failed": return `${base} bg-red-100 text-red-800`;
       default: return `${base} bg-gray-100 text-gray-800`;
     }
+  };
+
+  const MetricBadge: React.FC<{ label: string; value?: number }> = ({ label, value }) => {
+    if (value === undefined || value === null) return null;
+    const score = Math.round(value * 100);
+    let bgColor = "bg-gray-100 text-gray-600";
+    if (score >= 95) bgColor = "bg-emerald-100 text-emerald-700 border-emerald-200";
+    else if (score >= 85) bgColor = "bg-amber-100 text-amber-700 border-amber-200";
+    else bgColor = "bg-rose-100 text-rose-700 border-rose-200";
+
+    return (
+      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-bold ${bgColor} uppercase tracking-tight`}>
+        <span className="opacity-60">{label}:</span>
+        <span>{score}%</span>
+      </div>
+    );
   };
 
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
@@ -208,7 +241,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                 </h1>
                 <p className="text-gray-500 mt-1 ml-14">Analytics and Performance Metrics</p>
               </div>
-              <button onClick={fetchJobs} className="text-sm text-blue-600 hover:underline">Refresh Data</button>
+              <button onClick={() => fetchJobs()} className="text-sm text-blue-600 hover:underline">Refresh Data</button>
             </div>
     
             {/* KPI Grid */}
@@ -300,11 +333,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                                     labels: dashboardStats.chart_data.map(d => {
                                         const date = new Date(d.date);
                                         return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
-                                    }).reverse(),
+                                    }),
                                     datasets: [
                                         {
                                             label: 'Jobs Processed',
-                                            data: dashboardStats.chart_data.map(d => d.count).reverse(),
+                                            data: dashboardStats.chart_data.map(d => d.count),
                                             borderColor: 'rgb(79, 70, 229)',
                                             backgroundColor: 'rgba(79, 70, 229, 0.1)',
                                             tension: 0.3,
@@ -480,15 +513,90 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                     Recent Comparisons
                  </h1>
             </div>
-            <button onClick={fetchJobs} className="text-sm text-blue-600 hover:underline">Refresh List</button>
+            <button onClick={() => fetchJobs()} className="text-sm text-blue-600 hover:underline">Refresh List</button>
         </div>
 
-        {/* Jobs Table */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">Active Jobs & History</h2>
-            <div className="flex items-center space-x-3">
-              <FileUpload onJobCreated={fetchJobs} />
+        {/* Jobs Table & Filters */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+          <div className="px-6 py-4 border-b border-gray-200 bg-white">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Active Jobs & History</h2>
+              <div className="flex items-center space-x-3">
+                <FileUpload onJobCreated={() => fetchJobs()} />
+              </div>
+            </div>
+            
+            {/* Filter Bar */}
+            <div className="mt-4 flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+               <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2 ml-1">Filters:</div>
+               
+               <div className="flex items-center bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm">
+                  <span className="text-gray-400 mr-2">Status:</span>
+                  <select 
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="text-sm bg-transparent border-none focus:ring-0 text-gray-700"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                  </select>
+               </div>
+
+               <div className="flex items-center bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm">
+                  <span className="text-gray-400 mr-2">Client:</span>
+                  <select 
+                    value={clientFilter}
+                    onChange={(e) => setClientFilter(e.target.value)}
+                    className="text-sm bg-transparent border-none focus:ring-0 text-gray-700"
+                  >
+                    <option value="">All Clients</option>
+                    {dashboardStats?.clients.map(c => (
+                      <option key={c.name} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+               </div>
+
+               <div className="flex items-center bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm">
+                  <span className="text-gray-400 mr-2">Type:</span>
+                  <select 
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="text-sm bg-transparent border-none focus:ring-0 text-gray-700"
+                  >
+                    <option value="">All Types</option>
+                    <option value="full">Full Comparison</option>
+                    <option value="video_only">Video Only</option>
+                    <option value="audio_only">Audio Only</option>
+                    <option value="automation">Automation</option>
+                  </select>
+               </div>
+
+               <div className="flex items-center bg-white border border-gray-200 rounded-md px-3 py-1 shadow-sm flex-1 min-w-[150px]">
+                  <input 
+                    type="text" 
+                    placeholder="Search Cradle ID..." 
+                    value={cradleIdFilter}
+                    onChange={(e) => setCradleIdFilter(e.target.value)}
+                    className="text-sm border-none focus:ring-0 w-full"
+                  />
+               </div>
+
+               {(statusFilter || clientFilter || typeFilter || cradleIdFilter) && (
+                 <button 
+                  onClick={() => {
+                    setStatusFilter("");
+                    setClientFilter("");
+                    setTypeFilter("");
+                    setCradleIdFilter("");
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium ml-2"
+                 >
+                   Clear All
+                 </button>
+               )}
             </div>
           </div>
 
@@ -505,7 +613,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Details</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrics</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[220px]">Metrics</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -533,15 +641,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
+                      <td className="px-6 py-4 whitespace-nowrap">
                         {job.status === "completed" && job.metrics ? (
-                          <>
-                            V: {job.metrics.video_similarity ? Math.round(job.metrics.video_similarity * 100) + '%' : '-'} | 
-                            A: {job.metrics.audio_similarity ? Math.round(job.metrics.audio_similarity * 100) + '%' : '-'} | 
-                            O: {job.metrics.overall_similarity ? Math.round(job.metrics.overall_similarity * 100) + '%' : '-'}
-                          </>
+                          <div className="flex flex-wrap gap-2">
+                            <MetricBadge label="O" value={job.metrics.overall_similarity} />
+                            <MetricBadge label="V" value={job.metrics.video_similarity} />
+                            <MetricBadge label="A" value={job.metrics.audio_similarity} />
+                          </div>
                         ) : (
-                          <span className="text-gray-300">-</span>
+                          <span className="text-gray-300 text-xs">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(job.created_at)}</td>

@@ -275,6 +275,7 @@ function App() {
             <VideoComparison 
               job={selectedJob} 
               onJobReanalyzed={() => handleSelectJob(null)}
+              onBackToDashboard={() => handleSelectJob(null)}
             />
           </div>
         ) : dashboardView === "kb" ? (

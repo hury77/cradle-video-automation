@@ -14,6 +14,7 @@ from .video_processor import VideoProcessor, ProcessingResult
 from .audio_processor import AudioProcessor
 # OCR removed — visual differences detected by SSIM+pixel diff comparison
 from .audio_service import compare_loudness, compare_audio_similarity, compare_audio_full, separate_sources, compare_spoken_text
+from utils.logging_utils import log_automation_event
 
 # Database imports
 import sys
@@ -72,6 +73,17 @@ class ComparisonService:
             job.started_at = datetime.now(timezone.utc)
             job.progress = 0.0
             db.commit()
+
+            # Log job start
+            log_automation_event(
+                db=db,
+                component="backend",
+                action="JOB_START",
+                message=f"Started comparison job: {job.job_name}",
+                cradle_id=job.cradle_id,
+                is_error=False,
+                details={"job_id": job_id, "comparison_type": str(job.comparison_type.value)}
+            )
 
             # Get file paths
             acceptance_path = job.acceptance_file.file_path
@@ -203,6 +215,15 @@ class ComparisonService:
                 job.progress = 10.0
                 db.commit()
                 
+                log_automation_event(
+                    db=db,
+                    component="backend",
+                    action="VIDEO_START",
+                    message="Starting video analysis phase",
+                    cradle_id=job.cradle_id,
+                    is_error=False
+                )
+                
                 try:
                     video_result = self.video_processor.process_comparison(
                         job_id=job_id,
@@ -217,6 +238,19 @@ class ComparisonService:
                         
                     logger.info(f"💾 Video Result Obtained: {video_result}")
                     results["video_result"] = video_result
+
+                    log_automation_event(
+                        db=db,
+                        component="backend",
+                        action="VIDEO_COMPLETE",
+                        message=f"Video analysis complete. Similarity: {video_result.overall_similarity:.2%}",
+                        cradle_id=job.cradle_id,
+                        is_error=False,
+                        details={
+                            "similarity": video_result.overall_similarity,
+                            "diff_frames": video_result.frames_with_differences
+                        }
+                    )
                 except Exception as e:
                     logger.error(f"❌ CRITICAL ERROR in video comparison: {e}", exc_info=True)
                     # Re-raise to trigger job failure
@@ -238,6 +272,15 @@ class ComparisonService:
                 logger.info("🔊 Starting audio comparison...")
                 job.progress = 65.0
                 db.commit()
+
+                log_automation_event(
+                    db=db,
+                    component="backend",
+                    action="AUDIO_START",
+                    message="Starting audio analysis phase",
+                    cradle_id=job.cradle_id,
+                    is_error=False
+                )
                 
                 audio_result = {}
                 
@@ -326,6 +369,19 @@ class ComparisonService:
                         
                         logger.info(f"✅ Speech-to-Text complete: {stt_result.get('text_similarity', 0):.1%} match")
                         
+                        log_automation_event(
+                            db=db,
+                            component="backend",
+                            action="AUDIO_COMPLETE",
+                            message=f"Audio analysis complete. Similarity: {audio_result.get('similarity_score', 0):.2%}",
+                            cradle_id=job.cradle_id,
+                            is_error=False,
+                            details={
+                                "similarity": audio_result.get("similarity_score"),
+                                "stt_match": stt_result.get("text_similarity")
+                            }
+                        )
+                        
                     except Exception as stt_err:
                         logger.warning(f"Speech-to-Text pipeline failed: {stt_err}")
                         audio_result["speech_to_text"] = {"error": str(stt_err)}
@@ -377,6 +433,16 @@ class ComparisonService:
                 job.error_message = str(e)
                 job.completed_at = datetime.now(timezone.utc)
                 db.commit()
+
+                log_automation_event(
+                    db=db,
+                    component="backend",
+                    action="JOB_FAILED",
+                    message=f"Job failed: {str(e)}",
+                    cradle_id=job.cradle_id,
+                    is_error=True,
+                    details={"error": str(e)}
+                )
             
             return {"success": False, "error": str(e)}
 

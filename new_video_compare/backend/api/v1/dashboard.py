@@ -62,7 +62,9 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     # 2. Key Performance Indicators (KPIs)
     # Success Rate
     finished_count = completed + failed
-    success_rate = round((completed / finished_count * 100), 1) if finished_count > 0 else 0.0
+    success_rate = 0.0
+    if finished_count > 0:
+        success_rate = round((completed / finished_count * 100), 1)
     
     # Avg Processing Time (for completed jobs)
     avg_duration = db.query(func.avg(ComparisonJob.processing_duration)).filter(ComparisonJob.status == JobStatus.COMPLETED).scalar() or 0
@@ -98,17 +100,26 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     for job in all_jobs:
         if not job.job_name: continue
         
-        # Simple heuristic: Split by space, underscore, or dash
-        normalized_name = job.job_name.replace("_", " ").replace("-", " ")
-        parts = normalized_name.split()
-        client_name = parts[0] if parts else "Unknown"
-        
-        # Common known clients (hardcoded for better grouping if needed, otherwise dynamic)
-        known_clients = ["Electrolux", "Philips", "Bridgestone", "Nivea", "Loreal"]
-        for known in known_clients:
-            if known.lower() in job.job_name.lower():
-                client_name = known
-                break
+        # 1. Use dedicated client_name field if available
+        if getattr(job, "client_name", None):
+            client_name = job.client_name
+        else:
+            # 2. Fallback to heuristic from job_name
+            # If it's an automated job, skip the "Auto-Compare" prefix
+            display_name = job.job_name
+            if display_name.startswith("Auto-Compare "):
+                display_name = display_name.replace("Auto-Compare ", "", 1)
+            
+            normalized_name = display_name.replace("_", " ").replace("-", " ")
+            parts = normalized_name.split()
+            client_name = parts[0] if parts else "Unknown"
+            
+            # 3. Known clients fallback
+            known_clients = ["Electrolux", "Philips", "Bridgestone", "Nivea", "Loreal"]
+            for known in known_clients:
+                if known.lower() in job.job_name.lower():
+                    client_name = known
+                    break
                 
         if client_name not in clients:
             clients[client_name] = {"total": 0, "failed": 0, "completed": 0}
@@ -152,7 +163,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "action": log.action,
             "message": log.message,
             "is_error": log.is_error,
-            "created_at": log.created_at.isoformat() if log.created_at else None
+            "created_at": log.created_at.isoformat() if getattr(log, 'created_at', None) else None
         }
         for log in recent_logs
     ]
@@ -180,15 +191,21 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     }
 
 @router.delete("/cleanup")
-async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
-    """Delete N oldest completed/failed jobs and their files, plus clean up orphans."""
+async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depends(get_db)):
+    """Delete jobs and files older than N days, up to a maximum count."""
     
     import shutil
+    from datetime import datetime, timedelta
     
-    # Find N oldest jobs that are completed or failed
+    threshold_date = datetime.now() - timedelta(days=days)
+    
+    # Find jobs that are completed or failed and older than the threshold
     jobs_to_delete = (
         db.query(ComparisonJob)
-        .filter(ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]))
+        .filter(
+            ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]),
+            ComparisonJob.created_at < threshold_date
+        )
         .order_by(ComparisonJob.created_at.asc())
         .limit(count)
         .all()
@@ -317,6 +334,7 @@ async def cleanup_old_jobs(count: int = 10, db: Session = Depends(get_db)):
         "message": f"Cleanup finished. Deleted {deleted_count} jobs, {orphan_count} orphan file records.",
         "deleted_jobs": deleted_count,
         "orphan_files_cleaned": orphan_count,
+        "days_threshold": days,
         "freed_space_mb": round(freed_space_bytes / (1024 * 1024), 2)
     }
 
@@ -375,7 +393,7 @@ async def get_knowledge_base(
             "cradle_id": d.cradle_id,
             "decided_by": d.decided_by,
             "metrics_snapshot": d.metrics_snapshot,
-            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "created_at": d.created_at.isoformat() if getattr(d, 'created_at', None) else None,
         })
 
     # Unique clients for filter dropdown
@@ -423,7 +441,7 @@ async def get_automation_logs(
             "message": log.message,
             "is_error": log.is_error,
             "details": log.details,
-            "created_at": log.created_at.isoformat() if log.created_at else None
+            "created_at": log.created_at.isoformat() if getattr(log, 'created_at', None) else None
         }
         for log in logs
     ]

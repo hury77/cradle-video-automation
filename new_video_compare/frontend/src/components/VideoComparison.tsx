@@ -18,6 +18,7 @@ import QAVerdictPanel from "./QAVerdictPanel";
 interface VideoComparisonProps {
   job: ComparisonJob;
   onJobReanalyzed?: () => void;
+  onBackToDashboard?: () => void;
 }
 
 interface ApiResults {
@@ -153,7 +154,7 @@ interface ApiResults {
   }>;
 }
 
-const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed }) => {
+const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed, onBackToDashboard }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -230,7 +231,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                   console.error(`${label} WaveSurfer Error:`, err);
                   if (err.toString().includes('AbortError')) return;
                   if (err.toString().includes('Unable to decode')) {
-                      setError("Brak ścieżki audio");
+                      setError("No audio track");
                   } else {
                       setError(err.toString());
                   }
@@ -255,7 +256,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
           } catch (e: any) {
               console.error(`${label} WaveSurfer Init Error:`, e);
               if (e.message && e.message.includes('Unable to decode')) {
-                  setError("Brak ścieżki audio");
+                  setError("No audio track");
               } else {
                   setError(e.message || "Init Error");
               }
@@ -273,11 +274,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
       }
       
       if (emissionWaveformRef.current && emissionVideoRef.current && emissionVideoUrl) {
-          initWaveSurfer(
-              emissionWaveformRef.current, emissionVideoRef.current, emissionVideoUrl,
-              { wave: '#fca5a5', progress: '#dc2626' },
-              'Emission', setEmissionWaveformError
-          ).then(ws => { emissionWavesurferRef.current = ws; });
+          // DELAY: Wait 500ms before starting second fetch to reduce concurrent pressure on single-threaded backend
+          setTimeout(() => {
+              if (emissionWaveformRef.current && emissionVideoRef.current && emissionVideoUrl) {
+                  initWaveSurfer(
+                      emissionWaveformRef.current, emissionVideoRef.current, emissionVideoUrl,
+                      { wave: '#fca5a5', progress: '#dc2626' },
+                      'Emission', setEmissionWaveformError
+                  ).then(ws => { emissionWavesurferRef.current = ws; });
+              }
+          }, 500);
       }
 
       return () => {
@@ -952,12 +958,12 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
           <div className="flex items-center justify-center gap-6 text-xs text-gray-500 mt-6">
             <div className="flex items-center">
               <div className="w-2.5 h-2.5 bg-red-500 rounded-full mr-2"></div>
-              Różnice Video
+              Video Differences
             </div>
 
             <div className="flex items-center">
               <div className="w-1 h-4 bg-blue-500 mr-2"></div>
-              Różnice Audio
+              Audio Differences
             </div>
           </div>
 
@@ -1147,11 +1153,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                           )}
                           {audio.has_loudness_differences ? (
                             <span className="ml-2 px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium">
-                              Różnice w głośności
+                              Loudness Differences
                             </span>
                           ) : (
                             <span className="ml-2 px-3 py-1 bg-green-100 text-green-700 text-sm rounded-full font-medium">
-                              ✓ Głośność zgodna
+                              ✓ Loudness match
                             </span>
                           )}
                         </h3>
@@ -1224,21 +1230,21 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                         <div className="mt-3 p-4 bg-gray-100 rounded-lg">
                           <div className="grid grid-cols-2 gap-4 text-center">
                             <div className={`p-3 rounded-lg ${loudness.comparison.is_lufs_match ? 'bg-green-100' : 'bg-red-100'}`}>
-                              <div className="text-sm text-gray-600">Różnica LUFS</div>
-                              <div className={`text-2xl font-bold ${loudness.comparison.is_lufs_match ? 'text-green-700' : 'text-red-700'}`}>
-                                {loudness.comparison.lufs_difference > 0 ? '+' : ''}{loudness.comparison.lufs_difference} LU
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {loudness.comparison.is_lufs_match ? '✓ W tolerancji ±1 LU' : '⚠️ Poza tolerancją'}
+                              <div className="text-sm text-gray-600">LUFS Difference</div>
+                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.lufs_difference) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                                {loudness.comparison.lufs_difference > 0 ? '+' : ''}{loudness.comparison.lufs_difference.toFixed(1)} LU
+                                <span className="ml-2 text-xs font-normal opacity-70">
+                                  ({loudness.comparison.is_lufs_match ? '✓ Within tolerance ±1 LU' : '⚠️ Out of tolerance'})
+                                </span>
                               </div>
                             </div>
                             <div className={`p-3 rounded-lg ${loudness.comparison.is_peak_match ? 'bg-green-100' : 'bg-red-100'}`}>
-                              <div className="text-sm text-gray-600">Różnica Peak</div>
-                              <div className={`text-2xl font-bold ${loudness.comparison.is_peak_match ? 'text-green-700' : 'text-red-700'}`}>
-                                {loudness.comparison.peak_difference_db > 0 ? '+' : ''}{loudness.comparison.peak_difference_db} dB
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {loudness.comparison.is_peak_match ? '✓ W tolerancji ±1 dB' : '⚠️ Poza tolerancją'}
+                              <div className="text-sm text-gray-600">Peak Difference</div>
+                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.peak_difference_db) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                                {loudness.comparison.peak_difference_db > 0 ? '+' : ''}{loudness.comparison.peak_difference_db.toFixed(1)} dB
+                                <span className="ml-2 text-xs font-normal opacity-70">
+                                  ({loudness.comparison.is_peak_match ? '✓ Within tolerance ±1 dB' : '⚠️ Out of tolerance'})
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -1258,8 +1264,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Acceptance Audio</span>
                               {waveformError && (
-                                <span className={`text-xs font-bold px-2 rounded border ${waveformError === 'Brak ścieżki audio' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
-                                  {waveformError === 'Brak ścieżki audio' ? waveformError : `Error: ${waveformError}`}
+                                <span className={`text-xs font-bold px-2 rounded border ${waveformError === 'No audio track' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                  {waveformError === 'No audio track' ? waveformError : `Error: ${waveformError}`}
                                 </span>
                               )}
                             </div>
@@ -1275,8 +1281,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Emission Audio</span>
                               {emissionWaveformError && (
-                                <span className={`text-xs font-bold px-2 rounded border ${emissionWaveformError === 'Brak ścieżki audio' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
-                                  {emissionWaveformError === 'Brak ścieżki audio' ? emissionWaveformError : `Error: ${emissionWaveformError}`}
+                                <span className={`text-xs font-bold px-2 rounded border ${emissionWaveformError === 'No audio track' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                  {emissionWaveformError === 'No audio track' ? emissionWaveformError : `Error: ${emissionWaveformError}`}
                                 </span>
                               )}
                             </div>
@@ -1448,7 +1454,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed 
 
       {/* ======================== QA VERDICT PANEL ======================== */}
       {job.status === "completed" && (
-        <QAVerdictPanel jobId={job.id} clientName={(job as any).client_name || ""} />
+        <QAVerdictPanel 
+          jobId={job.id} 
+          clientName={(job as any).client_name || ""} 
+          onSaveSuccess={onBackToDashboard}
+        />
       )}
     </div>
   );

@@ -203,6 +203,7 @@ async def list_comparison_jobs(
     limit: int = 100,
     status: Optional[JobStatusEnum] = None,
     cradle_id: Optional[str] = None,
+    client_name: Optional[str] = None,
     comparison_type: Optional[ComparisonTypeEnum] = None,
     db: Session = Depends(get_db),
 ):
@@ -213,6 +214,7 @@ async def list_comparison_jobs(
     - **limit**: Maximum number of jobs to return
     - **status**: Filter by job status
     - **cradle_id**: Filter by Cradle ID
+    - **client_name**: Filter by client name
     - **comparison_type**: Filter by comparison type
     """
     query = db.query(ComparisonJobModel)\
@@ -223,7 +225,10 @@ async def list_comparison_jobs(
         query = query.filter(ComparisonJobModel.status == JobStatus(status.value))
 
     if cradle_id:
-        query = query.filter(ComparisonJobModel.cradle_id == cradle_id)
+        query = query.filter(ComparisonJobModel.cradle_id.ilike(f"%{cradle_id}%"))
+        
+    if client_name:
+        query = query.filter(ComparisonJobModel.client_name.ilike(f"%{client_name}%"))
 
     if comparison_type:
         query = query.filter(

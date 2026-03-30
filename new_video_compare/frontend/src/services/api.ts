@@ -135,8 +135,25 @@ export interface AutomationLogsResponse {
 }
 
 class CompareAPI {
-  async getJobs(): Promise<ComparisonJob[]> {
-    const response = await fetch(`${API_BASE_URL}/compare/`);
+  async getJobs(filters?: {
+    status?: string;
+    cradleId?: string;
+    clientName?: string;
+    comparisonType?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<ComparisonJob[]> {
+    let url = `${API_BASE_URL}/compare/?`;
+    if (filters) {
+      if (filters.status) url += `status=${encodeURIComponent(filters.status)}&`;
+      if (filters.cradleId) url += `cradle_id=${encodeURIComponent(filters.cradleId)}&`;
+      if (filters.clientName) url += `client_name=${encodeURIComponent(filters.clientName)}&`;
+      if (filters.comparisonType) url += `comparison_type=${encodeURIComponent(filters.comparisonType)}&`;
+      if (filters.skip !== undefined) url += `skip=${filters.skip}&`;
+      if (filters.limit !== undefined) url += `limit=${filters.limit}&`;
+    }
+    
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error("Failed to fetch jobs");
     }
@@ -223,8 +240,8 @@ class CompareAPI {
     return response.json();
   }
 
-  async cleanupOldJobs(count: number = 10): Promise<CleanupResult> {
-    const response = await fetch(`${API_BASE_URL}/dashboard/cleanup?count=${count}`, {
+  async cleanupOldJobs(days: number = 14, count: number = 50): Promise<CleanupResult> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/cleanup?days=${days}&count=${count}`, {
         method: "DELETE"
     });
     if (!response.ok) {
