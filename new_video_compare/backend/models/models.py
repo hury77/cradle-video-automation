@@ -537,7 +537,10 @@ class QADecision(Base):
 
     # Decision data
     verdict = Column(Enum(DecisionVerdict), nullable=False, index=True)
-    reasoning = Column(Text, nullable=True)  # User-provided justification
+    reasoning = Column(Text, nullable=True)        # Main reasoning shown in UI (AI or human)
+    ai_reasoning = Column(Text, nullable=True)     # Original AI reasoning (preserved even after human override)
+    comment = Column(Text, nullable=True)          # Free-text QA comment (from human, separate from verdict reasoning)
+    override_reason = Column(Text, nullable=True)  # Why human overrode AI decision
 
     # Context
     client_name = Column(String(200), nullable=True, index=True)

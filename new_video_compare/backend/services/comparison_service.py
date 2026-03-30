@@ -687,7 +687,8 @@ class ComparisonService:
                 decision = QADecision(
                     job_id=job_id,
                     verdict=verdict,
-                    reasoning=f"[AI Analyst]: {ai_result.get('reasoning')}",
+                    reasoning=ai_result.get('reasoning'),             # Clean text for display
+                    ai_reasoning=ai_result.get('reasoning'),          # Dedicated AI field (preserved after override)
                     client_name=job.client_name,
                     cradle_id=job.cradle_id,
                     metrics_snapshot=metrics,
@@ -695,10 +696,11 @@ class ComparisonService:
                 )
                 db.add(decision)
             else:
-                # Update if not already decided by human
+                # Update if not already decided by human (preserve human decisions)
                 if decision.decided_by != "human":
                     decision.verdict = verdict
-                    decision.reasoning = f"[AI Analyst]: {ai_result.get('reasoning')}"
+                    decision.reasoning = ai_result.get('reasoning')   # Clean reasoning without prefix
+                    decision.ai_reasoning = ai_result.get('reasoning') # Also store in dedicated AI field
                     decision.metrics_snapshot = metrics
             
             logger.info(f"🧠 AI Analyst verdict prepared for job {job_id}: {verdict_str}")

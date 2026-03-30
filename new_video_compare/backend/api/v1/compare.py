@@ -718,6 +718,7 @@ async def reanalyze_job(
         sensitivity_level=new_sensitivity,
         processing_config=original_job.processing_config,
         cradle_id=original_job.cradle_id,
+        client_name=original_job.client_name,  # BUGFIX: propagate client name to re-analyzed jobs
         created_by=original_job.created_by,
         status=JobStatus.PENDING,
     )
@@ -858,6 +859,8 @@ async def save_qa_decision(
     if existing:
         existing.verdict = verdict_enum
         existing.reasoning = decision_data.reasoning
+        existing.comment = decision_data.comment
+        existing.override_reason = decision_data.override_reason
         existing.client_name = client_name
         existing.decided_by = decision_data.decided_by
         existing.metrics_snapshot = metrics_snapshot
@@ -870,6 +873,8 @@ async def save_qa_decision(
             job_id=job_id,
             verdict=verdict_enum,
             reasoning=decision_data.reasoning,
+            comment=decision_data.comment,
+            override_reason=decision_data.override_reason,
             client_name=client_name,
             cradle_id=job.cradle_id,
             metrics_snapshot=metrics_snapshot,
@@ -896,6 +901,9 @@ async def get_qa_decision(job_id: int, db: Session = Depends(get_db)):
         "id": decision.id,
         "verdict": decision.verdict.value,
         "reasoning": decision.reasoning,
+        "ai_reasoning": decision.ai_reasoning,
+        "comment": decision.comment,
+        "override_reason": decision.override_reason,
         "client_name": decision.client_name,
         "decided_by": decision.decided_by,
         "created_at": decision.created_at.isoformat() if decision.created_at else None,

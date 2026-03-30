@@ -687,6 +687,8 @@ class QADecisionCreate(BaseModel):
     """Schema for creating a QA decision"""
     verdict: DecisionVerdictEnum
     reasoning: Optional[str] = Field(None, max_length=2000)
+    comment: Optional[str] = Field(None, max_length=2000)        # Free-text QA note from human
+    override_reason: Optional[str] = Field(None, max_length=500) # Why human overrode AI
     client_name: Optional[str] = Field(None, max_length=200)
     decided_by: str = Field(default="human", max_length=100)
 
@@ -697,6 +699,9 @@ class QADecisionResponse(BaseModel):
     job_id: int
     verdict: DecisionVerdictEnum
     reasoning: Optional[str] = None
+    ai_reasoning: Optional[str] = None    # Original AI reasoning (preserved after override)
+    comment: Optional[str] = None         # Human QA comment
+    override_reason: Optional[str] = None # Why human overrode AI
     client_name: Optional[str] = None
     cradle_id: Optional[str] = None
     metrics_snapshot: Optional[Dict[str, Any]] = None
