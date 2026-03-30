@@ -19,6 +19,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingDecision, setExistingDecision] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Load existing decision on mount
   useEffect(() => {
@@ -30,9 +31,16 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
           setVerdict(data.verdict as any);
           setReasoning(data.reasoning || "");
           setSaved(true);
+          // If decision was made by AI, start in read-only mode (not editing)
+          setIsEditing(false);
+        } else {
+          // No decision yet — open the form immediately
+          setIsEditing(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setIsEditing(true);
+      });
   }, [jobId]);
 
   const handleSave = async () => {
@@ -54,10 +62,13 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
         }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      // Update local state to reflect human override
+      setExistingDecision({ ...existingDecision, verdict, reasoning, decided_by: "human" });
       setSaved(true);
+      setIsEditing(false);
 
       // Signal to base tab that automation can continue (next asset)
-      // Clear auto-compare flag so automation doesn't loop
       localStorage.removeItem("cradle-auto-video-compare");
       
       // Auto-navigate back to dashboard after 2s
@@ -71,8 +82,86 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
     }
   };
 
-  const selectedStyle = verdict ? VERDICT_LABELS[verdict] : null;
+  const handleStartEdit = () => {
+    setIsEditing(true);
+    setSaved(false);
+  };
 
+  const selectedStyle = verdict ? VERDICT_LABELS[verdict] : null;
+  const isAiDecision = existingDecision?.decided_by === "agent";
+  const isHumanOverride = existingDecision?.decided_by === "human";
+
+  // ── Read-only mode: shows AI or human verdict with override button ──
+  if (saved && !isEditing && existingDecision) {
+    return (
+      <div className="mt-8 mb-4 mx-auto max-w-7xl print:hidden">
+        <div
+          className={`rounded-2xl shadow-md border-2 p-6 transition-all ${
+            selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white border-gray-200"
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <span className="text-2xl">📋</span>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">QA Decision</h2>
+                {clientName && (
+                  <p className="text-sm text-gray-500">
+                    Client: <span className="font-semibold text-gray-700">{clientName}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            {/* Verdict badge */}
+            {verdict && selectedStyle && (
+              <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${selectedStyle.text} ${selectedStyle.light} border`}>
+                {VERDICT_LABELS[verdict].label}
+              </span>
+            )}
+          </div>
+
+          {/* Author Badge */}
+          <div className="mb-4">
+            {isHumanOverride ? (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold w-fit">
+                <span>👤</span>
+                <span>Human override — decision was changed by QA user</span>
+              </div>
+            ) : isAiDecision ? (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 text-sm font-semibold w-fit">
+                <span>🧠</span>
+                <span>AI Analyst (Agent 2) — automatic decision</span>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Reasoning */}
+          {existingDecision.reasoning && (
+            <div className="mb-5 rounded-xl bg-white border border-gray-200 px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Reasoning</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{existingDecision.reasoning}</p>
+            </div>
+          )}
+
+          {/* Override button */}
+          <button
+            onClick={handleStartEdit}
+            className={`w-full py-3 rounded-xl font-bold text-sm transition-all shadow flex items-center justify-center gap-2 ${
+              isAiDecision
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+            }`}
+          >
+            <span>✏️</span>
+            <span>{isAiDecision ? "Override AI Decision" : "Edit Decision"}</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Edit/Create mode ──
   return (
     <div className="mt-8 mb-4 mx-auto max-w-7xl print:hidden">
       <div
@@ -94,12 +183,12 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
               )}
             </div>
           </div>
-          {saved && verdict && (
-            <span
-              className={`px-4 py-1.5 rounded-full text-sm font-bold ${selectedStyle?.text} ${selectedStyle?.light} border`}
-            >
-              {VERDICT_LABELS[verdict].label} — saved
-            </span>
+          {/* Show context banner if overriding AI */}
+          {isAiDecision && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold">
+              <span>🧠</span>
+              <span>Overriding AI verdict</span>
+            </div>
           )}
         </div>
 
@@ -141,24 +230,29 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
           <p className="text-red-600 text-sm mb-3 font-medium">⚠️ {error}</p>
         )}
 
-        {/* Save Button */}
-        <button
-          onClick={handleSave}
-          disabled={saving || !verdict}
-          className={`w-full py-3 rounded-xl text-white font-bold text-base transition-all shadow ${
-            saving || !verdict
-              ? "bg-gray-300 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700 active:scale-[0.98]"
-          }`}
-        >
-          {saving ? "Saving..." : saved ? "✓ Saved — Automation can continue" : "💾 Save decision and continue automation"}
-        </button>
-
-        {saved && (
-          <p className="text-center text-sm text-gray-500 mt-3">
-            Decision saved to Knowledge Base. Automation will proceed to the next asset.
-          </p>
-        )}
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          {/* Cancel button (only shown when editing an existing decision) */}
+          {existingDecision && isEditing && (
+            <button
+              onClick={() => { setIsEditing(false); setSaved(true); setVerdict(existingDecision.verdict); setReasoning(existingDecision.reasoning || ""); }}
+              className="flex-none py-3 px-5 rounded-xl font-bold text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 transition-all"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || !verdict}
+            className={`flex-1 py-3 rounded-xl text-white font-bold text-base transition-all shadow ${
+              saving || !verdict
+                ? "bg-gray-300 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 active:scale-[0.98]"
+            }`}
+          >
+            {saving ? "Saving..." : isAiDecision ? "💾 Save as Human Override" : "💾 Save decision and continue automation"}
+          </button>
+        </div>
       </div>
     </div>
   );

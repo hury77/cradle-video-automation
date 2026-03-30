@@ -31,6 +31,8 @@ from models.models import (
     DifferenceType,
     SeverityLevel,
     SensitivityLevel,
+    QADecision,
+    DecisionVerdict,
 )
 from config import get_sensitivity_config
 
@@ -323,8 +325,13 @@ class ComparisonService:
                 db.commit()
                 
                 # Extended Audio Analysis (Demucs + Whisper)
-                if check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
-                    mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else "Audio-Only"
+                # Runs for: AUDIO_ONLY, AUTOMATION, or FULL with HIGH/AUTOMATION sensitivity
+                should_run_stt = (
+                    check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION])
+                    or (check_comp_type(job.comparison_type, ComparisonType.FULL) and effective_sensitivity in ["high", "automation"])
+                )
+                if should_run_stt:
+                    mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper()
                     logger.info(f"🎧 {mode_label} Mode: Running enhanced analysis (Demucs + Whisper)...")
                     
                     import gc
@@ -585,8 +592,120 @@ class ComparisonService:
             )
             db.add(audio_db_result)
 
+
+        # --- Phase 2: Analyst Brain (Agent 2) ---
+        # Call this BEFORE the main commit to avoid deadlocks in SQLite
+        try:
+            self._run_ai_analyst(db, job.id, results)
+        except Exception as ai_e:
+            logger.error(f"⚠️ AI Analyst failed: {ai_e}")
+
         db.commit()
         logger.info(f"💾 Saved comparison results for job {job.id}")
+
+    def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
+        """
+        Orchestrates the AI analyst brain for a given job.
+        
+        Args:
+            db: Database session
+            job_id: ID of the job to analyze
+            results: Results dictionary from comparison
+        """
+        job = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first()
+        if not job:
+            return
+
+        # Prepare metrics for AI
+        video_res = results.get("video_result")
+        audio_res = results.get("audio_result")
+        
+        # BUGFIX: overall_similarity was always 1.0 because "overall_similarity" key doesn't exist in `results`.
+        # `results` only contains "video_result" and "audio_result". Use video_res directly.
+        computed_video_similarity = float(video_res.overall_similarity if video_res and hasattr(video_res, 'overall_similarity') else 1.0)
+
+        metrics = {
+            "job_id": job_id,
+            "job_name": job.job_name,
+            "client_name": job.client_name,
+            "overall_similarity": computed_video_similarity,
+            "video_similarity": computed_video_similarity,
+            "video_differences_count": int(video_res.frames_with_differences if video_res and hasattr(video_res, 'frames_with_differences') else 0),
+        }
+        
+        if audio_res and isinstance(audio_res, dict):
+            metrics["audio_similarity"] = float(audio_res.get("similarity_score", 0.0))
+            
+            # Build transcript summary for AI (text_diff_preview doesn't exist — use real STT fields)
+            stt = audio_res.get("speech_to_text", {})
+            stt_similarity = stt.get("text_similarity")
+            acceptance_text = stt.get("acceptance_text", "")
+            emission_text = stt.get("emission_text", "")
+            comparison_data = stt.get("comparison", {})
+            word_diffs = comparison_data.get("word_differences", [])
+            
+            if stt_similarity is not None:
+                metrics["audio_transcription"] = {
+                    "text_similarity": stt_similarity,
+                    "is_text_match": stt.get("is_text_match", True),
+                    "acceptance_text": acceptance_text[:300] if acceptance_text else "",
+                    "emission_text": emission_text[:300] if emission_text else "",
+                    "word_differences_count": len(word_diffs),
+                    "word_differences_sample": word_diffs[:5],  # First 5 differences for context
+                }
+            else:
+                metrics["audio_transcription"] = {"status": "not_run"}
+            
+            # Pass loudness metrics to AI
+            # Note: compare_loudness() stores differences under "comparison" key (not "difference")
+            loudness = audio_res.get("loudness", {})
+            loudness_comparison = loudness.get("comparison", {})
+            metrics["audio_loudness"] = {
+                "acceptance_lufs": loudness.get("acceptance", {}).get("integrated_lufs"),
+                "emission_lufs": loudness.get("emission", {}).get("integrated_lufs"),
+                "lufs_difference": loudness_comparison.get("lufs_difference"),
+                "peak_difference_db": loudness_comparison.get("peak_difference_db"),
+                "has_loudness_issue": loudness.get("has_loudness_differences", False)
+            }
+            
+        # Call AI Analyst
+        from .analyst_service import get_analyst
+        ai_result = get_analyst().analyze_job_results(metrics)
+        
+        # Save AI Verdict
+        try:
+            # Map string verdict to enum
+            verdict_str = ai_result.get("verdict", "review").lower()
+            verdict = DecisionVerdict.REVIEW
+            if verdict_str == "approve":
+                verdict = DecisionVerdict.APPROVE
+            elif verdict_str == "reject":
+                verdict = DecisionVerdict.REJECT
+                
+            decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
+            if not decision:
+                decision = QADecision(
+                    job_id=job_id,
+                    verdict=verdict,
+                    reasoning=f"[AI Analyst]: {ai_result.get('reasoning')}",
+                    client_name=job.client_name,
+                    cradle_id=job.cradle_id,
+                    metrics_snapshot=metrics,
+                    decided_by="agent"
+                )
+                db.add(decision)
+            else:
+                # Update if not already decided by human
+                if decision.decided_by != "human":
+                    decision.verdict = verdict
+                    decision.reasoning = f"[AI Analyst]: {ai_result.get('reasoning')}"
+                    decision.metrics_snapshot = metrics
+            
+            logger.info(f"🧠 AI Analyst verdict prepared for job {job_id}: {verdict_str}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to prepare AI decision: {e}")
+            # No rollback here, let the caller handle it
 
 
 # Singleton instance for the service

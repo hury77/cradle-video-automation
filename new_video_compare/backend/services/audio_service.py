@@ -1339,33 +1339,8 @@ def compare_spoken_text(
     """
     import gc
     
-    logger.info("🎙️ Starting spoken text comparison (independent pipeline)...")
-    
-    # FAST PATH: If audio is already confirmed identical by MFCC, skip Demucs + Whisper.
-    # Demucs is non-deterministic - identical files can produce different separation results,
-    # causing Whisper to transcribe a different subset of audio: false VO positives.
-    if audio_similarity_score is not None and audio_similarity_score >= 0.99:
-        logger.info(f"✅ SKIPPING STT: Audio similarity {audio_similarity_score:.4f} >= 0.99. Files are identical. Returning is_text_match=True.")
-        return {
-            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
-            "transcript_emission": {"text": "", "segments": [], "word_count": 0},
-            "comparison": {
-                "text_similarity": 1.0,
-                "is_text_match": True,
-                "word_count_a": 0,
-                "word_count_b": 0,
-                "word_differences": [],
-                "segment_differences": [],
-                "total_differences": 0,
-                "acceptance_text": "",
-                "emission_text": ""
-            },
-            "text_similarity": 1.0,
-            "is_text_match": True,
-            "skipped_reason": f"Audio similarity {audio_similarity_score:.4f} is near-perfect, STT skipped to avoid false positives from source separation non-determinism.",
-            "pipeline_info": {"skipped": True},
-            "detected_language": language or "unknown",
-        }
+    # Full STT pipeline (No longer skipping to ensure transparency)
+    logger.info("🎙️ Starting full spoken text comparison (Whisper always-on)...")
     
     # Process acceptance file
     logger.info("=" * 60)
