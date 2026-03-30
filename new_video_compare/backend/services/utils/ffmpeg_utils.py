@@ -252,8 +252,8 @@ class FFmpegUtils:
         logger.info(f"📁 Output directory: {output_dir}")
 
         try:
-            # Build FFmpeg command with -nostdin to prevent background process freezing
-            cmd = [self.ffmpeg_path, "-nostdin", "-i", str(video_path)]
+            # Build FFmpeg command with hardware acceleration
+            cmd = [self.ffmpeg_path, "-hwaccel", "auto", "-nostdin", "-i", str(video_path)]
 
             # Add time range if specified
             if start_time is not None:
@@ -327,6 +327,8 @@ class FFmpegUtils:
         try:
             cmd = [
                 self.ffmpeg_path,
+                "-hwaccel",
+                "auto",
                 "-nostdin",
                 "-i",
                 str(video_path),

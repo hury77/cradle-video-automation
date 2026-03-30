@@ -628,18 +628,19 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
     
     logger.info(f"🔄 Transcoding {input_path.name} to web-compatible MP4...")
     
+    # Use VideoToolbox for hardware-accelerated encoding on Mac
     cmd = [
         "ffmpeg",
-        "-nostdin",  # Prevent hanging
+        "-hwaccel", "auto",          # Enable hardware decoding
+        "-nostdin",
         "-y",
         "-i", str(input_path),
-        "-c:v", "libx264",           # H.264 codec
-        "-preset", "fast",            # Fast encoding
-        "-crf", "23",                # Good quality
-        "-c:a", "aac",               # AAC audio
-        "-b:a", "128k",              # Audio bitrate
-        "-movflags", "+faststart",   # Enable fast web playback
-        "-pix_fmt", "yuv420p",       # Compatible pixel format
+        "-c:v", "h264_videotoolbox",  # Apple Silicon hardware H.264
+        "-b:v", "2M",                # Target bitrate for proxy
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
         str(output_path)
     ]
     

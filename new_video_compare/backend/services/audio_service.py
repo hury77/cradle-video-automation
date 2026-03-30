@@ -17,6 +17,7 @@ _pyloudnorm = None
 _librosa = None
 _soundfile = None
 _whisper = None
+_mlx_whisper = None
 
 
 def get_pyloudnorm():
@@ -47,6 +48,14 @@ def get_soundfile():
         _soundfile = sf
         logger.info("✅ soundfile loaded")
     return _soundfile
+def get_mlx_whisper():
+    """Lazy load mlx_whisper"""
+    global _mlx_whisper
+    if _mlx_whisper is None:
+        import mlx_whisper
+        _mlx_whisper = mlx_whisper
+        logger.info("✅ mlx_whisper loaded")
+    return _mlx_whisper
 
 
 def extract_audio_from_video(
@@ -75,16 +84,17 @@ def extract_audio_from_video(
     
     logger.info(f"🎵 Extracting audio from: {video_path.name}")
     
-    # FFmpeg command to extract audio
+    # FFmpeg command to extract audio - use hardware decoder if available
     cmd = [
         'ffmpeg',
-        '-nostdin',  # Fix: Prevent hanging when running in background
-        '-y',  # Overwrite output
+        '-hwaccel', 'auto',  # Auto hardware acceleration
+        '-nostdin',
+        '-y',
         '-i', str(video_path),
-        '-vn',  # No video
-        '-acodec', 'pcm_s16le',  # 16-bit PCM
-        '-ar', str(sample_rate),  # Sample rate
-        '-ac', '2',  # Stereo
+        '-vn',
+        '-acodec', 'pcm_s16le',
+        '-ar', str(sample_rate),
+        '-ac', '2',
         output_path
     ]
     
@@ -435,7 +445,7 @@ def separate_sources(
         cmd = [
             cmd_exec,
             "-n", "htdemucs",
-            "-d", "cpu",
+            "-d", "mps",  # Metal Performance Shaders (Mac GPU)
             "-o", str(output_dir),
             "--filename", "{track}/{stem}.{ext}", # Organize by track/stem
             str(audio_path)
@@ -830,7 +840,7 @@ def transcribe_audio(
     model_name: str = "base"
 ) -> Dict[str, Any]:
     """
-    Transcribe audio to text using Whisper
+    Transcribe audio to text using MLX-optimized Whisper (Neural Engine)
     
     Args:
         audio_path: Path to audio file (WAV, MP3, etc.)
@@ -840,49 +850,70 @@ def transcribe_audio(
     Returns:
         Dict with transcription text, segments with timestamps, and metadata
     """
-    whisper = get_whisper()
-    
-    logger.info(f"📝 Transcribing audio: {Path(audio_path).name} (model: {model_name})")
-    
+    # 1. Get raw result from transcription engine
     try:
-        # Load model (cached after first load)
-        import os
-        config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
-        # Override only if model_name was explicitly passed as something other than default "base"
-        # If default "base" was passed, prefer the env var "small"
-        target_model = config_model if model_name == "base" else model_name
-        
-        logger.info(f"🤖 Loading Whisper model: {target_model} (fp16=False)")
-        model = whisper.load_model(target_model)
-        
-        # Transcribe with robust parameters for noisy audio (commercials)
-        options = {
-            "fp16": False,                # CPU safety
-            "beam_size": 5,               # Better search accuracy
-            "condition_on_previous_text": False, # Prevent hallucination loops
-            "no_speech_threshold": 0.8,   # Relax silence detection (default 0.6)
-            "logprob_threshold": None     # Disable skipping low-confidence segments
-        }
-        if language:
-            options["language"] = language
-        
-        result = model.transcribe(str(audio_path), **options)
-        
-        # Extract segments with timestamps
+        # Prefer MLX for M-series Macs
+        try:
+            mlx_whisper = get_mlx_whisper()
+            import os
+            
+            # Use full-precision community models for 100% accuracy matching standard Whisper
+            model_map = {
+                "tiny": "mlx-community/whisper-tiny-mlx",
+                "base": "mlx-community/whisper-base-mlx",
+                "small": "mlx-community/whisper-small-mlx",
+                "medium": "mlx-community/whisper-medium-mlx",
+                "large": "mlx-community/whisper-large-v3-mlx"
+            }
+            
+            config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
+            target_model_key = config_model if model_name == "base" else model_name
+            target_model = model_map.get(target_model_key, "mlx-community/whisper-small-mlx")
+            
+            logger.info(f"📝 MLX Transcribing (M4): {Path(audio_path).name} using {target_model}")
+            
+            options = {"word_timestamps": True}
+            if language:
+                options["language"] = language
+                
+            result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=target_model, **options)
+            
+        except (ImportError, Exception) as mlx_err:
+            logger.warning(f"⚠️ MLX Whisper failed or not available, falling back to standard: {mlx_err}")
+            whisper = get_whisper()
+            
+            import os
+            config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
+            target_model = config_model if model_name == "base" else model_name
+            
+            logger.info(f"🤖 Loading standard Whisper: {target_model}")
+            model = whisper.load_model(target_model)
+            
+            options = {
+                "fp16": False,
+                "beam_size": 5,
+                "condition_on_previous_text": False,
+                "no_speech_threshold": 0.8,
+            }
+            if language:
+                options["language"] = language
+                
+            result = model.transcribe(str(audio_path), **options)
+
+        # 2. Process engine results (Common Logic)
         segments = []
+        db_hallucinations = []
         
         # Fetch active hallucinations from database
-        db_hallucinations = []
         try:
             from models.database import SessionLocal
             from models.models import WhisperHallucination
-            with SessionLocal() as db:
-                db_hallucinations = db.query(WhisperHallucination).filter(WhisperHallucination.is_active == True).all()
-        except Exception as e:
-            logger.error(f"Failed to fetch hallucinations from DB: {e}")
-        
+            with SessionLocal() as db_session:
+                db_hallucinations = db_session.query(WhisperHallucination).filter(WhisperHallucination.is_active == True).all()
+        except Exception as db_e:
+            logger.error(f"Failed to fetch hallucinations from DB: {db_e}")
+            
         filtered_text = []
-        
         for seg in result.get("segments", []):
             text = seg["text"].strip()
             text_lower = text.lower()
@@ -891,10 +922,8 @@ def transcribe_audio(
             # Database hallucination filter
             is_hallucination = False
             for h in db_hallucinations:
-                # If language is set, it must match the requested language (or if no language requested, we apply all)
                 if h.language and language and h.language != language:
                     continue
-                    
                 phrase = h.phrase.lower()
                 if h.match_type.value == "exact":
                     if text_clean == phrase or text_lower == phrase:
@@ -904,13 +933,12 @@ def transcribe_audio(
                     if phrase in text_lower:
                         is_hallucination = True
                         break
-                        
+            
             if is_hallucination:
                 logger.warning(f"⚠️ Filtered hallucination (DB): '{text}'")
                 continue
-            
-            # Segment-level: filter out very low-confidence segments
-            # Whisper provides 'no_speech_prob' per segment - high value = likely silence/noise
+                
+            # Filter out low-confidence segments
             no_speech_prob = seg.get("no_speech_prob", 0.0)
             if no_speech_prob > 0.6:
                 logger.warning(f"⚠️ Filtered low-confidence segment (no_speech_prob={no_speech_prob:.2f}): '{text}'")
@@ -922,9 +950,8 @@ def transcribe_audio(
                 "text": text,
             })
             filtered_text.append(text)
-        
+            
         full_text = " ".join(filtered_text)
-        
         transcription = {
             "text": full_text,
             "language": result.get("language", "unknown"),
@@ -933,11 +960,10 @@ def transcribe_audio(
         }
         
         logger.info(f"✅ Transcribed: {len(segments)} segments, {transcription['word_count']} words")
-        
         return transcription
-        
+
     except Exception as e:
-        logger.error(f"❌ Transcription failed: {e}")
+        logger.error(f"❌ Transcription failed (Engine/Processing): {e}")
         return {"error": str(e), "text": "", "segments": []}
 
 
