@@ -668,9 +668,9 @@ class ComparisonService:
                 "has_loudness_issue": loudness.get("has_loudness_differences", False)
             }
             
-        # Call AI Analyst
+        # Call AI Analyst — pass db session so it can load per-client KB context (SOUL.md)
         from .analyst_service import get_analyst
-        ai_result = get_analyst().analyze_job_results(metrics)
+        ai_result = get_analyst().analyze_job_results(metrics, db=db)
         
         # Save AI Verdict
         try:

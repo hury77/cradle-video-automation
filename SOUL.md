@@ -109,3 +109,41 @@ Każda decyzja i akcja musi być:
 
 ### Priorytet #3: Ciągłe doskonalenie
 System uczy się z każdego przetworzonego assetu. Historia decyzji to najcenniejszy zasób.
+
+---
+
+## 🔒 Baza Wiedzy (Knowledge Base) — Zasady Ochrony
+
+> **Baza danych `qa_decisions` to biblia systemu. Jest nienaruszalna.**
+
+### Co to jest KB?
+Tabela `qa_decisions` przechowuje każdą decyzję QA — zarówno automatyczne (AI) jak i ludzkie korekty. Jest to fundament uczenia się per-klient i podstawa do poprawy dokładności agentów.
+
+### Reguły ochrony KB (bezwzględne)
+
+| Reguła | Opis |
+|---|---|
+| 🚫 **NIGDY nie usuwaj** | Żaden agent nie usuwa wpisów z `qa_decisions`. Tylko administrator może to robić ręcznie. |
+| 🚫 **NIGDY nie nadpisuj human** | Jeśli `decided_by = 'human'`, agent NIGDY nie może zmienić tego wpisu automatycznie. Decyzja ludzka ma absolutny priorytet. |
+| ✅ **Agent może aktualizować tylko własne** | Agent może nadpisać wpis z `decided_by = 'agent'` przy re-analizie — ale NIGDY wpis ludzki. |
+| ✅ **Zawsze zachowaj `ai_reasoning`** | Nawet gdy human nadpisuje decyzję AI, pole `ai_reasoning` musi zostać zachowane jako ślad audytowy. |
+| ✅ **Każda decyzja ma uzasadnienie** | Agent ZAWSZE wypełnia pole `reasoning`. Puste uzasadnienie jest niedopuszczalne. |
+
+### Jak agenci używają KB
+- **Agent 2 (Analyst)**: CZYTA historię per-klient przed każdą analizą. Decyzje ludzkie (zwłaszcza korekty AI) to najcenniejszy sygnał. Traktuj je jak wyrok sądu najwyższego.
+- **Agent 1 (Controller)**: Nie czyta KB bezpośrednio — tylko zapisuje wyniki do bazy przez API.
+- **Agent 3 (Developer)**: Analizuje KB statystycznie (trendy, false-positive rate). Nigdy nie modyfikuje danych.
+
+### Hierarchia ważności wpisów
+```
+człowiek + override_reason  ← NAJWAŻNIEJSZY (lekcja dla AI)
+człowiek bez override       ← Ważny (potwierdzenie)
+agent (nie nadpisany)       ← Pomocniczy (wzorzec)
+agent (nadpisany)           ← Historyczny błąd (analizuj!)
+```
+
+### Co zrobić gdy KB jest mała (< 20 wpisów per klient)?
+- Pierwsze 10 assetów nowego klienta → zawsze REVIEW (SOUL.md Agent 2, zasada #6)
+- Używaj globalnych reguł (Truth Table) jako podstawy
+- Stopniowo buduj wzorce — nie przyspieszaj procesu
+
