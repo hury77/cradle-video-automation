@@ -546,8 +546,13 @@ class QADecision(Base):
     client_name = Column(String(200), nullable=True, index=True)
     cradle_id = Column(String(100), nullable=True, index=True)
 
-    # Metrics snapshot at time of decision (for Agent 2 learning)
+    # Metrics snapshot at time of decision (for Agent 2 learning — basic key-value store)
     metrics_snapshot = Column(JSON, nullable=True)
+
+    # Knowledge snapshot — full audit trail preserved after job/file deletion
+    # Contains: video difference timeline, audio LUFS/STT, job metadata
+    # Allows post-hoc review of ANY decision even without the source video files
+    knowledge_snapshot = Column(JSON, nullable=True)
 
     # Attribution
     decided_by = Column(String(100), default="human")  # 'human' or 'agent'

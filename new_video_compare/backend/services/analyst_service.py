@@ -264,22 +264,43 @@ class AnalystService:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _parse_response(self, content: str) -> Dict[str, Any]:
-        """Parse LLM JSON response with fallback to REVIEW on any error."""
+        """
+        Parse LLM JSON response — language-agnostic, LLM-proof.
+
+        Strategy: find the FIRST '{' and LAST '}' in the entire response,
+        extract whatever is between them. This works regardless of:
+        - Language (Polish / English / mixed)
+        - Markdown wrappers (```json ... ```)
+        - Explanatory prose before or after the JSON
+        """
+        raw_content = content  # Keep for error logging
+
         try:
-            # Strip markdown code blocks if present
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+            # Step 1: Try to find the JSON object directly by braces
+            start = content.find('{')
+            end = content.rfind('}')
 
-            analysis = json.loads(content)
+            if start != -1 and end != -1 and end > start:
+                json_str = content[start:end + 1]
+                analysis = json.loads(json_str)
+            else:
+                # Step 2: Fallback — try stripping markdown code fences
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].split("```")[0].strip()
+                analysis = json.loads(content)
 
-            if "verdict" not in analysis:
-                analysis["verdict"] = "review"
-            if "reasoning" not in analysis:
+            # Validate & sanitize
+            verdict = str(analysis.get("verdict", "review")).lower().strip()
+            if verdict not in ("approve", "reject", "review"):
+                logger.warning(f"⚠️ Unexpected verdict value '{verdict}' — defaulting to review")
+                verdict = "review"
+            analysis["verdict"] = verdict
+
+            if "reasoning" not in analysis or not analysis["reasoning"]:
                 analysis["reasoning"] = "Analiza AI zakończona bez uzasadnienia."
 
-            verdict = analysis["verdict"]
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
             logger.info(
@@ -287,11 +308,17 @@ class AnalystService:
             )
             return analysis
 
-        except (json.JSONDecodeError, IndexError) as e:
-            logger.error(f"❌ Failed to parse AI JSON response: {e}\nRaw: {content}")
+        except (json.JSONDecodeError, ValueError, IndexError) as e:
+            logger.error(
+                f"❌ Failed to parse AI JSON response: {e}\n"
+                f"Raw content (first 300 chars): {raw_content[:300]}"
+            )
             return {
                 "verdict": "review",
-                "reasoning": f"Błąd parsowania odpowiedzi AI. Fragment odpowiedzi: {content[:120]}...",
+                "reasoning": (
+                    f"Błąd parsowania odpowiedzi AI — model odpowiedział w nieoczekiwanym formacie. "
+                    f"Fragment: {raw_content[:150]}…"
+                ),
                 "confidence": 0.0,
                 "kb_used": False,
             }

@@ -906,6 +906,7 @@ async def get_qa_decision(job_id: int, db: Session = Depends(get_db)):
         "override_reason": decision.override_reason,
         "client_name": decision.client_name,
         "decided_by": decision.decided_by,
+        "knowledge_snapshot": decision.knowledge_snapshot,
         "created_at": decision.created_at.isoformat() if decision.created_at else None,
     }
 

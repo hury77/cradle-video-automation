@@ -681,33 +681,126 @@ class ComparisonService:
                 verdict = DecisionVerdict.APPROVE
             elif verdict_str == "reject":
                 verdict = DecisionVerdict.REJECT
-                
+
+            # Build knowledge snapshot — full audit trail for post-job-deletion review
+            knowledge_snapshot = self._build_knowledge_snapshot(db, job_id, job, results)
+
             decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
             if not decision:
                 decision = QADecision(
                     job_id=job_id,
                     verdict=verdict,
-                    reasoning=ai_result.get('reasoning'),             # Clean text for display
-                    ai_reasoning=ai_result.get('reasoning'),          # Dedicated AI field (preserved after override)
+                    reasoning=ai_result.get('reasoning'),
+                    ai_reasoning=ai_result.get('reasoning'),
                     client_name=job.client_name,
                     cradle_id=job.cradle_id,
                     metrics_snapshot=metrics,
+                    knowledge_snapshot=knowledge_snapshot,
                     decided_by="agent"
                 )
                 db.add(decision)
             else:
-                # Update if not already decided by human (preserve human decisions)
+                # Update if not already decided by human (SOUL.md: preserve human decisions)
                 if decision.decided_by != "human":
                     decision.verdict = verdict
-                    decision.reasoning = ai_result.get('reasoning')   # Clean reasoning without prefix
-                    decision.ai_reasoning = ai_result.get('reasoning') # Also store in dedicated AI field
+                    decision.reasoning = ai_result.get('reasoning')
+                    decision.ai_reasoning = ai_result.get('reasoning')
                     decision.metrics_snapshot = metrics
-            
-            logger.info(f"🧠 AI Analyst verdict prepared for job {job_id}: {verdict_str}")
-            
+                    decision.knowledge_snapshot = knowledge_snapshot
+
+            logger.info(f"🧠 AI Analyst verdict for job {job_id}: {verdict_str} | KB snapshot saved")
+
         except Exception as e:
             logger.error(f"❌ Failed to prepare AI decision: {e}")
-            # No rollback here, let the caller handle it
+
+    def _build_knowledge_snapshot(self, db, job_id: int, job, results: dict) -> dict:
+        """
+        Build a full audit-trail snapshot that survives weekly job cleanup.
+        
+        Stores: video difference timeline, per-frame severity, audio LUFS + STT,
+        and job metadata. Does NOT store raw waveform data (too large, no audit value).
+        """
+        try:
+            snapshot = {
+                "job_meta": {
+                    "job_name": job.job_name,
+                    "cradle_id": job.cradle_id,
+                    "client_name": job.client_name,
+                    "sensitivity": job.sensitivity_level.value if job.sensitivity_level else None,
+                    "comparison_type": job.comparison_type.value if job.comparison_type else None,
+                },
+                "video": {},
+                "audio": {},
+            }
+
+            # ── Video: frame-level differences ──────────────────────────────
+            video_res = db.query(VideoComparisonResult).filter(
+                VideoComparisonResult.job_id == job_id
+            ).first()
+            if video_res:
+                snapshot["video"] = {
+                    "similarity": round(float(video_res.similarity_score), 4),
+                    "different_frames": video_res.different_frames,
+                    "total_frames": video_res.total_frames,
+                    "resolution": video_res.resolution,
+                    "fps": video_res.fps,
+                    "duration_seconds": video_res.duration_seconds,
+                }
+
+            # ── Difference timestamps — the Difference Inspector data ────────
+            diff_timestamps = db.query(DifferenceTimestamp).filter(
+                DifferenceTimestamp.job_id == job_id
+            ).order_by(DifferenceTimestamp.timestamp_seconds).all()
+
+            if diff_timestamps:
+                # Full timeline (timestamps only — lightweight)
+                snapshot["video"]["difference_timeline"] = [
+                    round(d.timestamp_seconds, 2) for d in diff_timestamps
+                ]
+                # Top 20 worst frames with severity (for Difference Inspector replay)
+                sorted_diffs = sorted(
+                    diff_timestamps,
+                    key=lambda d: d.similarity_score if d.similarity_score is not None else 1.0
+                )
+                snapshot["video"]["top_differences"] = [
+                    {
+                        "timestamp": round(d.timestamp_seconds, 2),
+                        "severity": d.severity.value if d.severity else None,
+                        "type": d.difference_type.value if d.difference_type else None,
+                        "similarity": round(float(d.similarity_score), 4) if d.similarity_score else None,
+                    }
+                    for d in sorted_diffs[:20]
+                ]
+
+            # ── Audio: LUFS + STT only (skip raw waveform — too large) ──────
+            audio_res_db = db.query(AudioComparisonResult).filter(
+                AudioComparisonResult.job_id == job_id
+            ).first()
+            if audio_res_db:
+                audio_data = audio_res_db.audio_analysis_data or {}
+                loudness = audio_data.get("loudness", {})
+                loudness_comp = loudness.get("comparison", {})
+                stt = audio_data.get("speech_to_text", {})
+
+                snapshot["audio"] = {
+                    "similarity": round(float(audio_res_db.similarity_score), 4),
+                    "lufs_acceptance": loudness.get("acceptance", {}).get("integrated_lufs"),
+                    "lufs_emission": loudness.get("emission", {}).get("integrated_lufs"),
+                    "lufs_difference": loudness_comp.get("lufs_difference"),
+                    "peak_difference_db": loudness_comp.get("peak_difference_db"),
+                    "stt_text_similarity": stt.get("text_similarity"),
+                    "stt_is_match": stt.get("is_text_match"),
+                    "stt_acceptance_text": (stt.get("acceptance_text") or "")[:500],
+                    "stt_emission_text": (stt.get("emission_text") or "")[:500],
+                    "stt_word_differences": (stt.get("comparison") or {}).get("word_differences", [])[:10],
+                }
+
+            return snapshot
+
+        except Exception as e:
+            logger.warning(f"⚠️ Could not build knowledge_snapshot for job {job_id}: {e}")
+            return {}
+
 
 
 # Singleton instance for the service
