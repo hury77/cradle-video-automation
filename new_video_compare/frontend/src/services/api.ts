@@ -99,6 +99,8 @@ export interface DashboardStats {
   storage: {
     total_size_gb: number;
     file_count: number;
+    db_size_mb: number;
+    kb_count: number;
   };
   recent_logs?: Array<{
     id: number;

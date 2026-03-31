@@ -137,7 +137,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
         reverse=True
     )[:10] # Top 10
     
-    # 4. Storage Stats (Existing logic)
+    # Storage Stats (Existing logic)
     files = db.query(File).all()
     total_size_bytes = 0
     upload_dir = Path("new_video_compare/backend/uploads")
@@ -148,6 +148,13 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
             total_size_bytes = get_dir_size(str(upload_dir))
         except: pass
         
+    # Database Size and KB Count
+    db_size_bytes = 0
+    db_path = Path("new_video_compare.db")
+    if db_path.exists():
+        db_size_bytes = db_path.stat().st_size
+    kb_count = db.query(QADecision).count()
+
     # 5. Recent Logs (Last 10)
     recent_logs = (
         db.query(AutomationLog)
@@ -185,7 +192,9 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
         "clients": sorted_clients,
         "storage": {
             "total_size_gb": round(total_size_bytes / (1024**3), 2),
-            "file_count": len(files)
+            "file_count": len(files),
+            "db_size_mb": round(db_size_bytes / (1024**2), 2),
+            "kb_count": kb_count
         },
         "recent_logs": logs_data
     }
@@ -386,13 +395,15 @@ async def get_knowledge_base(
         results.append({
             "id": d.id,
             "job_id": d.job_id,
-            "job_name": job.job_name if job else None,
+            "job_name": job.job_name if job else getattr(d, 'job_name', None),
             "verdict": d.verdict.value,
             "reasoning": d.reasoning,
+            "ai_reasoning": getattr(d, 'ai_reasoning', None),
             "client_name": d.client_name,
             "cradle_id": d.cradle_id,
             "decided_by": d.decided_by,
             "metrics_snapshot": d.metrics_snapshot,
+            "knowledge_snapshot": getattr(d, 'knowledge_snapshot', None),
             "created_at": d.created_at.isoformat() if getattr(d, 'created_at', None) else None,
         })
 
@@ -562,6 +573,49 @@ async def export_kb_pdf(
         buffer,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=kb_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"}
+    )
+
+@router.get("/kb/export/json")
+async def export_kb_json(
+    client_name: Optional[str] = None,
+    verdict: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export Knowledge Base to JSON (full data including snapshots)"""
+    query = db.query(QADecision)
+    if client_name:
+        query = query.filter(QADecision.client_name.ilike(f"%{client_name}%"))
+    if verdict:
+        try:
+            query = query.filter(QADecision.verdict == DecisionVerdict(verdict))
+        except ValueError:
+            pass
+            
+    decisions = query.order_by(QADecision.created_at.asc()).all()
+    
+    results = []
+    for d in decisions:
+        results.append({
+            "id": d.id,
+            "job_id": d.job_id,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "cradle_id": d.cradle_id,
+            "client_name": d.client_name,
+            "verdict": d.verdict.value if d.verdict else None,
+            "reasoning": d.reasoning,
+            "ai_reasoning": getattr(d, 'ai_reasoning', None),
+            "decided_by": d.decided_by,
+            "metrics_snapshot": d.metrics_snapshot,
+            "knowledge_snapshot": getattr(d, 'knowledge_snapshot', None)
+        })
+        
+    import json
+    json_str = json.dumps(results, indent=2)
+    
+    return StreamingResponse(
+        iter([json_str]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=cradle_kb_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"}
     )
 
 

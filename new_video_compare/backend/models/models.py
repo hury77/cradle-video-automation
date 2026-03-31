@@ -269,7 +269,7 @@ class ComparisonJob(Base):
         "QADecision",
         back_populates="job",
         uselist=False,
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",  # SOUL.md: NO delete-orphan — KB must survive job cleanup
     )
 
     def __repr__(self):
@@ -529,8 +529,8 @@ class QADecision(Base):
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(
         Integer,
-        ForeignKey("comparison_jobs.id"),
-        nullable=False,
+        ForeignKey("comparison_jobs.id", ondelete="SET NULL"),
+        nullable=True,
         unique=True,
         index=True,
     )

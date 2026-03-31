@@ -596,6 +596,7 @@ class ComparisonService:
         # --- Phase 2: Analyst Brain (Agent 2) ---
         # Call this BEFORE the main commit to avoid deadlocks in SQLite
         try:
+            db.flush() # Push pending results to DB so snapshot can read them
             self._run_ai_analyst(db, job.id, results)
         except Exception as ai_e:
             logger.error(f"⚠️ AI Analyst failed: {ai_e}")

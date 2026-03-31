@@ -397,7 +397,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
                             <span className="text-gray-500">Total Files</span>
                             <span className="font-medium">{dashboardStats?.storage.file_count}</span>
                         </div>
-    
+
+                        <div className="pt-2 mt-2 border-t border-gray-100 space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">KB Database Size</span>
+                                <span className="font-medium">{dashboardStats?.storage.db_size_mb} MB</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">KB Entries</span>
+                                <span className="font-medium">{dashboardStats?.storage.kb_count} records</span>
+                            </div>
+                        </div>
+
                         <button
                             onClick={handleCleanup}
                             disabled={cleaningUp}

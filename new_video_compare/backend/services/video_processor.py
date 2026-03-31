@@ -453,6 +453,24 @@ class VideoProcessor:
                 if (i + 1) % 50 == 0:
                     logger.info(f"  Processed {i + 1}/{num_frames} frames...")
 
+                # MEMORY MANAGEMENT: Explicitly delete large numpy arrays and invoke Garbage Collector
+                # Python's GC often defers cleaning these C++ backed arrays, leading to OOM (9GB footprint)
+                del acc_gray
+                del em_gray
+                if 'diff' in locals():
+                    del diff
+                    del diff_gray
+                    del diff_thresh
+                    del diff_overlay
+                    del mask_indices
+                del acc_frame
+                del em_frame
+
+                # Force GC collection periodically to keep footprint ~150MB instead of 9GB
+                if i % 10 == 0:
+                    import gc
+                    gc.collect()
+
             except Exception as e:
                 logger.warning(f"Frame comparison failed for frame {i}: {e}")
                 frame_similarities.append(0.0)
