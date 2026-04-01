@@ -54,31 +54,61 @@ class DesktopConnection {
               }, 2000);
             }
           } else if (data.action === "VIDEO_COMPARE_RESULTS") {
-            console.log("[CradleScanner] 📊 Video Compare Results:", data.data);
-            if (data.data?.success !== false && !data.data?.error) {
-               scanner.showNotification(`✅ Video Compare task submitted successfully!`, "success");
+            const resultData = data.data || {};
+            console.log("[CradleScanner] 📊 Video Compare Results Received:", resultData);
+            
+            if (resultData.success !== false && !resultData.error) {
+               scanner.showNotification(`✅ Video Compare: Success! (Job ${resultData.job_id || 'new'})`, "success");
+               
+               // LOG: check if we are in automation mode
+               console.log("[CradleScanner] 🤖 Automation Mode Check - isAutoComparing:", scanner.isAutoComparing);
                
                if (scanner.isAutoComparing) {
                   scanner.isAutoComparing = false;
-                  // DO NOT REMOVE the "cradle-auto-video-compare" flag yet.
-                  // The QA Verdict React component will remove it upon saving.
-                  scanner.showNotification("⏳ Job created. Opening results. Waiting for HUMAN QA Decision...", "info");
+                  localStorage.removeItem("cradle-auto-video-compare"); // Clear persistence
+                  
+                  scanner.showNotification("🤖 Processing complete. Triggering Agent Hand-off...", "info");
+                  console.log("[CradleScanner] 🚀 Starting Hand-off process (Agent 2 -> Agent 1)");
+
+                  // Use a slightly longer delay to ensure notifications are visible
                   setTimeout(() => {
-                    if (data.data && data.data.job_id) {
-                        window.open(`http://localhost:3000/compare/${data.data.job_id}`, '_blank');
-                    } else {
-                        // Fallback
-                        window.open(`http://localhost:3000`, '_blank');
+                    // Open results in new tab first (if ID exists)
+                    if (resultData.job_id) {
+                        console.log(`[CradleScanner] 🌍 Opening results for Job ${resultData.job_id}`);
+                        window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
                     }
-                  }, 2000);
+
+                    // Then prompt on this tab
+                    const returnToTasks = window.confirm(
+                      `🤖 Agent 2 (Analyst): Analysis complete!\n\n` +
+                      `Return to "My Team Tasks" to scan for next assets?`
+                    );
+
+                    if (returnToTasks) {
+                        console.log("[CradleScanner] 🚀 User approved hand-off. Navigating back to Tasks...");
+                        localStorage.setItem("cradle-auto-apply-qa-filter", "true");
+                        window.location.href = "https://cradle.egplusww.pl/my-team/";
+                    } else {
+                        console.log("[CradleScanner] ⏸️ User chose to stay on this page.");
+                        scanner.showNotification("Automation paused.", "warning");
+                    }
+                  }, 1500);
+               } else {
+                  console.log("[CradleScanner] ℹ️ Not in auto-compare mode, skipping hand-off prompt.");
+                  if (resultData.job_id) {
+                      window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
+                  }
                }
             } else {
-               scanner.showNotification(`❌ Video Compare error: ${data.data?.error || data.data?.message || 'Unknown error'}`, "error");
+               const errorMsg = resultData.error || resultData.message || 'Unknown error';
+               console.error("[CradleScanner] ❌ Video Compare Error:", errorMsg);
+               scanner.showNotification(`❌ Video Compare error: ${errorMsg}`, "error");
                
                if (scanner.isAutoComparing) {
                   scanner.isAutoComparing = false;
-                  scanner.showNotification("🚫 Stopping automation due to Video Compare error.", "error");
+                  localStorage.removeItem("cradle-auto-video-compare");
                   localStorage.setItem("cradle-automation-stopped", "true");
+                  scanner.showNotification("🚫 Automation STOPPED due to error.", "error");
                }
             }
           } else if (data.action === "FILE_MOVED") {

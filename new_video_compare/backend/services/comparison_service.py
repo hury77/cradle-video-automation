@@ -258,14 +258,10 @@ class ComparisonService:
                     # Re-raise to trigger job failure
                     raise Exception(str(e))
 
-                job.progress = 50.0
-                db.commit()
-                
-                # MEMORY CLEANUP after video
-                if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION):
-                    logger.info("🧹 AUTOMATION: Releasing video memory before audio phase...")
-                    import gc
-                    gc.collect()
+                # MEMORY CLEANUP after video phase
+                logger.info("🧹 Releasing video memory before audio phase...")
+                import gc
+                gc.collect()
             else:
                 logger.warning(f"⚠️ Skipping video comparison (Type mismatch: {job.comparison_type})")
 
@@ -462,8 +458,12 @@ class ComparisonService:
         """Save comparison results to database"""
         
         # Helper to ensure data is JSON serializable (handle numpy types)
+        from dataclasses import is_dataclass, asdict
+        
         def ensure_serializable(obj):
-            if isinstance(obj, dict):
+            if is_dataclass(obj):
+                return ensure_serializable(asdict(obj))
+            elif isinstance(obj, dict):
                 return {k: ensure_serializable(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [ensure_serializable(v) for v in obj]
@@ -473,11 +473,12 @@ class ComparisonService:
                 return obj.item()
             return obj
             
-        # Sanitize entire results dict first
-        results = ensure_serializable(results)
+        # Sanitize entire results dict first for general purpose usage
+        # This replaces the entire results structure with a JSON-safe version (no numpy types)
+        clean_results = ensure_serializable(results)
         
-        video_result = results.get("video_result")
-        audio_result = results.get("audio_result")
+        video_result = clean_results.get("video_result")
+        audio_result = clean_results.get("audio_result")
         
         # Calculate overall similarity
         overall_similarity = 1.0
@@ -485,15 +486,15 @@ class ComparisonService:
         has_error = False
         
         if video_result:
-            # Handle ProcessingResult object
-            error_msg = getattr(video_result, "error_message", None)
+            # video_result is now a dict (after ensure_serializable)
+            error_msg = video_result.get("error_message")
             if error_msg:
                 has_error = True
                 has_differences = True
                 overall_similarity = 0.0
             else:
-                overall_similarity = min(overall_similarity, video_result.overall_similarity)
-                has_differences = has_differences or video_result.frames_with_differences > 0
+                overall_similarity = min(overall_similarity, video_result.get("overall_similarity", 1.0))
+                has_differences = has_differences or video_result.get("frames_with_differences", 0) > 0
             
         if audio_result and isinstance(audio_result, dict):
             if "error" in audio_result:
@@ -520,29 +521,26 @@ class ComparisonService:
             }
 
         # Add video diff frames to report_data
-        if video_result and video_result.diff_image_paths:
+        if video_result and video_result.get("diff_image_paths"):
             if "video" not in report_data:
                 report_data["video"] = {}
-            report_data["video"]["diff_frames"] = video_result.diff_image_paths
+            report_data["video"]["diff_frames"] = video_result.get("diff_image_paths")
 
         # Create main comparison result
         comparison_result = ComparisonResult(
             job_id=job.id,
             overall_similarity=overall_similarity,
             is_match=not has_differences,
-            video_similarity=video_result.overall_similarity if video_result else None,
-            video_differences_count=video_result.frames_with_differences if video_result else 0,
+            video_similarity=video_result.get("overall_similarity") if video_result else None,
+            video_differences_count=video_result.get("frames_with_differences", 0) if video_result else 0,
             audio_similarity=audio_result.get("similarity_score") if audio_result else None,
-            difference_timestamps=video_result.difference_timestamps if video_result else None,
+            difference_timestamps=video_result.get("difference_timestamps") if video_result else None,
             report_data=report_data if report_data else None,
         )
         db.add(comparison_result)
         
         # Save processing duration to job
-        # Determine processing time from results or calculate it
-        processing_duration = 0.0
-        if video_result and hasattr(video_result, "processing_time"):
-             processing_duration = video_result.processing_time
+        processing_duration = video_result.get("processing_time", 0.0) if video_result else 0.0
         
         # Fallback if 0
         if processing_duration <= 0 and job.started_at:
@@ -550,7 +548,6 @@ class ComparisonService:
              start_time = job.started_at
              end_time = datetime.now(timezone.utc)
              
-             # Ensure start_time is aware if end_time is aware
              if start_time.tzinfo is None:
                  start_time = start_time.replace(tzinfo=timezone.utc)
                  
@@ -562,16 +559,22 @@ class ComparisonService:
         if video_result:
             video_db_result = VideoComparisonResult(
                 job_id=job.id,
-                similarity_score=video_result.overall_similarity,
-                total_frames=video_result.total_frames_analyzed,
-                different_frames=video_result.frames_with_differences,
-                algorithm_used="MSE",
+                similarity_score=video_result.get("overall_similarity", 0.0),
+                total_frames=video_result.get("total_frames_analyzed", 0),
+                different_frames=video_result.get("frames_with_differences", 0),
+                algorithm_used="SSIM/MSE",
+                frame_analysis_data={
+                    "frame_similarities": video_result.get("frame_similarities"),
+                    "diff_image_paths": video_result.get("diff_image_paths"),
+                    "difference_timestamps": video_result.get("difference_timestamps")
+                }
             )
             db.add(video_db_result)
 
             # Save difference timestamps
-            if video_result.difference_timestamps:
-                for timestamp in video_result.difference_timestamps:
+            diff_timestamps = video_result.get("difference_timestamps")
+            if diff_timestamps:
+                for timestamp in diff_timestamps:
                     diff = DifferenceTimestamp(
                         job_id=job.id,
                         timestamp_seconds=float(timestamp),
@@ -580,7 +583,7 @@ class ComparisonService:
                     )
                     db.add(diff)
 
-        # Save audio results (audio_result is a dict from compare_audio_files)
+        # Save audio results
         if audio_result and isinstance(audio_result, dict) and "error" not in audio_result:
             metadata = audio_result.get("comparison_metadata", {})
             audio_db_result = AudioComparisonResult(
@@ -588,7 +591,7 @@ class ComparisonService:
                 similarity_score=audio_result.get("similarity_score", 0.0),
                 spectral_similarity=metadata.get("spectral_similarity"),
                 mfcc_similarity=metadata.get("mfcc_similarity"),
-                audio_analysis_data=audio_result,  # Save full audio analysis data
+                audio_analysis_data=audio_result,  # This is already clean_results["audio_result"]
             )
             db.add(audio_db_result)
 
@@ -597,7 +600,7 @@ class ComparisonService:
         # Call this BEFORE the main commit to avoid deadlocks in SQLite
         try:
             db.flush() # Push pending results to DB so snapshot can read them
-            self._run_ai_analyst(db, job.id, results)
+            self._run_ai_analyst(db, job.id, clean_results)
         except Exception as ai_e:
             logger.error(f"⚠️ AI Analyst failed: {ai_e}")
 

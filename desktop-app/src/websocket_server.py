@@ -600,9 +600,9 @@ class WebSocketServer:
                     current = status_res.get("status")
                     logger.info(f"⏳ [API] Job {job_id} processing... Status: {current}")
                     
-                    if current in ["COMPLETED", "FAILED", "ERROR"]:
+                    if current.upper() in ["COMPLETED", "FAILED", "ERROR"]:
                         job_finished = True
-                        final_status = current
+                        final_status = current.upper()
                         final_res = status_res
                         break
                     

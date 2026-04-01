@@ -878,27 +878,35 @@ def transcribe_audio(
                 
             result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=target_model, **options)
             
-        except (ImportError, Exception) as mlx_err:
-            logger.warning(f"⚠️ MLX Whisper failed or not available, falling back to standard: {mlx_err}")
-            whisper = get_whisper()
+        except Exception as mlx_err:
+            logger.warning(f"⚠️ MLX Whisper failed: {mlx_err}. Attempting PyTorch MPS fallback...")
             
-            import os
-            config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
-            target_model = config_model if model_name == "base" else model_name
+            # Additional GC before heavy model load
+            import gc
+            gc.collect()
             
-            logger.info(f"🤖 Loading standard Whisper: {target_model}")
-            model = whisper.load_model(target_model)
-            
-            options = {
-                "fp16": False,
-                "beam_size": 5,
-                "condition_on_previous_text": False,
-                "no_speech_threshold": 0.8,
-            }
-            if language:
-                options["language"] = language
+            try:
+                whisper = get_whisper()
+                import torch
                 
-            result = model.transcribe(str(audio_path), **options)
+                # Determine device
+                device = "mps" if torch.backends.mps.is_available() else "cpu"
+                logger.info(f"🤖 Loading standard Whisper on {device}: {target_model}")
+                
+                model = whisper.load_model(target_model, device=device)
+                
+                options = {
+                    "fp16": device == "mps", # FP16 supported on MPS
+                    "beam_size": 5,
+                    "condition_on_previous_text": False,
+                }
+                if language:
+                    options["language"] = language
+                    
+                result = model.transcribe(str(audio_path), **options)
+            except Exception as torch_err:
+                logger.error(f"❌ Both MLX and PyTorch fallback failed: {torch_err}")
+                return {"error": f"Transcription engines failed: {mlx_err} | {torch_err}", "text": "", "segments": []}
 
         # 2. Process engine results (Common Logic)
         segments = []
