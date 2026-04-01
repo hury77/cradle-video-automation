@@ -52,16 +52,17 @@ class ProcessingResult:
     frames_with_differences: int
     overall_similarity: float
     frame_analysis_complete: bool
-    error_message: Optional[str] = None
-
+    # Detailed Analysis Results
+    difference_timestamps: List[float] = None
+    frame_similarities: List[float] = None
+    diff_image_paths: Dict[str, str] = None
+    
     # Technical metrics
     acceptance_metadata: Optional[VideoMetadata] = None
     emission_metadata: Optional[VideoMetadata] = None
 
-    # Analysis details
-    frame_similarities: List[float] = None
-    difference_timestamps: List[float] = None
-    diff_image_paths: Dict[str, str] = None
+    # Error status
+    error_message: Optional[str] = None
 
 
 class VideoProcessor:
@@ -181,8 +182,8 @@ class VideoProcessor:
                 frames_with_differences=comparison_results["frames_with_differences"],
                 overall_similarity=comparison_results["overall_similarity"],
                 frame_analysis_complete=True,
-                acceptance_metadata=acceptance_info.metadata,
-                emission_metadata=emission_info.metadata,
+                acceptance_metadata=acceptance_info,
+                emission_metadata=emission_info,
                 frame_similarities=comparison_results["frame_similarities"],
                 difference_timestamps=comparison_results["difference_timestamps"],
                 diff_image_paths=comparison_results["diff_image_paths"],
@@ -386,9 +387,9 @@ class VideoProcessor:
                     em_gray = cv2.resize(em_gray, (new_w, new_h))
                 
                 # Calculate SSIM (returns -1 to 1, where 1 = identical)
-                similarity = ssim(acc_gray, em_gray)
+                similarity_value = ssim(acc_gray, em_gray)
                 # Clamp to 0-1 range (SSIM can be negative for very different images)
-                similarity = max(0.0, min(1.0, similarity))
+                similarity = float(max(0.0, min(1.0, similarity_value)))
 
                 frame_similarities.append(similarity)
 
@@ -409,36 +410,32 @@ class VideoProcessor:
                         f"Frame {i}: similarity={similarity:.3f} < ssim_min={ssim_min:.3f}, diff at {timestamp}s"
                     )
 
-                    # START HEATMAP GENERATION (ENABLED)
-                    # Generate and save diff image (Heatmap Overlay)
-                    # Calculate absolute difference
-                    diff = cv2.absdiff(acc_frame, em_frame)
+                    # START HEATMAP GENERATION (ENABLED - MEMORY OPTIMIZED)
+                    # Resize to a smaller dimension (e.g. max 1280 wide) to dramatically save RAM during diff computation
+                    max_diff_width = 1280
+                    h_orig, w_orig = acc_frame.shape[:2]
+                    scale_diff = min(1.0, max_diff_width / w_orig)
+                    new_w, new_h = int(w_orig * scale_diff), int(h_orig * scale_diff)
+                    
+                    acc_small = cv2.resize(acc_frame, (new_w, new_h))
+                    em_small = cv2.resize(em_frame, (new_w, new_h))
+                    
+                    # Calculate absolute difference on downscaled frame
+                    diff = cv2.absdiff(acc_small, em_small)
                     
                     # Convert to grayscale to get intensity
                     diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
                     
-                    # Threshold to remove noise: use pixel_diff_tolerance as per-pixel threshold
+                    # Threshold logic
                     _, diff_thresh = cv2.threshold(diff_gray, pixel_threshold, 255, cv2.THRESH_BINARY)
                     
-                    # Create Heatmap Overlay (Pure Mask)
-                    # 1. Start with a black image (same size as original)
-                    diff_overlay = np.zeros_like(acc_frame)
+                    # Create Heatmap Overlay (Pure Mask) - smaller size
+                    diff_overlay = np.zeros_like(acc_small)
                     
-                    # 2. Create the red color layer
-                    red_color = [0, 0, 255]  # BGR format: Red
-                    
-                    # 3. Apply the red highlight ONLY where differences exist
-                    # Create a mask where differences are detected
+                    # Apply the red highlight ONLY where differences exist
                     mask_indices = diff_thresh > 0
-                    
-                    # 4. Fill differences with Red on the black background
                     if np.any(mask_indices):
-                         diff_overlay[mask_indices] = red_color
-
-                    # Save the pure mask
-                    diff_filename = f"diff_{timestamp:.1f}.jpg"
-                    diff_path = diff_frames_dir / diff_filename
-                    cv2.imwrite(str(diff_path), diff_overlay)
+                         diff_overlay[mask_indices] = [0, 0, 255]
 
                     # Save the pure mask
                     diff_filename = f"diff_{timestamp:.1f}.jpg"
@@ -447,27 +444,30 @@ class VideoProcessor:
                     
                     # Store relative path for API
                     diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
+                    
+                    # Explicit cleanup for these local arrays
+                    del acc_small
+                    del em_small
+                    del diff
+                    del diff_gray
+                    del diff_thresh
+                    del diff_overlay
+                    del mask_indices
                     # END HEATMAP GENERATION
             
                 # Progress logging
                 if (i + 1) % 50 == 0:
                     logger.info(f"  Processed {i + 1}/{num_frames} frames...")
 
-                # MEMORY MANAGEMENT: Explicitly delete large numpy arrays and invoke Garbage Collector
-                # Python's GC often defers cleaning these C++ backed arrays, leading to OOM (9GB footprint)
+                # MEMORY MANAGEMENT: Explicitly delete loaded large arrays
                 del acc_gray
                 del em_gray
-                if 'diff' in locals():
-                    del diff
-                    del diff_gray
-                    del diff_thresh
-                    del diff_overlay
-                    del mask_indices
                 del acc_frame
                 del em_frame
 
-                # Force GC collection periodically to keep footprint ~150MB instead of 9GB
-                if i % 10 == 0:
+                # Force GC collection periodically to clean up circular references 
+                # (doing it every frame or every 10 frames hangs the CPU, doing it every 50 frames is safer)
+                if i % 30 == 0:
                     import gc
                     gc.collect()
 
@@ -502,7 +502,7 @@ class VideoProcessor:
             "frames_with_differences": frames_with_differences,
             "difference_timestamps": difference_timestamps,
             "diff_image_paths": diff_image_paths,
-            "total_frames": len(acceptance_frames),
+            "num_frames": num_frames,
         }
 
     def _cleanup_processing_files(self, job_id: int) -> None:

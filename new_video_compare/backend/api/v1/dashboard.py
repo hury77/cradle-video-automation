@@ -593,27 +593,30 @@ async def export_kb_json(
             
     decisions = query.order_by(QADecision.created_at.asc()).all()
     
-    results = []
-    for d in decisions:
-        results.append({
-            "id": d.id,
-            "job_id": d.job_id,
-            "created_at": d.created_at.isoformat() if d.created_at else None,
-            "cradle_id": d.cradle_id,
-            "client_name": d.client_name,
-            "verdict": d.verdict.value if d.verdict else None,
-            "reasoning": d.reasoning,
-            "ai_reasoning": getattr(d, 'ai_reasoning', None),
-            "decided_by": d.decided_by,
-            "metrics_snapshot": d.metrics_snapshot,
-            "knowledge_snapshot": getattr(d, 'knowledge_snapshot', None)
-        })
-        
     import json
-    json_str = json.dumps(results, indent=2)
+    
+    # Use an iterator to generate JSON array lazily to avoid OOM
+    def generate_json_stream():
+        yield "[\n"
+        for i, d in enumerate(decisions):
+            item = {
+                "id": d.id,
+                "job_id": d.job_id,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "cradle_id": d.cradle_id,
+                "client_name": d.client_name,
+                "verdict": d.verdict.value if d.verdict else None,
+                "reasoning": d.reasoning,
+                "ai_reasoning": getattr(d, 'ai_reasoning', None),
+                "decided_by": d.decided_by,
+                "metrics_snapshot": d.metrics_snapshot,
+                "knowledge_snapshot": getattr(d, 'knowledge_snapshot', None)
+            }
+            yield json.dumps(item) + (",\n" if i < len(decisions) - 1 else "\n")
+        yield "]\n"
     
     return StreamingResponse(
-        iter([json_str]),
+        generate_json_stream(),
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=cradle_kb_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"}
     )

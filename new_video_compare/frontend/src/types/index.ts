@@ -19,7 +19,7 @@ export interface ComparisonJob {
   acceptance_file?: FileInfo;
   emission_file?: FileInfo;
   comparison_type?: "video_only" | "audio_only" | "full" | "automation";
-  sensitivity_level?: "low" | "medium" | "high";
+  sensitivity_level?: "low" | "medium" | "high" | "automation";
   status: "pending" | "processing" | "completed" | "failed" | "cancelled";
   created_at: string;
   updated_at: string;

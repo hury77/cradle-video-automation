@@ -1003,55 +1003,64 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-500">Re-analyze:</span>
                 
-                {/* Automation Indicator (Read-only) */}
-                {job.comparison_type === "automation" && (
-                    <button
-                        disabled
-                        className="px-3 py-1.5 text-sm rounded-lg bg-blue-100 text-blue-700 ring-2 ring-offset-1 ring-blue-500 font-bold opacity-100 cursor-default"
-                    >
-                        Auto-Compare ✓
-                    </button>
-                )}
-
                 {/* Manual Levels */}
-                {(["low", "medium", "high"] as const).map((level) => {
-                  const isCurrent = (job.sensitivity_level || "medium") === level && job.comparison_type !== "audio_only" && job.comparison_type !== "automation";
+                {(["low", "medium", "high", "automation"] as const).map((level) => {
+                  const levelStr = level as string;
+                  const isCurrent = (job.sensitivity_level || "medium") === levelStr && 
+                                   (levelStr === "automation" ? job.comparison_type === "automation" : job.comparison_type !== "automation");
+                  
                   return (
                     <button
-                      key={level}
-                      disabled={reanalyzing || isCurrent}
+                      key={levelStr}
+                      disabled={reanalyzing || (isCurrent && levelStr !== "automation")}
                       onClick={async () => {
                         setReanalyzing(true);
                         try {
+                          // ARM THE EXTENSION for Agent 2 -> Agent 1 Hand-off
+                          if (levelStr === "automation") {
+                              localStorage.setItem("cradle-auto-video-compare", "true");
+                              console.log("[VideoComparison] 🤖 Arming Extension for Auto Hand-off...");
+                          }
+
                           const formData = new FormData();
-                          formData.append("sensitivity_level", level);
-                          formData.append("comparison_type", "full");
+                          formData.append("sensitivity_level", levelStr);
+                          formData.append("comparison_type", levelStr === "automation" ? "automation" : "full");
+                          
                           const response = await fetch(
                             `/api/v1/compare/${job.id}/reanalyze`,
                             { method: "POST", body: formData }
                           );
+
                           if (response.ok) {
-                            window.location.reload();
+                            const data = await response.json();
+                            if (data.new_job_id) {
+                                window.location.href = `/compare/${data.new_job_id}`;
+                            } else {
+                                window.location.reload();
+                            }
                           } else {
                             const errText = await response.text();
                             alert("Failed: " + errText);
+                            localStorage.removeItem("cradle-auto-video-compare");
                           }
                         } catch (err) {
                           console.error(err);
                           alert("Error starting re-analysis");
+                          localStorage.removeItem("cradle-auto-video-compare");
                         } finally {
                           setReanalyzing(false);
                         }
                       }}
-                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                        level === "low" ? "bg-green-100 text-green-700 hover:bg-green-200" :
-                        level === "medium" ? "bg-amber-100 text-amber-700 hover:bg-amber-200" :
-                        "bg-red-100 text-red-700 hover:bg-red-200"
-                      } ${isCurrent ? "ring-2 ring-offset-1 ring-blue-500 font-bold" : ""} ${
-                        reanalyzing || isCurrent ? "opacity-50 cursor-not-allowed" : ""
+                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors font-bold ${
+                        levelStr === "low" ? "bg-green-100 text-green-700 hover:bg-green-200" :
+                        levelStr === "medium" ? "bg-amber-100 text-amber-700 hover:bg-amber-200" :
+                        levelStr === "high" ? "bg-red-100 text-red-700 hover:bg-red-200" :
+                        "bg-blue-600 text-white hover:bg-blue-700 shadow-sm ring-1 ring-blue-800"
+                      } ${isCurrent && levelStr !== "automation" ? "ring-2 ring-offset-1 ring-blue-500" : ""} ${
+                        reanalyzing || (isCurrent && levelStr !== "automation") ? "opacity-50 cursor-not-allowed" : ""
                       }`}
                     >
-                      {level === "low" ? "Low" : level === "medium" ? "Medium" : "High"}
+                      {levelStr === "automation" ? "🤖 Run Auto-Compare" : levelStr.charAt(0).toUpperCase() + levelStr.slice(1)}
                       {isCurrent && " ✓"}
                     </button>
                   );
