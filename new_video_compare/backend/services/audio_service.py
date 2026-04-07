@@ -834,6 +834,48 @@ def get_whisper():
     return _whisper
 
 
+def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> str:
+    """
+    Detects Whisper loop hallucinations: repetitive n-gram patterns like
+    "Mae'r leol yn cael ei leol yn cael ei leol yn cael ei leol..."
+
+    If any n-gram of `ngram_size` words repeats more than `max_repeats` times
+    in the full text, the transcript is considered a hallucination and emptied.
+
+    Args:
+        text: Full transcript text from Whisper
+        ngram_size: Number of words per n-gram (default: 3)
+        max_repeats: Max allowed repetitions before flagging as hallucination
+
+    Returns:
+        Original text if clean, empty string if loop hallucination detected.
+    """
+    if not text:
+        return text
+
+    words = text.lower().split()
+    if len(words) < ngram_size * (max_repeats + 1):
+        return text  # Too short to be a meaningful loop
+
+    # Build n-gram frequency table
+    from collections import Counter
+    ngrams = [
+        " ".join(words[i:i + ngram_size])
+        for i in range(len(words) - ngram_size + 1)
+    ]
+    counts = Counter(ngrams)
+    most_common_ngram, most_common_count = counts.most_common(1)[0]
+
+    if most_common_count > max_repeats:
+        logger.warning(
+            f"⚠️ Loop hallucination detected! N-gram '{most_common_ngram}' "
+            f"repeated {most_common_count}x. Discarding transcript."
+        )
+        return ""
+
+    return text
+
+
 def transcribe_audio(
     audio_path: str,
     language: Optional[str] = None,
@@ -872,7 +914,15 @@ def transcribe_audio(
             
             logger.info(f"📝 MLX Transcribing (M4): {Path(audio_path).name} using {target_model}")
             
-            options = {"word_timestamps": True}
+            options = {
+                "word_timestamps": True,
+                # Anti-hallucination: do NOT feed previous tokens back as context.
+                # Without this, Whisper enters a self-reinforcing "loop" and generates
+                # repetitive gibberish (e.g. Welsh-like text) on music-only audio.
+                "condition_on_previous_text": False,
+                # Segments with no-speech probability above this are discarded by the model.
+                "no_speech_threshold": 0.6,
+            }
             if language:
                 options["language"] = language
                 
@@ -960,6 +1010,13 @@ def transcribe_audio(
             filtered_text.append(text)
             
         full_text = " ".join(filtered_text)
+
+        # ── Loop hallucination detector ───────────────────────────────────────
+        # Even with condition_on_previous_text=False, Whisper can still produce
+        # subtle repetition loops. Detect: if any 3-word n-gram repeats > 4x
+        # in the full transcript, the entire text is likely a hallucination.
+        full_text = _detect_and_strip_loop_hallucination(full_text)
+
         transcription = {
             "text": full_text,
             "language": result.get("language", "unknown"),

@@ -623,10 +623,19 @@ class ComparisonService:
         # Prepare metrics for AI
         video_res = results.get("video_result")
         audio_res = results.get("audio_result")
-        
-        # BUGFIX: overall_similarity was always 1.0 because "overall_similarity" key doesn't exist in `results`.
-        # `results` only contains "video_result" and "audio_result". Use video_res directly.
-        computed_video_similarity = float(video_res.overall_similarity if video_res and hasattr(video_res, 'overall_similarity') else 1.0)
+
+        # NOTE: results passed here are already through ensure_serializable() — video_res is a DICT,
+        # not a dataclass. Using hasattr() on a dict always returns False → similarity defaulted to 1.0.
+        # Fix: use .get() for dict, hasattr() only as fallback for legacy dataclass objects.
+        if isinstance(video_res, dict):
+            computed_video_similarity = float(video_res.get("overall_similarity", 1.0))
+            video_differences_count = int(video_res.get("frames_with_differences", 0))
+        elif video_res and hasattr(video_res, "overall_similarity"):
+            computed_video_similarity = float(video_res.overall_similarity)
+            video_differences_count = int(getattr(video_res, "frames_with_differences", 0))
+        else:
+            computed_video_similarity = 1.0
+            video_differences_count = 0
 
         metrics = {
             "job_id": job_id,
@@ -634,7 +643,7 @@ class ComparisonService:
             "client_name": job.client_name,
             "overall_similarity": computed_video_similarity,
             "video_similarity": computed_video_similarity,
-            "video_differences_count": int(video_res.frames_with_differences if video_res and hasattr(video_res, 'frames_with_differences') else 0),
+            "video_differences_count": video_differences_count,
         }
         
         if audio_res and isinstance(audio_res, dict):

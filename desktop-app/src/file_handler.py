@@ -509,40 +509,93 @@ class FileHandler:
 
             # Step 3: Search for video file by Template ID (+ Lang code) inside targets
             template_id = file_info.get("templateId") or ""
-            lang_code = file_info.get("langCode") or ""  # e.g. "IT", "FR", "DE"
+            lang_code = file_info.get("langCode") or ""  # e.g. "IT", "FR", "DE", "EL"
             found_file = None
             search_patterns = []
 
+            # ── Language alias table ─────────────────────────────────────────────────
+            # Maps ISO 639-1 codes (from extension) to real-world filename suffixes
+            # used in production (NOT ISO standard — servers use their own conventions).
+            LANG_FILENAME_ALIASES = {
+                "EL": ["GR", "EL", "Greek", "GREEK", "Gr"],       # Greek: ISO=EL, files=_GR_
+                "DE": ["DE", "GER", "German", "GERMAN", "Ger"],
+                "FR": ["FR", "FRE", "French", "FRENCH", "Fra"],
+                "IT": ["IT", "ITA", "Italian", "ITALIAN", "Ita"],
+                "ES": ["ES", "ESP", "Spanish", "SPANISH", "Esp"],
+                "PL": ["PL", "POL", "Polish", "POLISH", "Pol"],
+                "NL": ["NL", "DUT", "Dutch", "DUTCH", "Ned"],
+                "PT": ["PT", "POR", "Portuguese", "PORTUGUESE", "Por"],
+                "RU": ["RU", "RUS", "Russian", "RUSSIAN", "Rus"],
+                "CZ": ["CZ", "CZE", "Czech", "CZECH", "Cs"],
+                "HU": ["HU", "HUN", "Hungarian", "HUNGARIAN", "Hun"],
+                "RO": ["RO", "ROM", "Romanian", "ROMANIAN", "Ron"],
+                "SV": ["SV", "SE", "SWE", "Swedish", "SWEDISH", "Swe"],
+                "DA": ["DA", "DK", "DAN", "Danish", "DANISH", "Dan"],
+                "NO": ["NO", "NOR", "Norwegian", "NORWEGIAN", "Nor"],
+                "FI": ["FI", "FIN", "Finnish", "FINNISH", "Fin"],
+                "TR": ["TR", "TUR", "Turkish", "TURKISH", "Tur"],
+                "EN": ["EN", "ENG", "English", "ENGLISH", "Eng"],
+            }
+
+            # Format quality ranking: higher = better
+            FORMAT_QUALITY = {".mov": 3, ".mxf": 3, ".prores": 2, ".mp4": 1, ".avi": 1, ".mkv": 1}
+
             if template_id:
                 if lang_code:
-                    search_patterns = [
-                        f"*{template_id}*{lang_code}*",    # exact lang version first
-                        f"*{template_id}*{lang_code.lower()}*",  # lowercase variant
-                        f"*{template_id}*",                # any language (fallback)
-                        f"*{cradle_id}*{lang_code}*",      # fallback to cradle_id + lang_code
-                        f"*{cradle_id}*",                  # fallback to cradle_id only
-                    ]
-                    self.logger.info(f"🌍 Lang code '{lang_code}' — will prefer *{template_id}*{lang_code}* pattern, fallback to *{cradle_id}*")
+                    # Resolve all filename aliases for this language
+                    lang_aliases = LANG_FILENAME_ALIASES.get(lang_code.upper(), [lang_code])
+                    # Ensure original lang_code is always included
+                    if lang_code.upper() not in [a.upper() for a in lang_aliases]:
+                        lang_aliases = [lang_code] + lang_aliases
+
+                    self.logger.info(f"🌍 Lang code '{lang_code}' — aliases: {lang_aliases}")
+
+                    # Build patterns: language-specific FIRST, generic fallback LAST
+                    for alias in lang_aliases:
+                        search_patterns.append(f"*{template_id}*{alias}*")
+                        if alias != alias.lower():
+                            search_patterns.append(f"*{template_id}*{alias.lower()}*")
+                    search_patterns.append(f"*{template_id}*")           # generic fallback
+                    for alias in lang_aliases:
+                        search_patterns.append(f"*{cradle_id}*{alias}*")
+                    search_patterns.append(f"*{cradle_id}*")             # last resort
                 else:
                     search_patterns = [
                         f"*{template_id}*",
                         f"{template_id}*",
-                        f"*{cradle_id}*",                  # fallback
-                        f"{cradle_id}*",                   # fallback
+                        f"*{cradle_id}*",
+                        f"{cradle_id}*",
                     ]
             else:
                 search_patterns = [f"*{cradle_id}*"]
 
+
+            # ── Search loop: collect candidates per pattern group, pick best ────────
+            # We iterate patterns in priority order and stop at the first pattern GROUP
+            # that yields any candidates. Within that group we pick by format quality.
             for target_folder in search_targets:
                 for pattern in search_patterns:
                     self.logger.info(f"🔍 Searching in {target_folder.name} with pattern: {pattern}")
-                    for match in target_folder.rglob(pattern):
-                        if match.is_file() and match.suffix.lower() in VIDEO_EXTENSIONS:
-                            found_file = match
-                            self.logger.info(f"✅ Found Lucid emission file: {match.name}")
-                            break
-                    if found_file:
-                        break
+                    candidates = [
+                        m for m in target_folder.rglob(pattern)
+                        if m.is_file() and m.suffix.lower() in VIDEO_EXTENSIONS
+                    ]
+                    if candidates:
+                        # Pick best candidate: highest format quality, then largest size as tiebreaker
+                        best = max(
+                            candidates,
+                            key=lambda f: (FORMAT_QUALITY.get(f.suffix.lower(), 0), f.stat().st_size)
+                        )
+                        found_file = best
+                        self.logger.info(
+                            f"✅ Found Lucid emission file: {best.name} "
+                            f"(from {len(candidates)} candidate(s) matching '{pattern}')"
+                        )
+                        if len(candidates) > 1:
+                            self.logger.info(
+                                f"   Candidates were: {[c.name for c in candidates]}"
+                            )
+                        break  # Stop at first pattern that yields results
                 if found_file:
                     break
 

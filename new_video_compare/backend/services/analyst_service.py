@@ -70,6 +70,7 @@ class AnalystService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                format="json",   # Forces Ollama to return valid JSON (grammar sampling)
                 options={
                     "temperature": 0.1,   # Deterministic — rules over creativity
                     "num_predict": 300,
@@ -185,6 +186,9 @@ class AnalystService:
         base_rules = (
             "Jesteś profesjonalnym ekspertem QA w dziedzinie postprodukcji wideo dla firmy Cradle. "
             "Twoim zadaniem jest rygorystyczna analiza wyników porównania plików: Acceptance (wzorzec) i Emission (gotowy plik).\n\n"
+            "⛔ TWARDA REGUŁA (ZERO WYJĄTKÓW): Jeśli overall_similarity lub video_similarity < 0.95, "
+            "werdykt MUSI być REJECT lub REVIEW. APPROVE jest kategorycznie zakazany. "
+            "Nie wolno Ci ignorować tej reguły nawet jeśli audio jest idealne.\n\n"
             "ZASADY DECYZYJNE (TRUTH TABLE — bezwzględne progi, nie podlegają dyskusji):\n"
             "1. OBRAZ (overall_similarity / video_similarity):\n"
             "   - 1.00: Idealne dopasowanie → APPROVE\n"
@@ -267,12 +271,13 @@ class AnalystService:
         """
         Parse LLM JSON response — language-agnostic, LLM-proof.
 
-        Strategy: find the FIRST '{' and LAST '}' in the entire response,
-        extract whatever is between them. This works regardless of:
-        - Language (Polish / English / mixed)
-        - Markdown wrappers (```json ... ```)
-        - Explanatory prose before or after the JSON
+        Strategy:
+        1. Find the FIRST '{' and LAST '}' and parse JSON between them.
+        2. If no valid JSON found, use regex to extract verdict from free text
+           (fallback for models that ignore format=json instruction).
+        3. Only as last resort: return REVIEW with raw error excerpt.
         """
+        import re
         raw_content = content  # Keep for error logging
 
         try:
@@ -309,15 +314,42 @@ class AnalystService:
             return analysis
 
         except (json.JSONDecodeError, ValueError, IndexError) as e:
+            logger.warning(
+                f"⚠️ JSON parse failed ({e}). Trying regex fallback on free text..."
+            )
+
+            # ── Regex fallback: extract verdict keyword from prose ───────────────
+            # Model sometimes writes e.g. "verdict is REJECT" or "I verdict: approve"
+            verdict_match = re.search(
+                r'\b(approve|reject|review)\b',
+                raw_content,
+                re.IGNORECASE
+            )
+            if verdict_match:
+                extracted_verdict = verdict_match.group(1).lower()
+                # Extract a reasonable reasoning snippet (first 2 sentences)
+                sentences = re.split(r'(?<=[.!?])\s+', raw_content.strip())
+                reasoning_snippet = " ".join(sentences[:2])[:300]
+                logger.warning(
+                    f"⚠️ Regex fallback extracted verdict='{extracted_verdict}' from prose"
+                )
+                return {
+                    "verdict": extracted_verdict,
+                    "reasoning": reasoning_snippet or raw_content[:200],
+                    "confidence": 0.4,   # Lower confidence — we’re guessing from prose
+                    "kb_used": False,
+                }
+
+            # ── Total failure: log and return REVIEW ────────────────────────
             logger.error(
-                f"❌ Failed to parse AI JSON response: {e}\n"
+                f"❌ Failed to parse AI response — no JSON and no verdict keyword found.\n"
                 f"Raw content (first 300 chars): {raw_content[:300]}"
             )
             return {
                 "verdict": "review",
                 "reasoning": (
-                    f"Błąd parsowania odpowiedzi AI — model odpowiedział w nieoczekiwanym formacie. "
-                    f"Fragment: {raw_content[:150]}…"
+                    "Werdykt AI wymaga ręcznego sprawdzenia — model zwrócił odpowiedź "
+                    "w niezrozumiałym formacie. Sprawdź logi backendu."
                 ),
                 "confidence": 0.0,
                 "kb_used": False,
