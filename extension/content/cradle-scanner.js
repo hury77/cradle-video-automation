@@ -117,9 +117,68 @@ class DesktopConnection {
             const statusMsg = data.details?.message || data.status || "Processing...";
             console.log(`[Desktop] ℹ️ Status: ${statusMsg}`);
             scanner.showNotification(`System status: ${statusMsg}`, "info");
+          } else if (data.action === "UPLOAD_SLOW") {
+            const cradleId = data.data?.cradle_id;
+            console.warn(`[Desktop] 🐢 UPLOAD_SLOW: ${data.data?.status}`);
+            
+            // Show a custom popup forcing the user to make a choice
+            const popup = document.createElement("div");
+            popup.style.position = "fixed";
+            popup.style.bottom = "20px";
+            popup.style.right = "20px";
+            popup.style.backgroundColor = "#ff9800";
+            popup.style.color = "white";
+            popup.style.padding = "20px";
+            popup.style.borderRadius = "8px";
+            popup.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+            popup.style.zIndex = "99999";
+            popup.style.fontFamily = "system-ui, sans-serif";
+            
+            popup.innerHTML = `
+                <h3 style="margin-top:0; margin-bottom: 10px;">⚠️ Heavy Upload Detected</h3>
+                <p style="margin:0 0 15px 0;">Upload for Cradle ${cradleId || 'Asset'} is taking over 60 seconds.</p>
+                <div style="display:flex; justify-content:flex-end; gap: 10px;">
+                    <button id="cancel-upload-btn-x" style="padding: 8px 12px; border:none; border-radius:4px; background:#d32f2f; color:white; cursor:pointer; font-weight:bold;">Kill Process</button>
+                    <button id="wait-upload-btn-x" style="padding: 8px 12px; border:none; border-radius:4px; background:#1976d2; color:white; cursor:pointer; font-weight:bold;">Keep Waiting</button>
+                </div>
+            `;
+            
+            document.body.appendChild(popup);
+            
+            document.getElementById("wait-upload-btn-x").addEventListener("click", () => {
+                popup.remove();
+                scanner.showNotification("Waiting for upload to finish...", "info");
+            });
+            
+            document.getElementById("cancel-upload-btn-x").addEventListener("click", () => {
+                popup.remove();
+                scanner.showNotification("Cancelling upload...", "warning");
+                // Stop any auto-compare state
+                if (scanner.isAutoComparing) {
+                    scanner.isAutoComparing = false;
+                    localStorage.removeItem("cradle-auto-video-compare");
+                    localStorage.setItem("cradle-automation-stopped", "true");
+                }
+                // Send kill message to server
+                this.sendMessage({
+                    action: "VIDEO_COMPARE_CANCEL",
+                    cradleId: cradleId
+                });
+            });
           } else if (data.action === "ERROR") {
             const msg = data.data?.error || data.error || "Unknown error";
+            console.error("[Desktop] ❌ ERROR:", msg);
             scanner.showNotification(`❌ Desktop App error: ${msg}`, "error");
+            
+            // Un-hang the UI if we were auto-comparing
+            if (scanner.isAutoComparing) {
+                scanner.isAutoComparing = false;
+                localStorage.removeItem("cradle-auto-video-compare");
+                localStorage.setItem("cradle-automation-stopped", "true");
+                scanner.showNotification("🚫 Automation STOPPED due to error.", "error");
+            }
+            // Remove processing UI classes if present
+            document.body.classList.remove("cradle-processing");
           }
         } catch (e) {
           console.error("Failed to parse message:", event.data);
@@ -945,17 +1004,16 @@ class CradleScanner {
       return;
     }
 
-    // Find and scan the asset comments table - TUTAJ JEST KLUCZOWA ZMIANA
-    const table = await this.findAssetCommentsTable();
+    // Find and scan the asset comments tables - TUTAJ JEST KLUCZOWA ZMIANA
+    let tables = [];
+    if (window.location.href.includes("/assets/deliverable-details/")) {
+       tables = await this.findAssetCommentsTables();
+    }
 
     // ✅ DODAJ DEBUGOWANIE
-    console.log("[CradleScanner] 🔍 DEBUG: Table received in downloadFiles:");
-    console.log("[CradleScanner] Table type:", typeof table);
-    console.log("[CradleScanner] Table constructor:", table?.constructor?.name);
-    console.log("[CradleScanner] Table tagName:", table?.tagName);
-    console.log("[CradleScanner] Table object:", table);
+    console.log("[CradleScanner] 🔍 DEBUG: Tables received in downloadFiles:", tables?.length);
 
-    const fileInfo = await this.scanForFiles(table);
+    const fileInfo = await this.scanForFiles(tables);
 
     console.log("=== WYNIKI SKANOWANIA PLIKÓW ===");
     console.log("Pełne fileInfo:", fileInfo);
@@ -1041,8 +1099,8 @@ class CradleScanner {
     }
   }
 
-  async findAssetCommentsTable() {
-    console.log("[CradleScanner] 🔍 Looking for Asset comments table...");
+  async findAssetCommentsTables() {
+    console.log("[CradleScanner] 🔍 Looking for Asset comments tables...");
 
     const maxAttempts = 10;
 
@@ -1054,7 +1112,9 @@ class CradleScanner {
       const tables = document.querySelectorAll("table");
       console.log(`[CradleScanner] Found ${tables.length} tables on page`);
 
+      const matchedTables = [];
       for (let table of tables) {
+        let isMatch = false;
         // Method 1: Check for "Asset comments" or "Comment" in headers
         const headers = table.querySelectorAll("th");
         for (let header of headers) {
@@ -1064,31 +1124,35 @@ class CradleScanner {
             headerText.includes("comment") ||
             headerText.includes("attachment")
           ) {
-            console.log(
-              `[CradleScanner] ✅ Found Asset comments table via header: ${header.textContent.trim()}`
-            );
-            console.log("[CradleScanner] Returning table:", table);
-            return table;
+            console.log(`[CradleScanner] ✅ Found table via header: ${headerText}`);
+            matchedTables.push(table);
+            isMatch = true;
+            break;
           }
         }
+
+        if (isMatch) continue;
 
         // Method 2: Check for key phrases in any cell
         const cells = table.querySelectorAll("td, th");
         for (let cell of cells) {
           const cellText = cell.textContent.trim().toLowerCase();
           if (
-            cellText.includes("qa proofreading") ||
+            cellText.includes("proofreading") ||
             cellText.includes("final file preparation") ||
             cellText.includes("broadcast preparation") ||
             cellText.includes("file preparation")
           ) {
-            console.log(
-              `[CradleScanner] ✅ Found Asset comments table via content: ${cellText}`
-            );
-            console.log("[CradleScanner] Returning table:", table);
-            return table;
+            console.log(`[CradleScanner] ✅ Found table via content: ${cellText}`);
+            matchedTables.push(table);
+            break;
           }
         }
+      }
+
+      if (matchedTables.length > 0) {
+          console.log(`[CradleScanner] ✅ Returning ${matchedTables.length} tables in total`);
+          return matchedTables;
       }
 
       if (attempt < maxAttempts) {
@@ -1099,24 +1163,34 @@ class CradleScanner {
       }
     }
 
-    console.log(
-      "[CradleScanner] ❌ Asset comments table not found after all attempts"
-    );
-    return null;
+    console.log("[CradleScanner] ❌ Asset comments tables not found after all attempts");
+    return [];
   }
 
-  async scanForFiles(table) {
+  async scanForFiles(tables) {
     console.log("[CradleScanner] 🔍 Starting smart file scan...");
 
-    // 1. Scan current page table
-    let fileInfo = this.scanTableForFiles(table);
+    let fileInfo = { emissionFile: null, acceptanceFile: null };
+    const tableArray = Array.isArray(tables) ? tables : (tables ? [tables] : []);
+
+    // 1. Scan current page tables
+    for (const tbl of tableArray) {
+        const partial = this.scanTableForFiles(tbl);
+        if (partial.emissionFile && !fileInfo.emissionFile) fileInfo.emissionFile = partial.emissionFile;
+        if (partial.acceptanceFile && !fileInfo.acceptanceFile) fileInfo.acceptanceFile = partial.acceptanceFile;
+    }
 
     // 2. Recursive Scan: If Acceptance missing, look for links in "distribution" rows
     if (!fileInfo.acceptanceFile) {
       console.log(
         "[CradleScanner] ⚠️ Acceptance file not found. checking for linked assets..."
       );
-      const linkedAssetUrl = this.findLinkedAssetUrl(table);
+      
+      let linkedAssetUrl = null;
+      for (const tbl of tableArray) {
+          linkedAssetUrl = this.findLinkedAssetUrl(tbl);
+          if (linkedAssetUrl) break;
+      }
 
       if (linkedAssetUrl) {
         console.log(
@@ -1273,7 +1347,7 @@ class CradleScanner {
         }
 
         // 5. ACCEPTANCE — QA Proofreading fallback
-        else if (firstCellText.includes("qa proofreading") && !fileInfo.acceptanceFile) {
+        else if (firstCellText.includes("proofreading") && !fileInfo.acceptanceFile) {
              this.extractAcceptanceFromRow(row, fileInfo, i);
         }
 
@@ -1415,9 +1489,9 @@ class CradleScanner {
                  filename = textContent;
              }
 
-             // Final fallback if filename is still empty or just ID
-             if (!filename || filename.length < 3) {
-                  filename = "acceptance.mp4"; 
+             // Final fallback if filename is empty, just an ID, or misses an extension entirely
+             if (!filename || filename.length < 3 || !filename.includes(".")) {
+                  filename = (filename && filename.length >= 3) ? `${filename}.mp4` : "acceptance.mp4"; 
              }
 
              // Only accept video files and ZIPs

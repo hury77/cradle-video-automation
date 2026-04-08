@@ -611,8 +611,17 @@ class FileHandler:
                     pass
                 return {"success": False, "error": error}
 
-            # Step 4: Copy file to cradle download folder
-            destination = cradle_folder / found_file.name
+            # Step 4: Handle name collisions and copy file to cradle download folder
+            final_name = found_file.name
+            if list(cradle_folder.glob(f"*{found_file.name}*")):
+                name_parts = found_file.name.rsplit(".", 1)
+                if len(name_parts) == 2:
+                    final_name = f"{name_parts[0]}_emis.{name_parts[1]}"
+                else:
+                    final_name = f"{found_file.name}_emis"
+                self.logger.info(f"📝 Adding suffix to avoid overwrite: {found_file.name} → {final_name}")
+
+            destination = cradle_folder / final_name
             self.logger.info(f"📁 Copying Lucid file: {found_file} → {destination}")
             shutil.copy2(str(found_file), str(destination))
 
