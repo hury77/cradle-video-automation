@@ -1404,8 +1404,41 @@ def compare_spoken_text(
     """
     import gc
     
-    # Full STT pipeline (No longer skipping to ensure transparency)
-    logger.info("🎙️ Starting full spoken text comparison (Whisper always-on)...")
+    # FAST PATH: Skip heavy Demucs+Whisper when audio is near-identical.
+    # Demucs is non-deterministic — identical files can yield slightly different vocal
+    # separation results, causing Whisper to transcribe a different audio subset → false VO positives.
+    # Threshold 0.98 (not 1.0) ensures files with tiny differences still go through STT.
+    if audio_similarity_score is not None and audio_similarity_score >= 0.98:
+        logger.info(
+            f"✅ FAST PATH: Audio similarity {audio_similarity_score:.4f} >= 0.98. "
+            f"Skipping Demucs+Whisper to avoid false positives and save ~3 GB RAM."
+        )
+        return {
+            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
+            "transcript_emission": {"text": "", "segments": [], "word_count": 0},
+            "comparison": {
+                "text_similarity": 1.0,
+                "is_text_match": True,
+                "word_count_a": 0,
+                "word_count_b": 0,
+                "word_differences": [],
+                "segment_differences": [],
+                "total_differences": 0,
+                "acceptance_text": "",
+                "emission_text": "",
+            },
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "skipped_reason": (
+                f"Audio similarity {audio_similarity_score:.4f} >= 0.98. "
+                "STT skipped to avoid false positives from source separation non-determinism."
+            ),
+            "pipeline_info": {"skipped": True},
+            "detected_language": language or "unknown",
+            "voiceover": None,
+        }
+    
+    logger.info("🎙️ Starting full spoken text comparison (audio similarity below threshold)...")
     
     # Process acceptance file
     logger.info("=" * 60)

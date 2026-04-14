@@ -321,10 +321,12 @@ class ComparisonService:
                 db.commit()
                 
                 # Extended Audio Analysis (Demucs + Whisper)
-                # Runs for: AUDIO_ONLY, AUTOMATION, or FULL with HIGH/AUTOMATION sensitivity
-                should_run_stt = (
-                    check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION])
-                    or (check_comp_type(job.comparison_type, ComparisonType.FULL) and effective_sensitivity in ["high", "automation"])
+                # Runs for: AUDIO_ONLY and AUTOMATION only.
+                # NOTE: FULL+HIGH was added in bdf5231 but caused OOM crashes on 16 GB M4
+                # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
+                # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
+                should_run_stt = check_comp_type(
+                    job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]
                 )
                 if should_run_stt:
                     mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper()
@@ -603,6 +605,11 @@ class ComparisonService:
             self._run_ai_analyst(db, job.id, clean_results)
         except Exception as ai_e:
             logger.error(f"⚠️ AI Analyst failed: {ai_e}")
+        finally:
+            # GC cleanup after Ollama — model is unloaded (keep_alive=0) but Python wrappers
+            # linger. Force collection before final DB commit to free ~1-2 GB sooner.
+            import gc
+            gc.collect()
 
         db.commit()
         logger.info(f"💾 Saved comparison results for job {job.id}")
