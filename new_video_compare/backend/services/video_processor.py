@@ -397,63 +397,64 @@ class VideoProcessor:
                 pixel_diff_tolerance = self.current_job.processing_config.get("pixel_diff_tolerance", 0.05)
                 ssim_min = self.current_job.processing_config.get("ssim_min", 0.92)
                 frame_rate = self.current_job.processing_config.get("analysis_fps", 1.0)
-                # pixel_diff_tolerance → pixel threshold: e.g. 0.03 → 8/255 ≈ 3% of max value
-                pixel_threshold = max(1, int(pixel_diff_tolerance * 255))
 
-                # Check if frame has significant difference
-                if similarity < ssim_min:
+                # ── HYBRID DETECTION: SSIM + Pixel Diff Ratio ──────────────
+                # Downscale to 1280px for pixel-level comparison
+                max_diff_width = 1280
+                h_orig, w_orig = acc_frame.shape[:2]
+                scale_diff = min(1.0, max_diff_width / w_orig)
+                new_w_diff, new_h_diff = int(w_orig * scale_diff), int(h_orig * scale_diff)
+
+                acc_small = cv2.resize(acc_frame, (new_w_diff, new_h_diff))
+                em_small = cv2.resize(em_frame, (new_w_diff, new_h_diff))
+
+                # Absolute difference → grayscale intensity
+                diff = cv2.absdiff(acc_small, em_small)
+                diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+
+                # Intensity threshold 30/255 filters compression noise while
+                # preserving hard edges (shifted text, missing elements).
+                intensity_threshold = 30
+                _, diff_thresh = cv2.threshold(diff_gray, intensity_threshold, 255, cv2.THRESH_BINARY)
+                diff_pixel_ratio = cv2.countNonZero(diff_thresh) / diff_thresh.size
+
+                # Frame is flagged if EITHER criterion triggers:
+                #   1. Global SSIM below minimum  → catches macro defects
+                #   2. Hard-pixel ratio exceeds tolerance → catches local text shifts
+                is_different = similarity < ssim_min or diff_pixel_ratio > pixel_diff_tolerance
+
+                if is_different:
                     frames_with_differences += 1
                     timestamp = float(i) / float(frame_rate)
                     difference_timestamps.append(timestamp)
 
+                    # Build human-readable trigger reason for logs
+                    reasons = []
+                    if similarity < ssim_min:
+                        reasons.append(f"SSIM={similarity:.3f}<{ssim_min}")
+                    if diff_pixel_ratio > pixel_diff_tolerance:
+                        reasons.append(f"diff_ratio={diff_pixel_ratio:.4f}>{pixel_diff_tolerance}")
                     logger.debug(
-                        f"Frame {i}: similarity={similarity:.3f} < ssim_min={ssim_min:.3f}, diff at {timestamp}s"
+                        f"Frame {i}: DIFFERENT at {timestamp:.1f}s — {', '.join(reasons)}"
                     )
 
-                    # START HEATMAP GENERATION (ENABLED - MEMORY OPTIMIZED)
-                    # Resize to a smaller dimension (e.g. max 1280 wide) to dramatically save RAM during diff computation
-                    max_diff_width = 1280
-                    h_orig, w_orig = acc_frame.shape[:2]
-                    scale_diff = min(1.0, max_diff_width / w_orig)
-                    new_w, new_h = int(w_orig * scale_diff), int(h_orig * scale_diff)
-                    
-                    acc_small = cv2.resize(acc_frame, (new_w, new_h))
-                    em_small = cv2.resize(em_frame, (new_w, new_h))
-                    
-                    # Calculate absolute difference on downscaled frame
-                    diff = cv2.absdiff(acc_small, em_small)
-                    
-                    # Convert to grayscale to get intensity
-                    diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-                    
-                    # Threshold logic
-                    _, diff_thresh = cv2.threshold(diff_gray, pixel_threshold, 255, cv2.THRESH_BINARY)
-                    
-                    # Create Heatmap Overlay (Pure Mask) - smaller size
+                    # HEATMAP GENERATION (reuses already-computed diff data)
                     diff_overlay = np.zeros_like(acc_small)
-                    
-                    # Apply the red highlight ONLY where differences exist
                     mask_indices = diff_thresh > 0
                     if np.any(mask_indices):
-                         diff_overlay[mask_indices] = [0, 0, 255]
+                        diff_overlay[mask_indices] = [0, 0, 255]
 
-                    # Save the pure mask
                     diff_filename = f"diff_{timestamp:.1f}.jpg"
                     diff_path = diff_frames_dir / diff_filename
                     cv2.imwrite(str(diff_path), diff_overlay)
-                    
-                    # Store relative path for API
+
                     diff_image_paths[str(timestamp)] = f"/uploads/temp/job_{self.current_job.job_id}/diff_frames/{diff_filename}"
-                    
-                    # Explicit cleanup for these local arrays
-                    del acc_small
-                    del em_small
-                    del diff
-                    del diff_gray
-                    del diff_thresh
-                    del diff_overlay
-                    del mask_indices
-                    # END HEATMAP GENERATION
+
+                    del diff_overlay, mask_indices
+
+                # Cleanup diff arrays (computed every frame, not just on difference)
+                del acc_small, em_small, diff, diff_gray, diff_thresh
+                # ── END HYBRID DETECTION ───────────────────────────────────
             
                 # Progress logging
                 if (i + 1) % 50 == 0:

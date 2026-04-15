@@ -19,19 +19,22 @@ System New Video Compare posiada cztery zdefiniowane poziomy czułości, które 
 
 ## 3. Poziom Wysoki (`high`)
 *   **Minimalny SSIM**: `0.94` (Rygorystyczne, ignoruje drobne różnice kodeków)
-*   **Tolerancja pikseli**: `3%`
+*   **Tolerancja pikseli**: `1.5%` (Hard-pixel — łapie przesunięcia tekstu pominięte przez globalny SSIM)
 *   **Normalizacja jakości**: Tak (Wyrównywanie jakości przed porównaniem)
 *   **Audio (Demucs)**: Włączone (Separacja lektora i porównanie głosowe)
 *   **Audio (Whisper)**: Tak (Pełna transkrypcja i porównanie tekstu)
+*   **Detekcja hybrydowa**: Tak — klatka flagowana jeśli SSIM < próg **LUB** diff_ratio > tolerancja pikseli
 *   **Zastosowanie**: Krytyczne sprawdzenie przed emisją. Wymaga niemal identycznego dopasowania.
 
 ## 4. Poziom Automatyzacji (`automation`)
-*   **Minimalny SSIM**: `0.98` (Ekstremalnie rygorystyczne)
-*   **Tolerancja pikseli**: `1%`
+*   **Minimalny SSIM**: `0.95` (Zbalansowane — 0.98 powodowało fałszywe alarmy z kompresji)
+*   **Tolerancja pikseli**: `0.5%` (Hard-pixel — wykrywa najdrobniejsze przesunięcia napisów bez reagowania na szum kompresji)
 *   **Normalizacja jakości**: Tak
 *   **Audio (Demucs)**: Tak
 *   **Audio (Whisper)**: Tak (Pełna transkrypcja i porównanie tekstu)
-*   **Zastosowanie**: Tryb pracy agentów autonomicznych (Controller/Analyst). Każda zauważalna różnica zostanie zgłoszona do weryfikacji ludzkiej.
+*   **Detekcja hybrydowa**: Tak — klatka flagowana jeśli SSIM < próg **LUB** diff_ratio > tolerancja pikseli
+*   **Próg szumu**: `30/255` — różnice poniżej tego progu (artefakty kompresji mp4/mov) są ignorowane
+*   **Zastosowanie**: Tryb pracy agentów autonomicznych (Controller/Analyst). Przesunięcia tekstu i lokalne zmiany wykrywane precyzyjnie bez fałszywych alarmów.
 
 ---
-*Ostatnia aktualizacja: 2026-03-30*
+*Ostatnia aktualizacja: 2026-04-15*

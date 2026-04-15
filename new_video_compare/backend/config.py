@@ -171,19 +171,19 @@ SENSITIVITY_THRESHOLDS = {
     },
     "high": {
         "ssim_min": 0.94,           # Strict but tolerates mp4/mov codec differences
-        "pixel_diff_tolerance": 0.03,  # 3% different pixels allowed (tolerates mp4/mov encoding artifacts)
+        "pixel_diff_tolerance": 0.015,  # 1.5% hard-pixel tolerance (catches text shifts missed by global SSIM)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation + voiceover comparison
         "enable_whisper": True,        # Whisper transcription for VO comparison
         "description": "Critical QA, near-perfect match required"
     },
     "automation": {
-        "ssim_min": 0.98,           # Strict comparison for automation
-        "pixel_diff_tolerance": 0.01,  # 1% tolerance
+        "ssim_min": 0.95,           # Balanced — 0.98 caused compression false-positives
+        "pixel_diff_tolerance": 0.005,  # 0.5% hard-pixel tolerance (catches smallest text shifts without compression noise)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation
         "enable_whisper": True,        # Whisper transcription for VO comparison
-        "description": "Autonomous agent mode: Restrictive Video + Full Audio (Demucs+Whisper), sequential with memory cleanup"
+        "description": "Autonomous agent mode: Hybrid SSIM+PixelDiff Video + Full Audio (Demucs+Whisper), sequential with memory cleanup"
     }
 }
 
