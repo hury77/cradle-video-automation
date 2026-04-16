@@ -46,12 +46,15 @@ class DesktopConnection {
               }
             }
             
-            if (scanner.isAutoComparing || localStorage.getItem("cradle-auto-video-compare") === "true") {
-              console.log("[CradleScanner] 🔄 Auto-compare: Downloads complete. Triggering Video Compare...");
-              scanner.isAutoComparing = true; // ensure in-memory flag is also set
-              setTimeout(() => {
-                scanner.startVideoCompare({ useApi: true });
-              }, 2000);
+            // Trigger auto-compare ONLY when download is fully completed, not for intermediate results
+            if (data.action === "DOWNLOAD_COMPLETED") {
+                if (scanner.isAutoComparing || localStorage.getItem("cradle-auto-video-compare") === "true") {
+                  console.log("[CradleScanner] 🔄 Auto-compare: Downloads complete. Triggering Video Compare...");
+                  scanner.isAutoComparing = true; // ensure in-memory flag is also set
+                  setTimeout(() => {
+                    scanner.startVideoCompare({ useApi: true });
+                  }, 2000);
+                }
             }
           } else if (data.action === "VIDEO_COMPARE_RESULTS") {
             const resultData = data.data || {};
@@ -1547,10 +1550,18 @@ class CradleScanner {
 
     // 2. Fallback: fetch + blob + ask Desktop App to move file
     const cradleId = downloadPath.includes('/') ? downloadPath.split('/')[0] : null;
-    console.log(`[CradleScanner] ⬇️ Fallback: fetching ${displayName} via blob...`);
+    console.log(`[CradleScanner] ⬇️ Fallback: fetching ${displayName}... Chrome downloads failed!`);
+    
     try {
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      // OOM PROTECTION: If file is > 1.5 GB, stop blob buffering because V8/Chrome will crash with "Memory Limit"
+      const contentLength = response.headers.get("content-length");
+      if (contentLength && parseInt(contentLength) > 1.5 * 1024 * 1024 * 1024) {
+          throw new Error("❌ File is too large (> 1.5GB) to buffer in RAM! Chrome native download must be fixed.");
+      }
+      
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
 
@@ -1591,7 +1602,8 @@ class CradleScanner {
   // ✅ ACCEPTANCE FILE DOWNLOAD
   async handleAcceptanceFile(fileData, cradleId, preferredFilename = null) {
     console.log("[CradleScanner] 📥 Downloading acceptance file...");
-    const filename = preferredFilename || this.extractFilenameFromUrl(fileData.url);
+    let filename = preferredFilename || this.extractFilenameFromUrl(fileData.url);
+    filename = filename.replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
     const downloadPath = `${cradleId}/${filename}`;
 
     const success = await this.downloadViaFetch(fileData.url, downloadPath);
@@ -1629,6 +1641,7 @@ class CradleScanner {
       } else {
         finalFilename = finalFilename + "_emis";
       }
+      finalFilename = finalFilename.replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
       console.log(`[CradleScanner] 🏷️ Emission suffix added: ${finalFilename}`);
 
 

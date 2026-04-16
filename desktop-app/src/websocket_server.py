@@ -134,7 +134,7 @@ class WebSocketServer:
                 logger.info(f"📦 File already in subfolder (Chrome API): {cradle_id}/{filename}")
             else:
                 # Retry move from Downloads root
-                for attempt in range(10):
+                for attempt in range(60):
                     if source.exists():
                         shutil.move(str(source), str(target))
                         logger.info(f"📦 Moved: {filename} → {cradle_id}/{filename}")
