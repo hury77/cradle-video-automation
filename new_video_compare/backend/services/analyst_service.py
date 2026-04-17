@@ -218,7 +218,11 @@ class AnalystService:
             "     Natomiast: brakujące zdania, inne słowa, zmieniona treść → REJECT.\n"
             "   - text_similarity < 0.90: Poważne różnice → REJECT\n"
             "   - status = 'not_run': Ignoruj (STT nie uruchomione)\n\n"
-            "PRIORYTET OCENY: Obraz (1) → Audio Similarity (3) → LUFS (2) → Tekst (4).\n"
+            "HIERARCHIA PRAWDY (Bezwzględna kolejność ważności):\n"
+            "   1. TWARDE REGUŁY (Truth Table powyżej) — Są nadrzędne nad WSZYSTKIM. Jeśli historia sugeruje inaczej niż tabela, ignoruj historię i trzymaj się tabeli.\n"
+            "   2. DECYZJE CZŁOWIEKA (z Bazy Wiedzy) — Jeśli człowiek zaakceptował coś, co łamie reguły, potraktuj to jako specyficzny wyjątek dla tego klienta.\n"
+            "   3. DECYZJE AI (z Bazy Wiedzy) — Traktuj wyłącznie jako sugestie 'ciągłości'. Jeśli decyzja AI łamie TWARDE REGUŁY, uznaj ją za BŁĘDNĄ i trzymaj się tabeli.\n\n"
+            "PRIORYTET OCENY METRYK: Obraz (1) → Audio Similarity (3) → LUFS (2) → Tekst (4).\n"
             "Jeśli JAKIKOLWIEK krok daje REJECT, werdykt końcowy = REJECT.\n"
             "Jeśli jakikolwiek krok daje REVIEW, a żaden nie daje REJECT, werdykt = REVIEW.\n\n"
             "PAMIĘTAJ: Lepiej REVIEW niż fałszywy APPROVE. Przepuszczenie wadliwego materiału "
@@ -232,12 +236,12 @@ class AnalystService:
             ai_examples = [e for e in historical_context if e["decided_by"] == "agent"]
 
             kb_section += (
-                "BAZA WIEDZY — HISTORIA DECYZJI DLA TEGO KLIENTA (traktuj jak biblię — "
-                "te decyzje to zweryfikowana prawda o standardach tego klienta):\n\n"
+                "BAZA WIEDZY — HISTORIA DECYZJI DLA TEGO KLIENTA:\n"
+                "⚠️ UWAGA: Poniższa historia służy do zachowania spójności, ale NIGDY nie może unieważnić TWARDYCH REGUŁ (chyba, że jest to decyzja CZŁOWIEKA).\n\n"
             )
 
             if human_examples:
-                kb_section += "📌 DECYZJE CZŁOWIEKA (najwyższy priorytet — ucz się z nich):\n"
+                kb_section += "📌 DECYZJE CZŁOWIEKA (Najwyższa ranga — zweryfikowane standardy klienta):\n"
                 for i, ex in enumerate(human_examples, 1):
                     kb_section += (
                         f"  Przykład {i}: similarity={ex['overall_similarity']}, "
@@ -253,7 +257,7 @@ class AnalystService:
                     kb_section += "\n"
 
             if ai_examples:
-                kb_section += "\n📊 DECYZJE AI (potwierdzone przez brak korekty człowieka):\n"
+                kb_section += "\n📊 DECYZJE AI (Niesprawdzone sugestie — mogą zawierać błędy! Jeśli łamią progi z punktów 1-4, ignoruj je):\n"
                 for i, ex in enumerate(ai_examples, 1):
                     kb_section += (
                         f"  Przykład {i}: similarity={ex['overall_similarity']}, "
