@@ -107,7 +107,7 @@ interface ApiResults {
           is_text_match: boolean;
           acceptance_text: string;
           emission_text: string;
-          language?: string;
+          detected_language?: string;
           comparison?: {
             word_differences: Array<{
               type: string;
@@ -195,7 +195,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
   // Extract Audio Segments for Timeline
   const audioDiffSegments = results?.overall_result?.report_data?.audio?.speech_to_text?.comparison?.segment_differences || [];
-  const detectedLanguage = results?.overall_result?.report_data?.audio?.speech_to_text?.language;
+  const detectedLanguage = results?.overall_result?.report_data?.audio?.speech_to_text?.detected_language;
 
   // Initialize WaveSurfer
   useEffect(() => {
@@ -1339,9 +1339,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         <div className="mt-4 p-4 bg-teal-50 rounded-lg border border-teal-200">
                           <h4 className="flex items-center text-sm font-semibold text-gray-700 mb-3">
                             📝 Transcript Comparison (Whisper)
-                            {audio.speech_to_text.language && (
+                            {audio.speech_to_text.detected_language && (
                                 <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 uppercase border border-blue-200" title="Detected Language">
-                                    {audio.speech_to_text.language}
+                                    {audio.speech_to_text.detected_language}
                                 </span>
                             )}
                             <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${audio.speech_to_text.is_text_match ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>

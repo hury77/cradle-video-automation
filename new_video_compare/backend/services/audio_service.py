@@ -921,7 +921,8 @@ def transcribe_audio(
                 # repetitive gibberish (e.g. Welsh-like text) on music-only audio.
                 "condition_on_previous_text": False,
                 # Segments with no-speech probability above this are discarded by the model.
-                "no_speech_threshold": 0.6,
+                # Increased to 0.85 because commercials often have heavy BG music that bumps no_speech_prob up.
+                "no_speech_threshold": 0.85,
             }
             if language:
                 options["language"] = language
@@ -977,6 +978,11 @@ def transcribe_audio(
             text_lower = text.lower()
             text_clean = text_lower.strip('.!?, ')
             
+            # Skip segments that are ONLY punctuation (e.g. '!', '...', '🎶')
+            if not text_clean:
+                logger.warning(f"⚠️ Filtered punctuation-only segment: '{text}'")
+                continue
+                
             # Database hallucination filter
             is_hallucination = False
             for h in db_hallucinations:
@@ -997,8 +1003,9 @@ def transcribe_audio(
                 continue
                 
             # Filter out low-confidence segments
+            # Tolerating up to 0.85 for commercials
             no_speech_prob = seg.get("no_speech_prob", 0.0)
-            if no_speech_prob > 0.6:
+            if no_speech_prob > 0.85:
                 logger.warning(f"⚠️ Filtered low-confidence segment (no_speech_prob={no_speech_prob:.2f}): '{text}'")
                 continue
                 
