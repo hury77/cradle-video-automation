@@ -1236,7 +1236,6 @@ class CradleScanner {
     return fileInfo;
   }
 
-  // ✅ New helper: Find URL to another asset (e.g. from "distribution" row)
   findLinkedAssetUrl(table) {
     const rows = table.querySelectorAll("tr");
     for (const row of rows) {
@@ -1265,10 +1264,11 @@ class CradleScanner {
         }
 
         // FALLBACK: Look for plain text URLs if no <a> tag matched
-        const textContent = row.textContent;
+        // FIX: Replace HTML tags (like <br>) with spaces, so words don't concatenate into the URL
+        const htmlWithSpaces = row.innerHTML.replace(/<[^>]+>/g, ' ');
         // Regex: stop at whitespace/newline so we don't capture trailing text
         const urlRegex = /https:\/\/[^\s"'<>]+\/assets\/deliverable-details\/(\d+)(?:\/[^\s"'<>]*)?/i;
-        const match = textContent.match(urlRegex);
+        const match = htmlWithSpaces.match(urlRegex);
 
         if (match) {
             // Strip any trailing non-path chars (e.g. punctuation)
