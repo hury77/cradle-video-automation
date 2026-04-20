@@ -837,41 +837,71 @@ def get_whisper():
 def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> str:
     """
     Detects Whisper loop hallucinations: repetitive n-gram patterns like
-    "Mae'r leol yn cael ei leol yn cael ei leol yn cael ei leol..."
-
-    If any n-gram of `ngram_size` words repeats more than `max_repeats` times
-    in the full text, the transcript is considered a hallucination and emptied.
-
-    Args:
-        text: Full transcript text from Whisper
-        ngram_size: Number of words per n-gram (default: 3)
-        max_repeats: Max allowed repetitions before flagging as hallucination
-
-    Returns:
-        Original text if clean, empty string if loop hallucination detected.
+    \"Mae'r leol yn cael ei leol yn cael ei leol yn cael ei leol...\"
+    
+    Includes detection for:
+    - N-gram word loops (standard)
+    - Intra-word syllable loops (e.g., 'te-te-te' or 'tetete')
+    - Excessive single-word repetitions
     """
-    if not text:
+    if not text or len(text) < 10:
         return text
 
-    words = text.lower().split()
-    if len(words) < ngram_size * (max_repeats + 1):
-        return text  # Too short to be a meaningful loop
+    text_lower = text.lower()
+    words = text_lower.split()
+    
+    # ── DETECTOR 1: Intra-word syllable loops (e.g. te-te-te-te) ──────────
+    # Check if any "word" contains too many repetitive fragments or hyphens
+    for word in words:
+        if len(word) > 20:
+            # Check for hyphen-separated repetitions (e.g. te-te-te-te)
+            if word.count('-') > 5:
+                 logger.warning(f"⚠️ Syllable loop detected in word: '{word[:50]}...'. Discarding.")
+                 return ""
+            
+            # Check for non-hyphenated dense repetition (e.g. tetetete)
+            # If a 2-3 char fragment dominates the long word
+            for chunk_size in [2, 3]:
+                if len(word) > chunk_size * 5:
+                    fragments = [word[i:i+chunk_size] for i in range(0, len(word) - chunk_size + 1, chunk_size)]
+                    from collections import Counter
+                    f_counts = Counter(fragments)
+                    if f_counts:
+                         _, count = f_counts.most_common(1)[0]
+                         if count > 5:
+                             logger.warning(f"⚠️ Character loop detected in word: '{word[:50]}...'. Discarding.")
+                             return ""
 
-    # Build n-gram frequency table
+    # ── DETECTOR 2: N-gram and Single-word loops ──────────────────────
+    if len(words) < 5:
+        return text
+
     from collections import Counter
-    ngrams = [
-        " ".join(words[i:i + ngram_size])
-        for i in range(len(words) - ngram_size + 1)
-    ]
-    counts = Counter(ngrams)
-    most_common_ngram, most_common_count = counts.most_common(1)[0]
+    
+    # Check 1-grams (single word loops)
+    one_grams = Counter(words)
+    if one_grams:
+        word, count = one_grams.most_common(1)[0]
+        # If the same word is > 50% of a long-ish text, it's likely a hallucination
+        if len(words) > 10 and count > len(words) * 0.6:
+            logger.warning(f"⚠️ Single-word loop detected! Word '{word}' is {count/len(words):.1%} of text. Discarding.")
+            return ""
 
-    if most_common_count > max_repeats:
-        logger.warning(
-            f"⚠️ Loop hallucination detected! N-gram '{most_common_ngram}' "
-            f"repeated {most_common_count}x. Discarding transcript."
-        )
-        return ""
+    # Check N-grams
+    if len(words) >= ngram_size * (max_repeats + 1):
+        ngrams = [
+            " ".join(words[i:i + ngram_size])
+            for i in range(len(words) - ngram_size + 1)
+        ]
+        counts = Counter(ngrams)
+        most_common_ngram, most_common_count = counts.most_common(1)[0]
+
+        if most_common_count > max_repeats:
+            logger.warning(
+                f"⚠️ N-gram loop hallucination detected! '{most_common_ngram}' "
+                f"repeated {most_common_count}x. Discarding."
+            )
+            return ""
 
     return text
 
@@ -1341,8 +1371,15 @@ def transcribe_single_file(
                 }
         
         # Step 4: Transcribe with Whisper
-        logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if vocals_path != audio_path else 'mixed'})...")
+        is_using_vocals = vocals_path != audio_path
+        logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if is_using_vocals else 'mixed'})...")
         transcript = transcribe_audio(vocals_path, language=language, model_name=model_name)
+        
+        # ── RETRY FALLBACK: If vocals yielded empty text, try original mixed audio ──
+        if is_using_vocals and not transcript.get("text") and not transcript.get("error"):
+            logger.warning(f"  [{label.upper()}] ⚠️ Empty transcript from vocals (possible hallucination or artifacts). Retrying with MIXED audio...")
+            transcript = transcribe_audio(audio_path, language=language, model_name=model_name)
+            is_using_vocals = False # Mark that we ended up using mixed
         
         if transcript.get("error"):
             logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")
@@ -1354,7 +1391,7 @@ def transcribe_single_file(
             "transcript": transcript,
             "source_separation": separation_stats,
             "input_file": str(file_path),
-            "used_vocals": vocals_path != audio_path,
+            "used_vocals": is_using_vocals,
         }
         
     except Exception as e:
