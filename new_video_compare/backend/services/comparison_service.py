@@ -369,6 +369,8 @@ class ComparisonService:
                                 "acceptance_segments": stt_result.get("transcript_acceptance", {}).get("segments", []),
                                 "emission_segments": stt_result.get("transcript_emission", {}).get("segments", []),
                             },
+                            "skipped": pipeline_info.get("skipped", False),
+                            "skipped_reason": stt_result.get("skipped_reason"),
                         }
                         audio_result["voiceover"] = stt_result.get("voiceover")
                         
@@ -813,6 +815,8 @@ class ComparisonService:
                     "stt_acceptance_text": (stt.get("acceptance_text") or "")[:500],
                     "stt_emission_text": (stt.get("emission_text") or "")[:500],
                     "stt_word_differences": (stt.get("comparison") or {}).get("word_differences", [])[:10],
+                    "stt_skipped": stt.get("skipped", False),
+                    "stt_skipped_reason": stt.get("skipped_reason"),
                 }
 
             return snapshot
