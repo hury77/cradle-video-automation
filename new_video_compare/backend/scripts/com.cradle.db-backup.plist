@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cradle.db-backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/scripts/backup_db.py</string>
+    </array>
+
+    <!-- Uruchom o 21:00 każdego dnia -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Jeśli komputer był wyłączony o 21:00, uruchom przy następnym starcie -->
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- Nie RunAtLoad — zamiast tego użyj StartCalendarInterval,
+         które automatycznie wykona zadanie przy najbliższej okazji gdy komputer jest włączony -->
+
+    <key>StandardOutPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/backup_launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/backup_launchd_error.log</string>
+</dict>
+</plist>

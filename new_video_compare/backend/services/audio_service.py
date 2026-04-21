@@ -836,31 +836,77 @@ def get_whisper():
 
 def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> str:
     """
-    Detects Whisper loop hallucinations: repetitive n-gram patterns like
-    \"Mae'r leol yn cael ei leol yn cael ei leol yn cael ei leol...\"
-    
+    Detects Whisper loop hallucinations: repetitive n-gram patterns and Unicode garbage.
+
     Includes detection for:
-    - N-gram word loops (standard)
-    - Intra-word syllable loops (e.g., 'te-te-te' or 'tetete')
-    - Excessive single-word repetitions
+    - DETECTOR 0: Unicode garbage — egzotyczne znaki niełacińskie >70% tokenów
+      (Whisper halucynuje znakami koreańskimi, syngaleskimi, hebrajskimi przy muzyce bez lektora)
+    - DETECTOR 1: Token loop — pojedynczy krótki token (≤4 znaki) stanowi >50% tekstu przy ≥8
+      wystąpieniach (np. "כ כ כ כ" lub "removing removing removing removing removing removing")
+    - DETECTOR 2: Intra-word syllable loops (e.g., 'te-te-te' or 'tetetete')
+    - DETECTOR 3: N-gram word loops (standard) + Single-word excessive repetition
     """
     if not text or len(text) < 10:
         return text
 
     text_lower = text.lower()
     words = text_lower.split()
-    
-    # ── DETECTOR 1: Intra-word syllable loops (e.g. te-te-te-te) ──────────
+
+    # ── DETECTOR 0: Unicode garbage (egzotyczne znaki) ─────────────────────
+    # Whisper na audio muzycznym bez lektora produkuje ciągi znaków z niełacińskich
+    # alfabetów: koreańskiego (U+AC00+), syngaleskiego (U+0D80+), hebrajskiego (U+0590+),
+    # arabskiego (U+0600+), etc. Jeśli >70% tokenów jest zdominowane przez takie znaki
+    # — to jest halucynacja, nie prawdziwy tekst.
+    if len(words) >= 3:
+        non_latin_tokens = 0
+        for word in words:
+            # Liczmy znaki spoza Basic Latin + Latin Extended A/B (U+0000–U+024F)
+            # Ignorujemy cyfry i znaki interpunkcji ASCII
+            total_chars = sum(1 for c in word if not c.isspace())
+            non_latin_chars = sum(
+                1 for c in word
+                if ord(c) > 0x024F and not c.isdigit() and not c.isspace()
+            )
+            if total_chars > 0 and non_latin_chars / total_chars > 0.6:
+                non_latin_tokens += 1
+
+        non_latin_ratio = non_latin_tokens / len(words)
+        if non_latin_ratio > 0.7:
+            logger.warning(
+                f"⚠️ [DETECTOR 0] Unicode garbage hallucination! "
+                f"{non_latin_ratio:.1%} tokenów to znaki niełacińskie. "
+                f"Próbka: '{text[:80]}'. Discarding."
+            )
+            return ""
+
+    # ── DETECTOR 1: Token loop (krótkie tokeny w pętli) ────────────────────
+    # Łapie pętle krótkich tokenów które nie są wykrywane przez n-gramy.
+    # Przykład: "כ כ כ כ כ כ כ כ" (token 1-znakowy, 100% tekstu)
+    # lub "removing removing removing..." (już łapane przez detektor 3, ale wcześniej)
+    if len(words) >= 8:
+        from collections import Counter
+        token_counts = Counter(words)
+        top_token, top_count = token_counts.most_common(1)[0]
+        top_ratio = top_count / len(words)
+
+        if len(top_token) <= 9 and top_ratio > 0.5:
+            logger.warning(
+                f"⚠️ [DETECTOR 1] Short-token loop hallucination! "
+                f"Token '{top_token}' to {top_ratio:.1%} tekstu ({top_count}/{len(words)} wystąpień). "
+                f"Discarding."
+            )
+            return ""
+
+    # ── DETECTOR 2: Intra-word syllable loops (e.g. te-te-te-te) ──────────
     # Check if any "word" contains too many repetitive fragments or hyphens
     for word in words:
         if len(word) > 20:
             # Check for hyphen-separated repetitions (e.g. te-te-te-te)
             if word.count('-') > 5:
-                 logger.warning(f"⚠️ Syllable loop detected in word: '{word[:50]}...'. Discarding.")
+                 logger.warning(f"⚠️ [DETECTOR 2] Syllable loop detected in word: '{word[:50]}...'. Discarding.")
                  return ""
-            
+
             # Check for non-hyphenated dense repetition (e.g. tetetete)
-            # If a 2-3 char fragment dominates the long word
             for chunk_size in [2, 3]:
                 if len(word) > chunk_size * 5:
                     fragments = [word[i:i+chunk_size] for i in range(0, len(word) - chunk_size + 1, chunk_size)]
@@ -869,22 +915,23 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
                     if f_counts:
                          _, count = f_counts.most_common(1)[0]
                          if count > 5:
-                             logger.warning(f"⚠️ Character loop detected in word: '{word[:50]}...'. Discarding.")
+                             logger.warning(f"⚠️ [DETECTOR 2] Character loop detected in word: '{word[:50]}...'. Discarding.")
                              return ""
 
-    # ── DETECTOR 2: N-gram and Single-word loops ──────────────────────
+    # ── DETECTOR 3: N-gram and Single-word loops ───────────────────────────
     if len(words) < 5:
         return text
 
     from collections import Counter
-    
+
     # Check 1-grams (single word loops)
     one_grams = Counter(words)
     if one_grams:
         word, count = one_grams.most_common(1)[0]
-        # If the same word is > 50% of a long-ish text, it's likely a hallucination
-        if len(words) > 10 and count > len(words) * 0.6:
-            logger.warning(f"⚠️ Single-word loop detected! Word '{word}' is {count/len(words):.1%} of text. Discarding.")
+        if len(words) > 5 and count > len(words) * 0.6:
+            logger.warning(
+                f"⚠️ [DETECTOR 3] Single-word loop! '{word}' to {count/len(words):.1%} tekstu. Discarding."
+            )
             return ""
 
     # Check N-grams
@@ -898,8 +945,8 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
 
         if most_common_count > max_repeats:
             logger.warning(
-                f"⚠️ N-gram loop hallucination detected! '{most_common_ngram}' "
-                f"repeated {most_common_count}x. Discarding."
+                f"⚠️ [DETECTOR 3] N-gram loop! '{most_common_ngram}' "
+                f"powtórzony {most_common_count}x. Discarding."
             )
             return ""
 
