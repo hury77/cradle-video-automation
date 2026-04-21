@@ -226,7 +226,7 @@ class FFmpegUtils:
             frame_rate: Extract frames at this rate (fps). If None, extract all frames
             start_time: Start extraction at this time (seconds)
             duration: Extract for this duration (seconds)
-            quality: JPEG quality (1-31, lower = better quality)
+            quality: Unused (kept for API compatibility). Frames are saved as lossless PNG.
 
         Returns:
             List of extracted frame file paths
@@ -246,7 +246,9 @@ class FFmpegUtils:
         # Build output pattern
         # Sanitize stem to remove '%' which FFmpeg interprets as pattern
         safe_stem = video_path.stem.replace("%", "_")
-        output_pattern = output_dir / f"{safe_stem}_frame_%06d.jpg"
+        # PNG is lossless — eliminates JPEG compression artifacts (~2-5px)
+        # that cause SSIM to report false differences on identical frames.
+        output_pattern = output_dir / f"{safe_stem}_frame_%06d.png"
 
         logger.info(f"🎬 Extracting frames from: {video_path.name}")
         logger.info(f"📁 Output directory: {output_dir}")
@@ -265,11 +267,9 @@ class FFmpegUtils:
             if frame_rate is not None:
                 cmd.extend(["-vf", f"fps={frame_rate}"])
 
-            # Output settings
+            # Output settings — PNG (lossless, no compression artifacts)
             cmd.extend(
                 [
-                    "-q:v",
-                    str(quality),  # JPEG quality
                     "-y",  # Overwrite output files
                     str(output_pattern),
                 ]
@@ -285,7 +285,7 @@ class FFmpegUtils:
 
             # Find extracted frames
             # Use safe_stem because that's what we wrote to disk
-            frame_files = sorted(output_dir.glob(f"{safe_stem}_frame_*.jpg"))
+            frame_files = sorted(output_dir.glob(f"{safe_stem}_frame_*.png"))
             frame_paths = [str(f) for f in frame_files]
 
             logger.info(f"✅ Extracted {len(frame_paths)} frames")

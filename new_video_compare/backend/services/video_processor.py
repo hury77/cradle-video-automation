@@ -444,7 +444,7 @@ class VideoProcessor:
                     if np.any(mask_indices):
                         diff_overlay[mask_indices] = [0, 0, 255]
 
-                    diff_filename = f"diff_{timestamp:.1f}.jpg"
+                    diff_filename = f"diff_{timestamp:.1f}.png"
                     diff_path = diff_frames_dir / diff_filename
                     cv2.imwrite(str(diff_path), diff_overlay)
 

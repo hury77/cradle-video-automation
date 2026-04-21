@@ -330,7 +330,7 @@ class VideoUtils:
         else:
             return "very_high"
     
-    def cleanup_temp_files(self, directory: str, pattern: str = "*_frame_*.jpg") -> int:
+    def cleanup_temp_files(self, directory: str, pattern: str = "*_frame_*.png") -> int:
         """
         Clean up temporary files (extracted frames, etc.)
         
