@@ -901,15 +901,15 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
     import re
     # Check if any "word" contains too many repetitive fragments or hyphens
     for word in words:
-        if len(word) > 10:
+        if len(word) >= 6:
             # Check for hyphen-separated repetitions (e.g. te-te-te-te)
             if word.count('-') > 4:
                  logger.warning(f"⚠️ [DETECTOR 2] Syllable loop detected in word: '{word[:50]}...'. Discarding.")
                  return ""
 
             # Check for non-hyphenated dense repetition (e.g. tetetete, liedliedliedlied)
-            # Regex: any 2-6 char sequence repeating at least 3 times after first (4 total)
-            if re.search(r'(.{2,6})\1{3,}', word):
+            # Regex: any 2-6 char sequence repeating at least 2 times after first (3 total)
+            if re.search(r'(.{2,6})\1{2,}', word):
                  logger.warning(f"⚠️ [DETECTOR 2] Character loop detected in word: '{word[:50]}...'. Discarding.")
                  return ""
 
