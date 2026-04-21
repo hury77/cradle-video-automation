@@ -63,7 +63,7 @@ class AnalystService:
         )
 
         # Store metrics for fallback reasoning generation (used if LLM returns empty reasoning)
-        self._last_metrics = metrics
+        self._last_metrics = job_data
 
         import ollama
         try:

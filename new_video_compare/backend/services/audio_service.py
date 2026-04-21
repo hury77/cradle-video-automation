@@ -1099,7 +1099,13 @@ def transcribe_audio(
         # Even with condition_on_previous_text=False, Whisper can still produce
         # subtle repetition loops. Detect: if any 3-word n-gram repeats > 4x
         # in the full transcript, the entire text is likely a hallucination.
+        full_text_before = full_text
         full_text = _detect_and_strip_loop_hallucination(full_text)
+        
+        # If the detector stripped the hallucinated loop, also clear the segments
+        # so they don't pollute the UI timeline.
+        if full_text == "" and full_text_before != "":
+            segments = []
 
         transcription = {
             "text": full_text,
