@@ -206,19 +206,16 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
     import shutil
     from datetime import datetime, timedelta
     
-    threshold_date = datetime.now() - timedelta(days=days)
-    
-    # Find jobs that are completed or failed and older than the threshold
-    jobs_to_delete = (
-        db.query(ComparisonJob)
-        .filter(
-            ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]),
-            ComparisonJob.created_at < threshold_date
-        )
-        .order_by(ComparisonJob.created_at.asc())
-        .limit(count)
-        .all()
+    # Find jobs that are completed or failed
+    query = db.query(ComparisonJob).filter(
+        ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED])
     )
+    
+    if days > 0:
+        threshold_date = datetime.now() - timedelta(days=days)
+        query = query.filter(ComparisonJob.created_at < threshold_date)
+        
+    jobs_to_delete = query.order_by(ComparisonJob.created_at.asc()).limit(count).all()
     
     deleted_count = 0
     freed_space_bytes = 0

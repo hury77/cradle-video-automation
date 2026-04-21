@@ -155,16 +155,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode }) => {
   };
 
   const handleCleanup = async () => {
-    const daysStr = window.prompt("Delete jobs and files older than how many days?", "14");
-    if (daysStr === null) return;
-    const days = parseInt(daysStr, 10);
-    if (isNaN(days)) return;
-
-    if (!window.confirm(`Are you sure you want to delete ALL jobs and associated files older than ${days} days?`)) return;
+    if (!window.confirm(`Are you sure you want to delete the 10 oldest jobs and their associated files to free up disk space?`)) return;
     
     setCleaningUp(true);
     try {
-      const result = await compareApi.cleanupOldJobs(days, 100);
+      const result = await compareApi.cleanupOldJobs(0, 10);
       alert(`Cleanup complete!\n${result.message}\nFreed: ${result.freed_space_mb} MB`);
       fetchJobs();
     } catch (error) {
