@@ -898,41 +898,44 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
             return ""
 
     # ── DETECTOR 2: Intra-word syllable loops (e.g. te-te-te-te) ──────────
+    import re
     # Check if any "word" contains too many repetitive fragments or hyphens
     for word in words:
-        if len(word) > 20:
+        if len(word) > 10:
             # Check for hyphen-separated repetitions (e.g. te-te-te-te)
-            if word.count('-') > 5:
+            if word.count('-') > 4:
                  logger.warning(f"⚠️ [DETECTOR 2] Syllable loop detected in word: '{word[:50]}...'. Discarding.")
                  return ""
 
-            # Check for non-hyphenated dense repetition (e.g. tetetete)
-            for chunk_size in [2, 3]:
-                if len(word) > chunk_size * 5:
-                    fragments = [word[i:i+chunk_size] for i in range(0, len(word) - chunk_size + 1, chunk_size)]
-                    from collections import Counter
-                    f_counts = Counter(fragments)
-                    if f_counts:
-                         _, count = f_counts.most_common(1)[0]
-                         if count > 5:
-                             logger.warning(f"⚠️ [DETECTOR 2] Character loop detected in word: '{word[:50]}...'. Discarding.")
-                             return ""
+            # Check for non-hyphenated dense repetition (e.g. tetetete, liedliedliedlied)
+            # Regex: any 2-6 char sequence repeating at least 3 times after first (4 total)
+            if re.search(r'(.{2,6})\1{3,}', word):
+                 logger.warning(f"⚠️ [DETECTOR 2] Character loop detected in word: '{word[:50]}...'. Discarding.")
+                 return ""
 
     # ── DETECTOR 3: N-gram and Single-word loops ───────────────────────────
-    if len(words) < 5:
-        return text
-
     from collections import Counter
 
     # Check 1-grams (single word loops)
-    one_grams = Counter(words)
-    if one_grams:
-        word, count = one_grams.most_common(1)[0]
-        if len(words) > 5 and count > len(words) * 0.6:
-            logger.warning(
-                f"⚠️ [DETECTOR 3] Single-word loop! '{word}' to {count/len(words):.1%} tekstu. Discarding."
-            )
-            return ""
+    if len(words) >= 3:
+        one_grams = Counter(words)
+        if one_grams:
+            mc_word, count = one_grams.most_common(1)[0]
+            # Absolute loop for short texts
+            if len(words) <= 5 and count == len(words):
+                logger.warning(
+                    f"⚠️ [DETECTOR 3] Single-word absolute loop! '{mc_word}' repeated {count}x. Discarding."
+                )
+                return ""
+            # Percentage loop for longer texts
+            elif len(words) > 5 and count > len(words) * 0.6:
+                logger.warning(
+                    f"⚠️ [DETECTOR 3] Single-word loop! '{mc_word}' to {count/len(words):.1%} tekstu. Discarding."
+                )
+                return ""
+
+    if len(words) < 5:
+        return text
 
     # Check N-grams
     if len(words) >= ngram_size * (max_repeats + 1):
