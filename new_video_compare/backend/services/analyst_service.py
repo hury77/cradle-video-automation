@@ -62,6 +62,9 @@ class AnalystService:
             "Na podstawie tych danych i historii decyzji, jaki jest Twój werdykt?"
         )
 
+        # Store metrics for fallback reasoning generation (used if LLM returns empty reasoning)
+        self._last_metrics = metrics
+
         import ollama
         try:
             response = ollama.chat(
@@ -284,6 +287,83 @@ class AnalystService:
         return base_rules + kb_section + output_format
 
     # ──────────────────────────────────────────────────────────────────────────
+    # RULE-BASED REASONING (fallback when LLM returns empty reasoning)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _generate_rule_based_reasoning(self, verdict: str, metrics: dict) -> str:
+        """
+        Generate a deterministic, metric-based reasoning string when the LLM
+        returns an empty `reasoning` field.
+
+        Follows the Truth Table from SOUL.md / system prompt to produce
+        a human-readable, auditable explanation.
+        """
+        if not metrics:
+            return f"Werdykt: {verdict.upper()}. Brak metryk do wygenerowania uzasadnienia."
+
+        parts = []
+
+        # Video
+        video_sim = metrics.get("video_similarity", metrics.get("overall_similarity"))
+        diff_count = metrics.get("video_differences_count", 0)
+        if video_sim is not None:
+            video_sim = float(video_sim)
+            if video_sim >= 0.98:
+                parts.append(f"Obraz: zgodny (similarity={video_sim:.4f}, {diff_count} różnych klatek).")
+            elif video_sim >= 0.95:
+                parts.append(f"Obraz: drobne różnice (similarity={video_sim:.4f}, {diff_count} różnych klatek) — próg REVIEW.")
+            else:
+                parts.append(f"Obraz: KRYTYCZNA RÓŻNICA (similarity={video_sim:.4f}, {diff_count} różnych klatek) — poniżej progu 0.95.")
+
+        # Audio similarity
+        audio_sim = metrics.get("audio_similarity")
+        if audio_sim is not None:
+            audio_sim = float(audio_sim)
+            if audio_sim >= 0.97:
+                parts.append(f"Audio: zgodne (audio_similarity={audio_sim:.4f}).")
+            elif audio_sim >= 0.93:
+                parts.append(f"Audio: drobne różnice (audio_similarity={audio_sim:.4f}).")
+            else:
+                parts.append(f"Audio: POWAŻNE RÓŻNICE (audio_similarity={audio_sim:.4f}).")
+
+        # LUFS
+        loudness = metrics.get("audio_loudness", {})
+        if isinstance(loudness, dict):
+            lufs_diff = loudness.get("lufs_difference")
+            if lufs_diff is not None:
+                lufs_diff = abs(float(lufs_diff))
+                if lufs_diff <= 1.0:
+                    parts.append(f"Głośność: OK (|LUFS diff|={lufs_diff:.2f}).")
+                elif lufs_diff <= 2.0:
+                    parts.append(f"Głośność: wyraźna rozbieżność (|LUFS diff|={lufs_diff:.2f}) — próg REVIEW.")
+                else:
+                    parts.append(f"Głośność: KRYTYCZNA RÓŻNICA (|LUFS diff|={lufs_diff:.2f}) — próg REJECT.")
+
+        # STT
+        transcription = metrics.get("audio_transcription", {})
+        if isinstance(transcription, dict):
+            if transcription.get("status") == "not_run":
+                parts.append("Transkrypcja: nie uruchomiona.")
+            else:
+                text_sim = transcription.get("text_similarity")
+                skipped = transcription.get("skipped", False)
+                if skipped:
+                    parts.append(
+                        "Transkrypcja: pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
+                    )
+                elif text_sim is not None:
+                    text_sim = float(text_sim)
+                    if text_sim >= 0.98:
+                        parts.append(f"Transkrypcja: zgodna (text_similarity={text_sim:.4f}).")
+                    else:
+                        parts.append(f"Transkrypcja: różnice (text_similarity={text_sim:.4f}).")
+
+        if not parts:
+            return f"Werdykt: {verdict.upper()}. Automatyczna analiza na podstawie metryk."
+
+        return " ".join(parts) + f" Końcowy werdykt: {verdict.upper()}."
+
+    # ──────────────────────────────────────────────────────────────────────────
     # RESPONSE PARSING
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -323,8 +403,11 @@ class AnalystService:
                 verdict = "review"
             analysis["verdict"] = verdict
 
-            if "reasoning" not in analysis or not analysis["reasoning"]:
-                analysis["reasoning"] = "Analiza AI zakończona bez uzasadnienia."
+            # If LLM skipped reasoning (common for small models on obvious cases),
+            # generate a deterministic, metric-based explanation instead of the generic fallback.
+            if "reasoning" not in analysis or not str(analysis.get("reasoning", "")).strip():
+                logger.warning("⚠️ LLM returned empty reasoning — generating rule-based explanation.")
+                analysis["reasoning"] = self._generate_rule_based_reasoning(verdict, self._last_metrics)
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
