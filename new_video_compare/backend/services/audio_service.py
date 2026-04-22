@@ -937,21 +937,24 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
     if len(words) < 5:
         return text
 
-    # Check N-grams
-    if len(words) >= ngram_size * (max_repeats + 1):
-        ngrams = [
-            " ".join(words[i:i + ngram_size])
-            for i in range(len(words) - ngram_size + 1)
-        ]
-        counts = Counter(ngrams)
-        most_common_ngram, most_common_count = counts.most_common(1)[0]
+    # Check N-grams (e.g., 3-grams and 5-grams)
+    for n_size, threshold in [(ngram_size, max_repeats), (5, 2)]:
+        if len(words) >= n_size * (threshold + 1):
+            ngrams = [
+                " ".join(words[i:i + n_size])
+                for i in range(len(words) - n_size + 1)
+            ]
+            counts = Counter(ngrams)
+            if not counts:
+                continue
+            most_common_ngram, most_common_count = counts.most_common(1)[0]
 
-        if most_common_count > max_repeats:
-            logger.warning(
-                f"⚠️ [DETECTOR 3] N-gram loop! '{most_common_ngram}' "
-                f"powtórzony {most_common_count}x. Discarding."
-            )
-            return ""
+            if most_common_count > threshold:
+                logger.warning(
+                    f"⚠️ [DETECTOR 3] N-gram ({n_size}-gram) loop! '{most_common_ngram}' "
+                    f"powtórzony {most_common_count}x. Discarding."
+                )
+                return ""
 
     return text
 
@@ -1364,6 +1367,7 @@ def transcribe_single_file(
         # Step 2: Source separation (Demucs) — extract clean vocals
         vocals_path = audio_path  # fallback: use mixed audio
         separation_stats = None
+        sep_result = None
         
         if use_source_separation:
             logger.info(f"  [{label.upper()}] Running Demucs source separation...")
@@ -1432,10 +1436,18 @@ def transcribe_single_file(
         transcript = transcribe_audio(vocals_path, language=language, model_name=model_name)
         
         # ── RETRY FALLBACK: If vocals yielded empty text, try original mixed audio ──
+        # Only fallback if it's NOT a music-dominant track.
+        # If it is music-dominant (>40% music), an empty transcript is expected (just music) and falling back would cause hallucinations.
+        music_prop = sep_result.get("summary", {}).get("music_proportion", 0) if sep_result else 0
+        is_music_dominant = music_prop > 0.4
+        
         if is_using_vocals and not transcript.get("text") and not transcript.get("error"):
-            logger.warning(f"  [{label.upper()}] ⚠️ Empty transcript from vocals (possible hallucination or artifacts). Retrying with MIXED audio...")
-            transcript = transcribe_audio(audio_path, language=language, model_name=model_name)
-            is_using_vocals = False # Mark that we ended up using mixed
+            if not is_music_dominant:
+                logger.warning(f"  [{label.upper()}] ⚠️ Empty transcript from vocals (possible hallucination or artifacts). Retrying with MIXED audio...")
+                transcript = transcribe_audio(audio_path, language=language, model_name=model_name)
+                is_using_vocals = False # Mark that we ended up using mixed
+            else:
+                logger.info(f"  [{label.upper()}] 🛑 Empty transcript from vocals, but track is music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
         
         if transcript.get("error"):
             logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")

@@ -51,6 +51,12 @@ def migrate():
                 # EXACT MATCHES (Short words)
                 ("you", "en", HallucinationMatchType.EXACT),
                 ("you.", "en", HallucinationMatchType.EXACT),
+                
+                # Specific sentence hallucinations from job 320
+                ("apparently they've been doing it for 50 years", "en", HallucinationMatchType.CONTAINS),
+                ("apparently theyve been doing it for 50 years", "en", HallucinationMatchType.CONTAINS),
+                ("apparently they're not in any of those nannies", "en", HallucinationMatchType.CONTAINS),
+                ("apparently theyre not in any of those nannies", "en", HallucinationMatchType.CONTAINS),
             ]
             
             for phrase, lang, match_type in initial_phrases:
