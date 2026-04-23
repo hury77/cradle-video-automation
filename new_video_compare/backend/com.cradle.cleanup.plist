@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cradle.cleanup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/hubert.rycaj/Documents/cradle-video-automation/.venv/bin/python3</string>
+        <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/smart_cleanup.py</string>
+        <string>--run</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend</string>
+    <key>StandardOutPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/cleanup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/cleanup_error.log</string>
+</dict>
+</plist>
