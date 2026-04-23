@@ -674,9 +674,14 @@ class ComparisonService:
                     "emission_text": emission_text[:300] if emission_text else "",
                     "word_differences_count": len(word_diffs),
                     "word_differences_sample": word_diffs[:5],  # First 5 differences for context
+                    "skipped": stt.get("skipped", False),
+                    "skipped_reason": stt.get("skipped_reason"),
                 }
             else:
                 metrics["audio_transcription"] = {"status": "not_run"}
+            
+            metrics["stt_skipped"] = stt.get("skipped", False)
+            metrics["stt_skipped_reason"] = stt.get("skipped_reason")
             
             # Pass loudness metrics to AI
             # Note: compare_loudness() stores differences under "comparison" key (not "difference")
