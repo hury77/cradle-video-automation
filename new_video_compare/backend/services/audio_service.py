@@ -1289,7 +1289,7 @@ def compare_transcripts(
     
     result = {
         "text_similarity": round(float(similarity), 4),
-        "is_text_match": bool(similarity > 0.95),  # 95% threshold
+        "is_text_match": len(differences) == 0,  # Strict: Any word difference = no match
         "word_count_a": len(words_a),
         "word_count_b": len(words_b),
         "word_differences": differences,  # Return all differences
