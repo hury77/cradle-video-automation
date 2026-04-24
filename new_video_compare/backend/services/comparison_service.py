@@ -339,12 +339,17 @@ class ComparisonService:
                         logger.info("🎙️ Running Speech-to-Text pipeline (independent per file)...")
                         
                         should_filter_song = effective_sensitivity in ["high", "automation"]
+                        
+                        # Fix: Force STT if loudness differences were detected, even if spectral similarity is high
+                        loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
+                        
                         stt_result = compare_spoken_text(
                             acceptance_path,
                             emission_path,
                             use_separated_vocals=True,
                             filter_song=should_filter_song,
-                            audio_similarity_score=audio_result.get("similarity_score")
+                            audio_similarity_score=audio_result.get("similarity_score"),
+                            force_stt=loudness_match_issue
                         )
                         
                         if stt_result and stt_result.get("error"):

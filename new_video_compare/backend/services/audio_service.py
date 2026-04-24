@@ -1493,7 +1493,8 @@ def compare_spoken_text(
     model_name: str = "base",
     use_separated_vocals: bool = True,
     filter_song: bool = False,
-    audio_similarity_score: Optional[float] = None
+    audio_similarity_score: Optional[float] = None,
+    force_stt: bool = False
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
@@ -1520,7 +1521,8 @@ def compare_spoken_text(
     # Demucs is non-deterministic — identical files can yield slightly different vocal
     # separation results, causing Whisper to transcribe a different audio subset → false VO positives.
     # Threshold 0.98 (not 1.0) ensures files with tiny differences still go through STT.
-    if audio_similarity_score is not None and audio_similarity_score >= 0.98:
+    # Logic: Skip ONLY IF similarity is high AND force_stt is False.
+    if not force_stt and audio_similarity_score is not None and audio_similarity_score >= 0.98:
         logger.info(
             f"✅ FAST PATH: Audio similarity {audio_similarity_score:.4f} >= 0.98. "
             f"Skipping Demucs+Whisper to avoid false positives and save ~3 GB RAM."
