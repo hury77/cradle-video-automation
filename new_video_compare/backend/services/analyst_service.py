@@ -399,6 +399,23 @@ class AnalystService:
                 logger.warning("⚠️ LLM returned empty reasoning — generating rule-based explanation.")
                 analysis["reasoning"] = self._generate_rule_based_reasoning(verdict, self._last_metrics)
 
+            # ── Deterministic Post-Processing for STT Skipped ─────────────────
+            # Prevent LLM from hallucinating that "transcription is perfect" when it was skipped.
+            if self._last_metrics.get("stt_skipped", False):
+                reasoning = analysis.get("reasoning", "")
+                required_msg = "Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
+                if required_msg not in reasoning:
+                    import re
+                    # Remove false claims about transcription being checked/perfect
+                    reasoning = re.sub(r'(?i)(\s*(i|oraz)\s*transkrypcji)', '', reasoning)
+                    reasoning = re.sub(r'(?i)(,\s*a)?\s*brak\s+różnic\s+w\s+(warstwie\s+)?(tekście|transkrypcji)\.?', '', reasoning)
+                    reasoning = re.sub(r'(?i)(transkrypcja(\s+jest)?\s+(idealna|zgodna|identyczna))\.?', '', reasoning)
+                    # Clean up any trailing spaces or misplaced periods before appending
+                    reasoning = reasoning.replace(" .", ".").strip().rstrip(',')
+                    # Append the required message
+                    analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
+                    logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention skipped STT.")
+
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
             logger.info(
