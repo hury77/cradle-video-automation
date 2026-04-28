@@ -496,6 +496,7 @@ class CradleScanner {
     localStorage.removeItem("cradle-auto-apply-qa-filter");
     localStorage.removeItem("cradle-auto-take-asset");
     localStorage.removeItem("cradle-auto-download-asset");
+    localStorage.removeItem("cradle-processed-jobs");
     
     // Zapobiegaj triggerowaniu kolejnych zdarzeń
     localStorage.setItem("cradle-automation-stopped", "true");
@@ -610,6 +611,7 @@ class CradleScanner {
     console.log("[CradleScanner] Target URL:", targetUrl);
     
     localStorage.removeItem("cradle-automation-stopped");
+    localStorage.removeItem("cradle-processed-jobs"); // Clear history for new session
 
     if (currentUrl !== targetUrl) {
       console.log("[CradleScanner] ❌ Wrong page! Redirecting...");
@@ -817,7 +819,19 @@ class CradleScanner {
         }
 
         if (state.includes("pending")) {
+          // Check if already processed in this session to prevent infinite loops
+          const processedJobsStr = localStorage.getItem("cradle-processed-jobs") || "[]";
+          const processedJobs = JSON.parse(processedJobsStr);
+          if (processedJobs.includes(cradleId)) {
+            console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} - already processed in this session.`);
+            continue;
+          }
+
           const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
+
+          // Mark as processed
+          processedJobs.push(cradleId);
+          localStorage.setItem("cradle-processed-jobs", JSON.stringify(processedJobs));
 
           // Extract client name from Client column (index 4 in the table)
           const clientName = cells.length > 4 ? cells[4].textContent.trim() : null;
