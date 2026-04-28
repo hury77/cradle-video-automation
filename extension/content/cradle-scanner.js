@@ -81,20 +81,10 @@ class DesktopConnection {
                         window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
                     }
 
-                    // Then prompt on this tab
-                    const returnToTasks = window.confirm(
-                      `🤖 Agent 2 (Analyst): Analysis complete!\n\n` +
-                      `Return to "My Team Tasks" to scan for next assets?`
-                    );
-
-                    if (returnToTasks) {
-                        console.log("[CradleScanner] 🚀 User approved hand-off. Navigating back to Tasks...");
-                        localStorage.setItem("cradle-auto-apply-qa-filter", "true");
-                        window.location.href = "https://cradle.egplusww.pl/my-team/";
-                    } else {
-                        console.log("[CradleScanner] ⏸️ User chose to stay on this page.");
-                        scanner.showNotification("Automation paused.", "warning");
-                    }
+                    // Automatically navigate back to Tasks
+                    console.log("[CradleScanner] 🚀 Navigating back to Tasks to show Next/Escape dialog...");
+                    localStorage.setItem("cradle-auto-apply-qa-filter", "true");
+                    window.location.href = "https://cradle.egplusww.pl/my-team/";
                   }, 1500);
                } else {
                   console.log("[CradleScanner] ℹ️ Not in auto-compare mode, skipping hand-off prompt.");
@@ -310,7 +300,7 @@ class CradleScanner {
 
       localStorage.removeItem("cradle-auto-apply-qa-filter");
 
-      if (currentUrl !== targetUrl) {
+      if (!currentUrl.includes("/my-team")) {
         console.log("[CradleScanner] ❌ Wrong URL for auto-apply, ignoring...");
         return;
       }
