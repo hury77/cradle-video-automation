@@ -105,13 +105,17 @@ class DesktopConnection {
             } else {
                const errorMsg = resultData.error || resultData.message || 'Unknown error';
                console.error("[CradleScanner] ❌ Video Compare Error:", errorMsg);
-               scanner.showNotification(`❌ Video Compare error: ${errorMsg}`, "error");
+               
+               scanner.showInteractivePopup(
+                   "❌ Video Compare Error",
+                   `Failed to compare videos:<br/><br/><b>${errorMsg}</b><br/><br/>Automation has been paused.`,
+                   [{ label: "OK", color: "#d32f2f", onClick: () => {} }]
+               );
                
                if (scanner.isAutoComparing) {
                   scanner.isAutoComparing = false;
                   localStorage.removeItem("cradle-auto-video-compare");
                   localStorage.setItem("cradle-automation-stopped", "true");
-                  scanner.showNotification("🚫 Automation STOPPED due to error.", "error");
                }
             }
           } else if (data.action === "FILE_MOVED") {
@@ -171,14 +175,18 @@ class DesktopConnection {
           } else if (data.action === "ERROR") {
             const msg = data.data?.error || data.error || "Unknown error";
             console.error("[Desktop] ❌ ERROR:", msg);
-            scanner.showNotification(`❌ Desktop App error: ${msg}`, "error");
+            
+            scanner.showInteractivePopup(
+                "❌ System Error",
+                `Desktop App reported an error:<br/><br/><b>${msg}</b><br/><br/>Automation has been paused.`,
+                [{ label: "OK", color: "#d32f2f", onClick: () => {} }]
+            );
             
             // Un-hang the UI if we were auto-comparing
             if (scanner.isAutoComparing) {
                 scanner.isAutoComparing = false;
                 localStorage.removeItem("cradle-auto-video-compare");
                 localStorage.setItem("cradle-automation-stopped", "true");
-                scanner.showNotification("🚫 Automation STOPPED due to error.", "error");
             }
             // Remove processing UI classes if present
             document.body.classList.remove("cradle-processing");
@@ -309,12 +317,31 @@ class CradleScanner {
 
       console.log("[CradleScanner] ✅ Correct URL, scheduling auto-apply...");
 
-      setTimeout(async () => {
-        console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
-        await this.applyQAFilterOnly();
-        await this.wait(2000);
-        await this.findPendingAsset();
-      }, 3000);
+      setTimeout(() => {
+        this.showInteractivePopup(
+            "🤖 Automation Paused",
+            "Job completed successfully. What would you like to do next?",
+            [
+                { 
+                    label: "Next Job", 
+                    color: "#4CAF50", 
+                    onClick: async () => {
+                        console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
+                        await this.applyQAFilterOnly();
+                        await this.wait(2000);
+                        await this.findPendingAsset();
+                    } 
+                },
+                { 
+                    label: "Escape", 
+                    color: "#9e9e9e", 
+                    onClick: () => {
+                        this.stopAutomation();
+                    } 
+                }
+            ]
+        );
+      }, 1000);
     } else {
       console.log("[CradleScanner] No auto-apply flag found");
     }
@@ -478,6 +505,76 @@ class CradleScanner {
     setTimeout(() => {
         window.location.reload();
     }, 1500);
+  }
+
+  showInteractivePopup(title, message, buttons) {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.top = "0";
+    overlay.style.left = "0";
+    overlay.style.width = "100vw";
+    overlay.style.height = "100vh";
+    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+    overlay.style.zIndex = "999999";
+    overlay.style.display = "flex";
+    overlay.style.justifyContent = "center";
+    overlay.style.alignItems = "center";
+
+    const popup = document.createElement("div");
+    popup.style.backgroundColor = "white";
+    popup.style.padding = "25px 30px";
+    popup.style.borderRadius = "12px";
+    popup.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
+    popup.style.maxWidth = "450px";
+    popup.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    popup.style.textAlign = "center";
+
+    const titleEl = document.createElement("h2");
+    titleEl.textContent = title;
+    titleEl.style.marginTop = "0";
+    titleEl.style.color = "#333";
+    titleEl.style.fontSize = "22px";
+
+    const msgEl = document.createElement("p");
+    msgEl.innerHTML = message;
+    msgEl.style.color = "#555";
+    msgEl.style.fontSize = "16px";
+    msgEl.style.lineHeight = "1.5";
+    msgEl.style.marginBottom = "25px";
+
+    const btnContainer = document.createElement("div");
+    btnContainer.style.display = "flex";
+    btnContainer.style.justifyContent = "center";
+    btnContainer.style.gap = "15px";
+
+    buttons.forEach(btn => {
+        const b = document.createElement("button");
+        b.textContent = btn.label;
+        b.style.padding = "10px 20px";
+        b.style.border = "none";
+        b.style.borderRadius = "6px";
+        b.style.backgroundColor = btn.color || "#1976d2";
+        b.style.color = "white";
+        b.style.cursor = "pointer";
+        b.style.fontWeight = "bold";
+        b.style.fontSize = "15px";
+        b.style.transition = "opacity 0.2s";
+        
+        b.onmouseover = () => b.style.opacity = "0.8";
+        b.onmouseout = () => b.style.opacity = "1";
+        
+        b.onclick = () => {
+            document.body.removeChild(overlay);
+            if (btn.onClick) btn.onClick();
+        };
+        btnContainer.appendChild(b);
+    });
+
+    popup.appendChild(titleEl);
+    popup.appendChild(msgEl);
+    popup.appendChild(btnContainer);
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
   }
 
   sendStatus() {
