@@ -81,10 +81,15 @@ class DesktopConnection {
                         window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
                     }
 
-                    // Automatically navigate back to Tasks
-                    console.log("[CradleScanner] 🚀 Navigating back to Tasks to show Next/Escape dialog...");
-                    localStorage.setItem("cradle-auto-apply-qa-filter", "true");
-                    window.location.href = "https://cradle.egplusww.pl/my-team/";
+                    // Notify the Base Tab (My Team Tasks) to show the popup
+                    console.log("[CradleScanner] 🚀 Notifying Base Tab to show Next/Escape dialog...");
+                    localStorage.setItem("cradle-show-next-popup", Date.now().toString());
+                    
+                    scanner.showInteractivePopup(
+                        "✅ Analysis Complete",
+                        "Agent 2 has finished processing this asset.<br/><br/>You can now review the results and make your final decision on this page.<br/><br/><b>Return to your 'My Team Tasks' tab to continue the automation.</b>",
+                        [{ label: "Got it", color: "#4CAF50", onClick: () => {} }]
+                    );
                   }, 1500);
                } else {
                   console.log("[CradleScanner] ℹ️ Not in auto-compare mode, skipping hand-off prompt.");
@@ -253,6 +258,34 @@ class CradleScanner {
              await this.wait(2000);
              this.findPendingAsset();
          }
+      } else if (e.key === 'cradle-show-next-popup' && e.newValue) {
+         console.log("[CradleScanner] 🔄 Otrzymano sygnał by pokazać popup 'Next Job'!");
+         
+         if (window.location.href.includes("my-team")) {
+             this.showInteractivePopup(
+                 "🤖 Automation Paused",
+                 "The previous job was analyzed successfully.<br/><br/>What would you like to do next?",
+                 [
+                     { 
+                         label: "Next Job", 
+                         color: "#4CAF50", 
+                         onClick: async () => {
+                             console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
+                             await this.applyQAFilterOnly();
+                             await this.wait(2000);
+                             await this.findPendingAsset();
+                         } 
+                     },
+                     { 
+                         label: "Escape", 
+                         color: "#9e9e9e", 
+                         onClick: () => {
+                             this.stopAutomation();
+                         } 
+                     }
+                 ]
+             );
+         }
       }
     });
 
@@ -307,31 +340,12 @@ class CradleScanner {
 
       console.log("[CradleScanner] ✅ Correct URL, scheduling auto-apply...");
 
-      setTimeout(() => {
-        this.showInteractivePopup(
-            "🤖 Automation Paused",
-            "Job completed successfully. What would you like to do next?",
-            [
-                { 
-                    label: "Next Job", 
-                    color: "#4CAF50", 
-                    onClick: async () => {
-                        console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
-                        await this.applyQAFilterOnly();
-                        await this.wait(2000);
-                        await this.findPendingAsset();
-                    } 
-                },
-                { 
-                    label: "Escape", 
-                    color: "#9e9e9e", 
-                    onClick: () => {
-                        this.stopAutomation();
-                    } 
-                }
-            ]
-        );
-      }, 1000);
+      setTimeout(async () => {
+        console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
+        await this.applyQAFilterOnly();
+        await this.wait(2000);
+        await this.findPendingAsset();
+      }, 2000);
     } else {
       console.log("[CradleScanner] No auto-apply flag found");
     }
