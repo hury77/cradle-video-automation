@@ -263,9 +263,16 @@ class FFmpegUtils:
             if duration is not None:
                 cmd.extend(["-t", str(duration)])
 
+            # Build the video filter (scale + optional fps)
+            # This is a critical optimization: Scale down huge videos to max 1280px (maintaining aspect ratio) 
+            # before saving PNGs. This saves massive amounts of disk I/O and RAM.
+            vf_filters = ["scale=1280:1280:force_original_aspect_ratio=decrease"]
+            
             # Add frame rate if specified
             if frame_rate is not None:
-                cmd.extend(["-vf", f"fps={frame_rate}"])
+                vf_filters.append(f"fps={frame_rate}")
+                
+            cmd.extend(["-vf", ",".join(vf_filters)])
 
             # Output settings — PNG (lossless, no compression artifacts)
             cmd.extend(
