@@ -416,6 +416,39 @@ class AnalystService:
                     analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
                     logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention skipped STT.")
 
+            # ── Deterministic Threshold Enforcers ─────────────────────────────
+            # Force REVIEW/REJECT if AI hallucinates an APPROVE despite hard metrics
+            if analysis["verdict"] == "approve":
+                reasoning = analysis.get("reasoning", "")
+                override_applied = False
+                
+                # 1. Video Similarity Override
+                video_sim = self._last_metrics.get("overall_similarity", 1.0)
+                if video_sim < 0.95:
+                    analysis["verdict"] = "reject"
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej krytycznego progu 95%. Wymuszono status REJECT. [Oryginalna notatka AI: {reasoning}]"
+                    override_applied = True
+                elif video_sim < 0.98:
+                    analysis["verdict"] = "review"
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej progu 98%. Wymuszono status REVIEW. [Oryginalna notatka AI: {reasoning}]"
+                    override_applied = True
+                    
+                # 2. LUFS Override (only if we didn't already override to reject)
+                if not override_applied or analysis["verdict"] == "review":
+                    audio_loudness = self._last_metrics.get("audio_loudness", {})
+                    if isinstance(audio_loudness, dict):
+                        lufs_diff = audio_loudness.get("lufs_difference")
+                        if lufs_diff is not None:
+                            abs_lufs = abs(float(lufs_diff))
+                            current_reasoning = analysis.get("reasoning", "")
+                            
+                            if abs_lufs > 2.0 and analysis["verdict"] != "reject":
+                                analysis["verdict"] = "reject"
+                                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza próg krytyczny 2.0. Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
+                            elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
+                                analysis["verdict"] = "review"
+                                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
             logger.info(
