@@ -269,11 +269,10 @@ class CradleScanner {
                      { 
                          label: "Next Job", 
                          color: "#4CAF50", 
-                         onClick: async () => {
-                             console.log("[CradleScanner] 🚀 Starting auto-apply filter...");
-                             await this.applyQAFilterOnly();
-                             await this.wait(2000);
-                             await this.findPendingAsset();
+                         onClick: () => {
+                             console.log("[CradleScanner] 🚀 Refreshing page to find the next job...");
+                             localStorage.setItem("cradle-auto-apply-qa-filter", "true");
+                             window.location.reload();
                          } 
                      },
                      { 
