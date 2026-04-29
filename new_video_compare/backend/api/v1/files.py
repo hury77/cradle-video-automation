@@ -415,6 +415,7 @@ async def upload_file(
             is_processed=False
         )
         
+        db.add(file_record)
         db.commit()
         db.refresh(file_record)
         
