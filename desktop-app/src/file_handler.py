@@ -42,6 +42,13 @@ class FileHandler:
                 emission_file.setdefault("jobNumber", job_number)
                 emission_file.setdefault("templateId", template_id)
                 emission_file.setdefault("langCode", lang_code)
+                # Pass acceptance name for fallback search
+                if acceptance_file and isinstance(acceptance_file, dict):
+                    acc_name = acceptance_file.get("name")
+                    if not acc_name and acceptance_file.get("path"):
+                        acc_name = os.path.basename(acceptance_file.get("path"))
+                    if acc_name:
+                        emission_file.setdefault("acceptanceName", acc_name)
 
             self.logger.info(f"📁 Processing files for CradleID: {cradle_id} | jobNumber: {job_number} | templateId: {template_id} | langCode: {lang_code}")
 
@@ -347,6 +354,22 @@ class FileHandler:
                 f"{search_path}/**/{cradle_id}_*",  # **/879712_* ← NOWY!
                 f"{search_path}/**/_{cradle_id}_*",  # **/_879712_* ← NOWY!
             ]
+            
+            # FINAL FALLBACK: Search by Acceptance File name (stem)
+            acceptance_name_full = file_info.get("acceptanceName")
+            if acceptance_name_full:
+                from pathlib import Path
+                acc_stem = Path(acceptance_name_full).stem
+                if len(acc_stem) > 4:  # Avoid too short generic names
+                    self.logger.info(f"💡 Added fallback search patterns using acceptance stem: '{acc_stem}'")
+                    search_patterns.extend([
+                        f"{search_path}/{acc_stem}*",
+                        f"{search_path}/*{acc_stem}*",
+                        f"{search_path}/*/{acc_stem}*",
+                        f"{search_path}/*/*{acc_stem}*",
+                        f"{search_path}/**/{acc_stem}*",
+                        f"{search_path}/**/*{acc_stem}*"
+                    ])
 
             for pattern_base in search_patterns:
                 for ext in extensions:
@@ -569,6 +592,16 @@ class FileHandler:
             else:
                 search_patterns = [f"*{cradle_id}*"]
 
+            # FINAL FALLBACK: Search by Acceptance File name (stem)
+            acceptance_name_full = file_info.get("acceptanceName")
+            if acceptance_name_full:
+                acc_stem = Path(acceptance_name_full).stem
+                if len(acc_stem) > 4:  # Avoid too short generic names
+                    self.logger.info(f"💡 Added fallback search patterns using acceptance stem: '{acc_stem}'")
+                    search_patterns.extend([
+                        f"*{acc_stem}*",
+                        f"{acc_stem}*"
+                    ])
 
             # ── Search loop: collect candidates per pattern group, pick best ────────
             # We iterate patterns in priority order and stop at the first pattern GROUP
