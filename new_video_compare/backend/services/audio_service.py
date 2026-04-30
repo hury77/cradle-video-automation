@@ -1004,8 +1004,8 @@ def transcribe_audio(
                 # repetitive gibberish (e.g. Welsh-like text) on music-only audio.
                 "condition_on_previous_text": False,
                 # Segments with no-speech probability above this are discarded by the model.
-                # Increased to 0.85 because commercials often have heavy BG music that bumps no_speech_prob up.
-                "no_speech_threshold": 0.85,
+                # Lowered to 0.45 so Whisper aggressively ignores Demucs background artifacts.
+                "no_speech_threshold": 0.45,
             }
             if language:
                 options["language"] = language
@@ -1033,6 +1033,7 @@ def transcribe_audio(
                     "fp16": device == "mps", # FP16 supported on MPS
                     "beam_size": 5,
                     "condition_on_previous_text": False,
+                    "no_speech_threshold": 0.45,
                 }
                 if language:
                     options["language"] = language
@@ -1242,48 +1243,71 @@ def compare_transcripts(
             }
             differences.append(diff)
     
-    # Segment-level comparison for timing
+    # Segment-level comparison for timing (Temporal Matching)
     segments_a = transcript_a.get("segments", [])
     segments_b = transcript_b.get("segments", [])
     
     segment_diffs = []
-    min_segments = min(len(segments_a), len(segments_b))
+    used_b_indices = set()
     
-    for i in range(min_segments):
-        seg_a = segments_a[i]
-        seg_b = segments_b[i]
-        
-        # Compare segment text (normalized)
+    for idx_a, seg_a in enumerate(segments_a):
+        start_a, end_a = float(seg_a.get("start", 0.0)), float(seg_a.get("end", 0.0))
         norm_a = normalize_text(seg_a["text"])
-        norm_b = normalize_text(seg_b["text"])
         
-        if norm_a != norm_b:
+        best_b_idx = -1
+        best_overlap = 0.0
+        min_dist = 999.0
+        
+        for idx_b, seg_b in enumerate(segments_b):
+            if idx_b in used_b_indices:
+                continue
+            start_b, end_b = float(seg_b.get("start", 0.0)), float(seg_b.get("end", 0.0))
+            
+            overlap_start = max(start_a, start_b)
+            overlap_end = min(end_a, end_b)
+            overlap = max(0.0, overlap_end - overlap_start)
+            
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_b_idx = idx_b
+            elif overlap == 0.0 and best_overlap == 0.0:
+                dist = abs(start_a - start_b)
+                if dist < min_dist and dist < 2.0: # Max 2 seconds drift
+                    min_dist = dist
+                    best_b_idx = idx_b
+                    
+        if best_b_idx != -1:
+            used_b_indices.add(best_b_idx)
+            seg_b = segments_b[best_b_idx]
+            norm_b = normalize_text(seg_b["text"])
+            
+            if norm_a != norm_b:
+                segment_diffs.append({
+                    "segment_idx": len(segment_diffs),
+                    "time_a": f"{start_a:.1f}s",
+                    "time_b": f"{float(seg_b.get('start', 0.0)):.1f}s",
+                    "text_a": seg_a["text"],
+                    "text_b": seg_b["text"],
+                })
+        else:
+            # Segment A missing in B
             segment_diffs.append({
-                "segment_idx": i,
-                "time_a": f"{seg_a['start']:.1f}s",
-                "time_b": f"{seg_b['start']:.1f}s",
-                "text_a": seg_a["text"],
-                "text_b": seg_b["text"],
-            })
-    
-    # Check for extra segments
-    if len(segments_a) > len(segments_b):
-        for i in range(min_segments, len(segments_a)):
-            segment_diffs.append({
-                "segment_idx": i,
-                "time_a": f"{segments_a[i]['start']:.1f}s",
+                "segment_idx": len(segment_diffs),
+                "time_a": f"{start_a:.1f}s",
                 "time_b": "(missing)",
-                "text_a": segments_a[i]["text"],
+                "text_a": seg_a["text"],
                 "text_b": "",
             })
-    elif len(segments_b) > len(segments_a):
-        for i in range(min_segments, len(segments_b)):
+            
+    # Add remaining B segments (Insertions)
+    for idx_b, seg_b in enumerate(segments_b):
+        if idx_b not in used_b_indices:
             segment_diffs.append({
-                "segment_idx": i,
+                "segment_idx": len(segment_diffs),
                 "time_a": "(missing)",
-                "time_b": f"{segments_b[i]['start']:.1f}s",
+                "time_b": f"{float(seg_b.get('start', 0.0)):.1f}s",
                 "text_a": "",
-                "text_b": segments_b[i]["text"],
+                "text_b": seg_b["text"],
             })
     
     

@@ -826,6 +826,7 @@ class ComparisonService:
                     "stt_acceptance_text": (stt.get("acceptance_text") or "")[:500],
                     "stt_emission_text": (stt.get("emission_text") or "")[:500],
                     "stt_word_differences": (stt.get("comparison") or {}).get("word_differences", [])[:10],
+                    "stt_segment_differences": (stt.get("comparison") or {}).get("segment_differences", [])[:10],
                     "stt_skipped": stt.get("skipped", False),
                     "stt_skipped_reason": stt.get("skipped_reason"),
                 }
