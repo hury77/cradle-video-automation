@@ -662,6 +662,7 @@ class ComparisonService:
         
         if audio_res and isinstance(audio_res, dict):
             metrics["audio_similarity"] = float(audio_res.get("similarity_score", 0.0))
+            metrics["audio_analysis_data"] = audio_res
             
             # Build transcript summary for AI (text_diff_preview doesn't exist — use real STT fields)
             stt = audio_res.get("speech_to_text", {})

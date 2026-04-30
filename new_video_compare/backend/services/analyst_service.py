@@ -206,15 +206,19 @@ class AnalystService:
             "   - Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA → REJECT\n"
             "   ⚠️ Pamiętaj: Jeśli lufs_difference wynosi np. -1.46, to jest to POWYŻEJ progu 1.0. To jest REVIEW, a nie APPROVE.\n"
             "3. AUDIO SIMILARITY (MFCC/spectral):\n"
-            "   - >= 0.97: Idealne → OK\n"
-            "   - 0.93 - 0.969: Drobne różnice → REVIEW\n"
-            "   - < 0.93: Poważne różnice → REJECT\n"
+            "   - >= 0.95: Akceptowalne (kompresja) → OK\n"
+            "   - 0.90 - 0.949: Drobne różnice → REVIEW\n"
+            "   - < 0.90: Poważne różnice → REJECT\n"
             "4. TEKST (Whisper):\n"
+            "   - word_count_a = 0 i word_count_b = 0: W uzasadnieniu napisz 'Brak mowy / VO.'\n"
             "   - text_similarity = 1.0 (is_text_match=true): Zgodne → OK\n"
             "   - text_similarity < 1.0 (is_text_match=false): Sprawdź word_differences_sample!\n"
             "     - Jeśli to fonetyczne warianty (np. 'Opel' vs 'Opl'): REVIEW (opisz to jako artefakt STT).\n"
             "     - Jeśli to inne słowa, wstawki lub braki: REJECT.\n"
-            "     ⚠️ NIGDY nie ignoruj różnic w tekście tylko dlatego, że podobieństwo wynosi 97%.\n\n"
+            "     ⚠️ NIGDY nie ignoruj różnic w tekście tylko dlatego, że podobieństwo wynosi 97%.\n"
+            "5. BRAK AUDIO:\n"
+            "   - Jeśli word_count_a = 0 oraz word_count_b = 0, a audio_similarity = 0.0 lub zgłasza błąd ekstrakcji: Oznacza to BRAK ŚCIEŻEK AUDIO.\n"
+            "   - W uzasadnieniu MUSISZ wyraźnie napisać: 'Brak ścieżek dźwiękowych w obu plikach.' NIGDY nie nazywaj tego 'pełną zgodnością audio' ani 'zgodną transkrypcją'.\n\n"
             "HIERARCHIA PRAWDY:\n"
             "   1. TWARDE REGUŁY (Truth Table powyżej) — nadrzędne nad WSZYSTKIM.\n"
             "   2. DECYZJE CZŁOWIEKA (Baza Wiedzy) — wyjątki specyficzne dla klienta.\n"
@@ -307,11 +311,24 @@ class AnalystService:
 
         # Audio similarity
         audio_sim = metrics.get("audio_similarity")
-        if audio_sim is not None:
+        
+        # Check for completely missing audio
+        audio_data = metrics.get("audio_analysis_data", {})
+        transcription_data = metrics.get("audio_transcription", {})
+        similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
+        
+        is_missing_audio = False
+        if ("FFmpeg audio extraction failed" in similarity_error or "FFmpeg failed" in similarity_error) and audio_sim == 0.0:
+            if isinstance(transcription_data, dict) and transcription_data.get("comparison", {}).get("word_count_a", -1) == 0:
+                is_missing_audio = True
+
+        if is_missing_audio:
+            parts.append("Audio: Brak ścieżek dźwiękowych w obu plikach.")
+        elif audio_sim is not None:
             audio_sim = float(audio_sim)
-            if audio_sim >= 0.97:
-                parts.append(f"Audio: zgodne (audio_similarity={audio_sim:.4f}).")
-            elif audio_sim >= 0.93:
+            if audio_sim >= 0.95:
+                parts.append(f"Audio: akceptowalne (audio_similarity={audio_sim:.4f}).")
+            elif audio_sim >= 0.90:
                 parts.append(f"Audio: drobne różnice (audio_similarity={audio_sim:.4f}).")
             else:
                 parts.append(f"Audio: POWAŻNE RÓŻNICE (audio_similarity={audio_sim:.4f}).")
@@ -339,11 +356,16 @@ class AnalystService:
                 skipped = transcription.get("skipped", False)
                 if skipped:
                     parts.append(
-                        "Transkrypcja: pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
+                        "Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
                     )
                 elif text_sim is not None:
                     text_sim = float(text_sim)
-                    if text_sim >= 0.98:
+                    # Check if there is actual speech
+                    audio_data = metrics.get("audio_analysis_data", {})
+                    stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
+                    if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                        parts.append("Transkrypcja: brak mowy / VO.")
+                    elif text_sim >= 0.98:
                         parts.append(f"Transkrypcja: zgodna (text_similarity={text_sim:.4f}).")
                     else:
                         parts.append(f"Transkrypcja: różnice (text_similarity={text_sim:.4f}).")
@@ -387,7 +409,8 @@ class AnalystService:
                 analysis = json.loads(content)
 
             # Validate & sanitize
-            verdict = str(analysis.get("verdict", "review")).lower().strip()
+            original_verdict = str(analysis.get("verdict", "review")).lower().strip()
+            verdict = original_verdict
             if verdict not in ("approve", "reject", "review"):
                 logger.warning(f"⚠️ Unexpected verdict value '{verdict}' — defaulting to review")
                 verdict = "review"
@@ -415,6 +438,79 @@ class AnalystService:
                     # Append the required message
                     analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
                     logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention skipped STT.")
+
+            # ── Deterministic Post-Processing for Missing Audio ───────────────
+            # Prevent LLM from saying "pełna zgodność audio" when there are no audio tracks
+            audio_data = self._last_metrics.get("audio_analysis_data", {})
+            audio_sim = self._last_metrics.get("audio_similarity")
+            similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
+            
+            is_missing_audio = False
+            if ("FFmpeg audio extraction failed" in similarity_error or "FFmpeg failed" in similarity_error) and audio_sim == 0.0:
+                stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
+                if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0:
+                    is_missing_audio = True
+
+            if is_missing_audio:
+                reasoning = analysis.get("reasoning", "")
+                required_msg = "Brak ścieżek dźwiękowych w obu plikach."
+                if required_msg not in reasoning:
+                    import re
+                    reasoning = re.sub(r'(?i)(\s*(i|oraz)\s*(audio|dźwięku|transkrypcji))', '', reasoning)
+                    reasoning = re.sub(r'(?i)(,\s*a)?\s*brak\s+różnic\s+w\s+(warstwie\s+)?(audio|dźwięku|tekście|transkrypcji)\.?', '', reasoning)
+                    reasoning = re.sub(r'(?i)((audio|dźwięk|transkrypcja)(\s+jest)?\s+(idealna|zgodna|identyczna|wzorowa))\.?', '', reasoning)
+                    reasoning = re.sub(r'(?i)(pełna\s+zgodność\s+(warstwy\s+)?audio)\.?', '', reasoning)
+                    reasoning = reasoning.replace(" .", ".").strip().rstrip(',')
+                    analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
+                    logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention missing audio tracks.")
+
+            # ── Deterministic Post-Processing for Missing VO ──────────────────
+            # Prevent LLM from saying "Transkrypcja zgodna" when there is no voiceover
+            if not is_missing_audio and not self._last_metrics.get("stt_skipped", False):
+                stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
+                if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                    reasoning = analysis.get("reasoning", "")
+                    required_msg = "Transkrypcja: brak mowy / VO."
+                    if required_msg not in reasoning and "Brak mowy" not in reasoning:
+                        import re
+                        reasoning = re.sub(r'(?i)(Transkrypcja(:\s*)?(jest\s*)?(zgodna|identyczna|idealna|wzorowa))\.?', '', reasoning)
+                        reasoning = reasoning.replace(" .", ".").strip().rstrip(',')
+                        analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
+                        logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention missing VO.")
+
+            # ── Deterministic Post-Processing for Minor Audio Differences ───
+            # If everything else is perfect, allow audio similarity down to 0.85 as compression artifacts
+            if analysis["verdict"] == "review":
+                video_sim = self._last_metrics.get("overall_similarity", 1.0)
+                audio_sim = self._last_metrics.get("audio_similarity")
+                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                lufs_diff = audio_loudness.get("lufs_difference") if isinstance(audio_loudness, dict) else None
+                abs_lufs = abs(float(lufs_diff)) if lufs_diff is not None else 0.0
+                
+                # Check STT matches
+                stt_data = self._last_metrics.get("audio_transcription", {})
+                stt_skipped = self._last_metrics.get("stt_skipped", False)
+                
+                is_stt_ok = False
+                if stt_skipped:
+                    is_stt_ok = True
+                elif isinstance(stt_data, dict):
+                    text_sim = stt_data.get("text_similarity")
+                    if text_sim == 1.0:
+                        is_stt_ok = True
+                    else:
+                        stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
+                        if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                            is_stt_ok = True
+
+                if video_sim >= 0.98 and abs_lufs <= 1.0 and is_stt_ok:
+                    if audio_sim is not None and float(audio_sim) >= 0.85:
+                        analysis["verdict"] = "approve"
+                        reasoning = analysis.get("reasoning", "")
+                        import re
+                        reasoning = re.sub(r'(?i)Końcowy werdykt:\s*(REVIEW|REJECT)', 'Końcowy werdykt: APPROVE', reasoning)
+                        analysis["reasoning"] = f"{reasoning} [Korekta: Zignorowano błędną decyzję modelu ({original_verdict.upper()})]".strip()
+                        logger.info("🔧 Post-processing: Forcing APPROVE because all metrics are acceptable despite LLM error.")
 
             # ── Deterministic Threshold Enforcers ─────────────────────────────
             # Force REVIEW/REJECT if AI hallucinates an APPROVE despite hard metrics
