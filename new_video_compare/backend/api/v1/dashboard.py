@@ -206,16 +206,20 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
     import shutil
     from datetime import datetime, timedelta
     
-    # Find jobs that are completed or failed
-    query = db.query(ComparisonJob).filter(
-        ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED])
+    # Find jobs that are completed or failed, AND have files that haven't been physically deleted yet
+    query = db.query(ComparisonJob).join(
+        File, 
+        or_(ComparisonJob.acceptance_file_id == File.id, ComparisonJob.emission_file_id == File.id)
+    ).filter(
+        ComparisonJob.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]),
+        File.file_size > 0
     )
     
     if days > 0:
         threshold_date = datetime.now() - timedelta(days=days)
         query = query.filter(ComparisonJob.created_at < threshold_date)
         
-    jobs_to_delete = query.order_by(ComparisonJob.created_at.asc()).limit(count).all()
+    jobs_to_delete = query.order_by(ComparisonJob.created_at.asc()).limit(count).distinct().all()
     
     deleted_count = 0
     freed_space_bytes = 0
@@ -224,29 +228,24 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
         # 1. Identify files to potentially delete
         files_to_check = [job.acceptance_file, job.emission_file]
         
-        # 2. Delete the job first (cascade deletes results)
-        try:
-            db.delete(job)
-            db.flush()
-            deleted_count += 1
-        except Exception as e:
-            print(f"Error deleting job {job.id}: {e}")
-            continue
-
-        # 3. Check if files are orphaned and delete them
+        # 2. WE DO NOT DELETE THE JOB RECORD! This preserves all KPIs and dashboard statistics.
+        deleted_count += 1
+        
+        # 3. Check if files exist and delete them physically
         for file_model in files_to_check:
-            if file_model:
+            if file_model and file_model.file_size and file_model.file_size > 0:
                 try:
-                    # Check if file is used by ANY other job
-                    usage_count = db.query(ComparisonJob).filter(
+                    # Check if file is used by ANY newer active job
+                    newer_usage_count = db.query(ComparisonJob).filter(
                         or_(
                             ComparisonJob.acceptance_file_id == file_model.id,
                             ComparisonJob.emission_file_id == file_model.id
-                        )
+                        ),
+                        ComparisonJob.created_at >= threshold_date if days > 0 else True
                     ).count()
                     
-                    if usage_count == 0:
-                        # File is orphan, safe to delete
+                    if newer_usage_count == 0:
+                        # File is safe to delete physically
                         file_path = Path(file_model.file_path)
                         if file_path.exists():
                             size = file_path.stat().st_size
@@ -256,7 +255,6 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
                         # Also delete proxy files for this file
                         proxy_dir = file_path.parent / "proxies"
                         if proxy_dir.exists():
-                            # Proxy filenames contain the original file's stem
                             stem = file_path.stem
                             for proxy_file in proxy_dir.iterdir():
                                 if stem in proxy_file.name:
@@ -270,9 +268,11 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
                             except:
                                 pass
                                 
-                        db.delete(file_model)
+                        # We do NOT delete the file_model from the DB. 
+                        # We just mark it as physically deleted by setting size to 0.
+                        file_model.file_size = 0
                 except Exception as e:
-                    print(f"Error deleting file {file_model.id}: {e}")
+                    print(f"Error deleting physical file {file_model.id}: {e}")
     
     # 4. Clean up orphan File records (DB rows with no referencing jobs)
     all_file_ids_in_jobs = set()
