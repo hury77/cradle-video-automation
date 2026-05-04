@@ -224,7 +224,11 @@ class AnalystService:
             "   1. TWARDE REGUŁY (Truth Table powyżej) — nadrzędne nad WSZYSTKIM.\n"
             "   2. DECYZJE CZŁOWIEKA (Baza Wiedzy) — wyjątki specyficzne dla klienta.\n"
             "   3. DECYZJE AI — tylko sugestie. Jeśli łamią progi 1-4, ignoruj je.\n\n"
-            "PAMIĘTAJ: Twoim celem jest WYKRYWANIE BŁĘDÓW, a nie ich usprawiedliwianie. Jeśli masz wątpliwości, wybierz REVIEW. Lepiej zatrzymać poprawny materiał niż przepuścić wadliwy.\n\n"
+            "⚠️ ZASADA APPROVE:\n"
+            "   Jeśli WSZYSTKIE metryki mieszczą się w progach APPROVE (obraz >= 0.98, LUFS <= 1.0, audio >= 0.95, tekst = 1.0 lub brak mowy), "
+            "Twój werdykt MUSI być APPROVE. Nie dawaj REVIEW bez KONKRETNEGO powodu — podaj dokładnie który parametr jest poza normą.\n"
+            "   REVIEW to decyzja dla niejednoznacznych przypadków, NIE dla idealnych wyników.\n\n"
+            "PAMIĘTAJ: Twoim celem jest UCZCIWA analiza — wykrywaj prawdziwe błędy, ale nie blokuj materiału który spełnia wszystkie kryteria.\n\n"
         )
 
         # Inject per-client KB context as few-shot examples
@@ -510,8 +514,8 @@ class AnalystService:
                         reasoning = analysis.get("reasoning", "")
                         import re
                         reasoning = re.sub(r'(?i)Końcowy werdykt:\s*(REVIEW|REJECT)', 'Końcowy werdykt: APPROVE', reasoning)
-                        analysis["reasoning"] = f"{reasoning} [Korekta: Zignorowano błędną decyzję modelu ({original_verdict.upper()})]".strip()
-                        logger.info("🔧 Post-processing: Forcing APPROVE because all metrics are acceptable despite LLM error.")
+                        analysis["reasoning"] = f"{reasoning} [Korekta systemowa: wszystkie metryki w progach APPROVE]".strip()
+                        logger.info("🔧 Post-processing: Overriding to APPROVE — all metrics within acceptable thresholds.")
 
             # ── Deterministic Threshold Enforcers ─────────────────────────────
             # Force REVIEW/REJECT if AI hallucinates an APPROVE despite hard metrics
