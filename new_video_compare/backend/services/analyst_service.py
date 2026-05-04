@@ -514,7 +514,7 @@ class AnalystService:
                         reasoning = analysis.get("reasoning", "")
                         import re
                         reasoning = re.sub(r'(?i)Końcowy werdykt:\s*(REVIEW|REJECT)', 'Końcowy werdykt: APPROVE', reasoning)
-                        analysis["reasoning"] = f"{reasoning} [Korekta systemowa: wszystkie metryki w progach APPROVE]".strip()
+                        analysis["reasoning"] = reasoning.strip()
                         logger.info("🔧 Post-processing: Overriding to APPROVE — all metrics within acceptable thresholds.")
 
             # ── Deterministic Threshold Enforcers ─────────────────────────────
