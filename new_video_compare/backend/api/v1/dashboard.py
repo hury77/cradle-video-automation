@@ -220,6 +220,7 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
         query = query.filter(ComparisonJob.created_at < threshold_date)
         
     jobs_to_delete = query.order_by(ComparisonJob.created_at.asc()).limit(count).distinct().all()
+    jobs_to_delete_ids = [j.id for j in jobs_to_delete]
     
     deleted_count = 0
     freed_space_bytes = 0
@@ -235,13 +236,13 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
         for file_model in files_to_check:
             if file_model and file_model.file_size and file_model.file_size > 0:
                 try:
-                    # Check if file is used by ANY newer active job
+                    # Check if file is used by ANY job not in the current deletion batch
                     newer_usage_count = db.query(ComparisonJob).filter(
                         or_(
                             ComparisonJob.acceptance_file_id == file_model.id,
                             ComparisonJob.emission_file_id == file_model.id
                         ),
-                        ComparisonJob.created_at >= threshold_date if days > 0 else True
+                        ~ComparisonJob.id.in_(jobs_to_delete_ids)
                     ).count()
                     
                     if newer_usage_count == 0:
@@ -275,12 +276,10 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
                     print(f"Error deleting physical file {file_model.id}: {e}")
     
     # 4. Clean up orphan File records (DB rows with no referencing jobs)
-    all_file_ids_in_jobs = set()
-    for job in db.query(ComparisonJob).all():
-        if job.acceptance_file_id:
-            all_file_ids_in_jobs.add(job.acceptance_file_id)
-        if job.emission_file_id:
-            all_file_ids_in_jobs.add(job.emission_file_id)
+    all_file_ids_in_jobs = {
+        fid for row in db.query(ComparisonJob.acceptance_file_id, ComparisonJob.emission_file_id).all()
+        for fid in row if fid is not None
+    }
     
     orphan_files = db.query(File).filter(~File.id.in_(all_file_ids_in_jobs)).all() if all_file_ids_in_jobs else db.query(File).all()
     orphan_count = 0
@@ -318,10 +317,15 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
     if proxy_dir.exists():
         # Get stems of all files still referenced by active jobs
         active_stems = set()
-        for fid in all_file_ids_in_jobs:
-            f = db.query(File).get(fid)
-            if f:
-                active_stems.add(Path(f.file_path).stem)
+        if all_file_ids_in_jobs:
+            file_ids_list = list(all_file_ids_in_jobs)
+            chunk_size = 500
+            for i in range(0, len(file_ids_list), chunk_size):
+                chunk = file_ids_list[i:i + chunk_size]
+                active_files = db.query(File.file_path).filter(File.id.in_(chunk)).all()
+                for (fp,) in active_files:
+                    if fp:
+                        active_stems.add(Path(fp).stem)
         
         for proxy_file in proxy_dir.iterdir():
             if proxy_file.is_file():
