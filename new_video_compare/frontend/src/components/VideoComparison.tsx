@@ -560,7 +560,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const status = getOverallStatus(overallScore);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
+    <div className="min-h-screen print:min-h-0 print:h-auto print:p-0 bg-gradient-to-br from-slate-50 to-blue-50 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -985,7 +985,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               <div className="flex items-center">
                  {/* Print Button - visible on screen, hidden on print */}
                  <button 
-                    onClick={() => window.print()} 
+                    onClick={() => {
+                      const oldTitle = document.title;
+                      document.title = job.cradle_id ? `${job.cradle_id}` : job.job_name || 'report';
+                      setTimeout(() => {
+                        window.print();
+                        document.title = oldTitle;
+                      }, 50);
+                    }} 
                     className="flex items-center space-x-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 print:hidden mr-4 shadow-sm"
                  >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

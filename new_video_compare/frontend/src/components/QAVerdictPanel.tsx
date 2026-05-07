@@ -104,7 +104,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
   // ── Read-only view ──
   if (saved && !isEditing && existingDecision) {
     return (
-      <div className="mt-8 mb-4 mx-auto max-w-7xl print:hidden">
+      <div className="mt-8 mb-4 print:mb-0 mx-auto max-w-7xl">
         <div className={`rounded-2xl shadow-md border-2 p-6 transition-all ${selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white border-gray-200"}`}>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
@@ -162,7 +162,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
           {/* Override button */}
           <button
             onClick={handleStartEdit}
-            className={`w-full py-3 rounded-xl font-bold text-sm transition-all shadow flex items-center justify-center gap-2 ${
+            className={`w-full py-3 rounded-xl font-bold text-sm transition-all shadow flex items-center justify-center gap-2 print:hidden ${
               isAiDecision ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
             }`}
           >

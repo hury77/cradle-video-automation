@@ -22,3 +22,15 @@
     @apply bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium py-2 px-4 rounded-lg transition-colors;
   }
 }
+
+@media print {
+  @page {
+    size: auto;
+    margin: 8mm;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    zoom: 0.70;
+  }
+}
