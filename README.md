@@ -85,3 +85,15 @@ Zazwyczaj również **nie jest wymagany** - React używa na nowo *Fast Refresh*.
 ```bash
 npm start
 ```
+
+## 🧹 Czyszczenie miejsca na dysku (Zgodne z SOUL.md)
+
+Jeśli projekt zacznie zajmować za dużo miejsca (ponad 25 GB) przez nagromadzone filmy testowe i logi, możesz bezpiecznie wyczyścić przestrzeń za pomocą wbudowanego skryptu `disk_monitor.py`.
+
+Skrypt skanuje pliki, znajduje te najstarsze i największe, a następnie prosi Cię o potwierdzenie przed ich usunięciem. Działa ze ścisłym poszanowaniem bazy danych (`new_video_compare.db`), więc statystyki i historia QA zawsze pozostają bezpieczne.
+
+Aby go uruchomić, wykonaj w terminalu będąc w głównym katalogu projektu:
+```bash
+cd ~/Documents/cradle-video-automation
+python3 disk_monitor.py
+```
