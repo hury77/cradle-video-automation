@@ -483,6 +483,42 @@ class AnalystService:
                         analysis["reasoning"] = f"{reasoning} {required_msg}".strip()
                         logger.info("🔧 Post-processing: Corrected LLM reasoning to explicitly mention missing VO.")
 
+            # ── Deterministic Post-Processing for DOOH (no audio tracks) ────
+            # DOOH files legitimately have no audio tracks. In this case:
+            #   - audio_similarity = 0.0 (FFmpeg can't extract what isn't there)
+            #   - lufs_difference = null (nothing to measure)
+            #   - audio_transcription.text_similarity = 1.0 (both empty → match)
+            # This is NOT a quality defect — audio absence in both files is OK.
+            # If video matches perfectly, the verdict MUST be APPROVE.
+            if analysis["verdict"] in ("reject", "review"):
+                video_sim = self._last_metrics.get("overall_similarity", 1.0)
+                audio_sim = self._last_metrics.get("audio_similarity")
+                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                lufs_diff = audio_loudness.get("lufs_difference") if isinstance(audio_loudness, dict) else None
+                has_loudness_issue = audio_loudness.get("has_loudness_issue", False) if isinstance(audio_loudness, dict) else False
+
+                stt_data = self._last_metrics.get("audio_transcription", {})
+                text_sim = stt_data.get("text_similarity") if isinstance(stt_data, dict) else None
+                word_diffs = stt_data.get("word_differences_count", 0) if isinstance(stt_data, dict) else 0
+
+                # DOOH pattern: no LUFS data, audio_sim=0.0, text perfectly matches (both empty)
+                is_no_audio = (
+                    lufs_diff is None
+                    and not has_loudness_issue
+                    and audio_sim is not None and float(audio_sim) == 0.0
+                    and (text_sim is None or text_sim == 1.0)
+                    and word_diffs == 0
+                )
+
+                if is_no_audio and float(video_sim) >= 0.98:
+                    analysis["verdict"] = "approve"
+                    analysis["reasoning"] = (
+                        f"Obraz: idealnie zgodny (similarity={video_sim:.4f}, 0 różnych klatek). "
+                        "Audio: brak ścieżek dźwiękowych w obu plikach (DOOH — poprawny stan). "
+                        "Brak różnic w treści. Końcowy werdykt: APPROVE."
+                    )
+                    logger.info("🔧 Post-processing: DOOH detected (no audio in both files) — overriding to APPROVE.")
+
             # ── Deterministic Post-Processing for Minor Audio Differences ───
             # If everything else is perfect, allow audio similarity down to 0.85 as compression artifacts
             if analysis["verdict"] == "review":

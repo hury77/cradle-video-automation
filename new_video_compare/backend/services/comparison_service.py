@@ -349,7 +349,8 @@ class ComparisonService:
                             use_separated_vocals=True,
                             filter_song=should_filter_song,
                             audio_similarity_score=audio_result.get("similarity_score"),
-                            force_stt=loudness_match_issue
+                            force_stt=loudness_match_issue,
+                            initial_prompt=job.client_name
                         )
                         
                         if stt_result and stt_result.get("error"):

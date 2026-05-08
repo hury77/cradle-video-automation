@@ -95,6 +95,7 @@ def extract_audio_from_video(
         '-acodec', 'pcm_s16le',
         '-ar', str(sample_rate),
         '-ac', '2',
+        '-af', 'dynaudnorm',
         output_path
     ]
     
@@ -962,7 +963,8 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
 def transcribe_audio(
     audio_path: str,
     language: Optional[str] = None,
-    model_name: str = "base"
+    model_name: str = "base",
+    initial_prompt: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Transcribe audio to text using MLX-optimized Whisper (Neural Engine)
@@ -1009,6 +1011,8 @@ def transcribe_audio(
             }
             if language:
                 options["language"] = language
+            if initial_prompt:
+                options["initial_prompt"] = initial_prompt
                 
             result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=target_model, **options)
             
@@ -1037,6 +1041,8 @@ def transcribe_audio(
                 }
                 if language:
                     options["language"] = language
+                if initial_prompt:
+                    options["initial_prompt"] = initial_prompt
                     
                 result = model.transcribe(str(audio_path), **options)
             except Exception as torch_err:
@@ -1345,7 +1351,8 @@ def transcribe_single_file(
     model_name: str = "base",
     use_source_separation: bool = True,
     filter_song: bool = False,
-    label: str = "file"
+    label: str = "file",
+    initial_prompt: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Process a SINGLE file end-to-end:
@@ -1457,7 +1464,7 @@ def transcribe_single_file(
         # Step 4: Transcribe with Whisper
         is_using_vocals = vocals_path != audio_path
         logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if is_using_vocals else 'mixed'})...")
-        transcript = transcribe_audio(vocals_path, language=language, model_name=model_name)
+        transcript = transcribe_audio(vocals_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
         
         # ── RETRY FALLBACK: If vocals yielded empty text, try original mixed audio ──
         # Only fallback if it's NOT a music-dominant track.
@@ -1468,7 +1475,7 @@ def transcribe_single_file(
         if is_using_vocals and not transcript.get("text") and not transcript.get("error"):
             if not is_music_dominant:
                 logger.warning(f"  [{label.upper()}] ⚠️ Empty transcript from vocals (possible hallucination or artifacts). Retrying with MIXED audio...")
-                transcript = transcribe_audio(audio_path, language=language, model_name=model_name)
+                transcript = transcribe_audio(audio_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
                 is_using_vocals = False # Mark that we ended up using mixed
             else:
                 logger.info(f"  [{label.upper()}] 🛑 Empty transcript from vocals, but track is music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
@@ -1518,7 +1525,8 @@ def compare_spoken_text(
     use_separated_vocals: bool = True,
     filter_song: bool = False,
     audio_similarity_score: Optional[float] = None,
-    force_stt: bool = False
+    force_stt: bool = False,
+    initial_prompt: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
@@ -1588,7 +1596,8 @@ def compare_spoken_text(
         model_name=model_name,
         use_source_separation=use_separated_vocals,
         filter_song=filter_song,
-        label="acceptance"
+        label="acceptance",
+        initial_prompt=initial_prompt
     )
     
     # Free memory between heavy processing
@@ -1604,7 +1613,8 @@ def compare_spoken_text(
         model_name=model_name,
         use_source_separation=use_separated_vocals,
         filter_song=filter_song,
-        label="emission"
+        label="emission",
+        initial_prompt=initial_prompt
     )
     
     gc.collect()
