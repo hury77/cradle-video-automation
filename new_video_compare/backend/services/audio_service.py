@@ -58,6 +58,27 @@ def get_mlx_whisper():
     return _mlx_whisper
 
 
+def get_audio_stream_count(video_path: Path) -> int:
+    """
+    Count number of audio streams in a video file using ffprobe
+    """
+    import json
+    cmd = [
+        'ffprobe', 
+        '-v', 'error', 
+        '-select_streams', 'a', 
+        '-show_entries', 'stream=index', 
+        '-of', 'json', 
+        str(video_path)
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return len(data.get('streams', []))
+    except Exception as e:
+        logger.warning(f"⚠️ Could not count audio streams for {video_path.name}: {e}")
+    return 1  # Default to 1 if probe fails
 def extract_audio_from_video(
     video_path: str,
     output_path: Optional[str] = None,
@@ -84,20 +105,52 @@ def extract_audio_from_video(
     
     logger.info(f"🎵 Extracting audio from: {video_path.name}")
     
-    # FFmpeg command to extract audio - use hardware decoder if available
-    cmd = [
-        'ffmpeg',
-        '-hwaccel', 'auto',  # Auto hardware acceleration
-        '-nostdin',
-        '-y',
-        '-i', str(video_path),
-        '-vn',
-        '-acodec', 'pcm_s16le',
-        '-ar', str(sample_rate),
-        '-ac', '2',
-        '-af', 'dynaudnorm',
-        output_path
-    ]
+    # Count audio streams (crucial for MXF files which often have multiple mono tracks)
+    audio_stream_count = get_audio_stream_count(video_path)
+    
+    # ── FFmpeg Command Construction ──
+    # We always:
+    # 1. Mix all audio streams if multiple exist (MXF support)
+    # 2. Use dynaudnorm for loudness leveling
+    # 3. Use apad to add 2 seconds of silence at the end (prevents Whisper from truncating the last sentence)
+    
+    base_filters = "dynaudnorm,apad=pad_dur=2.0"
+    
+    if audio_stream_count > 1:
+        logger.info(f"🎚️ Mixing {audio_stream_count} audio streams for {video_path.name}")
+        # Build filter_complex to mix all audio streams
+        # [0:a:0][0:a:1]...amix=inputs=X
+        inputs_labels = "".join([f"[0:a:{i}]" for i in range(audio_stream_count)])
+        filter_complex = f"{inputs_labels}amix=inputs={audio_stream_count}[mixed];[mixed]{base_filters}[aout]"
+        
+        cmd = [
+            'ffmpeg',
+            '-hwaccel', 'auto',
+            '-nostdin',
+            '-y',
+            '-i', str(video_path),
+            '-filter_complex', filter_complex,
+            '-map', '[aout]',
+            '-acodec', 'pcm_s16le',
+            '-ar', str(sample_rate),
+            '-ac', '2',
+            output_path
+        ]
+    else:
+        # Simple single-stream path
+        cmd = [
+            'ffmpeg',
+            '-hwaccel', 'auto',
+            '-nostdin',
+            '-y',
+            '-i', str(video_path),
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            '-ar', str(sample_rate),
+            '-ac', '2',
+            '-af', base_filters,
+            output_path
+        ]
     
     try:
         result = subprocess.run(
@@ -111,7 +164,7 @@ def extract_audio_from_video(
             logger.error(f"FFmpeg error: {result.stderr}")
             raise RuntimeError(f"FFmpeg failed: {result.stderr[:500]}")
         
-        logger.info(f"✅ Audio extracted to: {output_path}")
+        logger.info(f"✅ Audio extracted to: {output_path} (Streams: {audio_stream_count}, Padded: +2s)")
         return output_path
         
     except subprocess.TimeoutExpired:
