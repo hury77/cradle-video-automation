@@ -108,6 +108,10 @@ def extract_audio_from_video(
     # Count audio streams (crucial for MXF files which often have multiple mono tracks)
     audio_stream_count = get_audio_stream_count(video_path)
     
+    if audio_stream_count == 0:
+        logger.warning(f"🔇 No audio streams found in {video_path.name}")
+        return None
+
     # ── FFmpeg Command Construction ──
     # We always:
     # 1. Mix all audio streams if multiple exist (MXF support)
@@ -1441,13 +1445,38 @@ def transcribe_single_file(
         file_ext = Path(file_path).suffix.lower()
         
         if file_ext in video_extensions:
-            audio_path = tempfile.mktemp(suffix=f'_{label}.wav')
-            temp_files.append(audio_path)
-            extract_audio_from_video(file_path, audio_path)
+            extracted_path = tempfile.mktemp(suffix=f'_{label}.wav')
+            temp_files.append(extracted_path)
+            audio_path = extract_audio_from_video(file_path, extracted_path)
+            
+            if not audio_path:
+                 logger.info(f"  [{label.upper()}] 🔇 No audio streams found. Skipping transcription.")
+                 return {
+                     "transcript": {"text": "", "segments": [], "word_count": 0},
+                     "source_separation": {"status": "skipped", "reason": "No audio streams"},
+                     "input_file": str(file_path),
+                     "used_vocals": False
+                 }
+            
             logger.info(f"  [{label.upper()}] Audio extracted: {Path(audio_path).name}")
         else:
             audio_path = file_path
-        
+            
+        # ── SILENCE CHECK: Skip if audio is too quiet (prevents prompt-based hallucinations) ──
+        try:
+            loudness_info = measure_loudness(audio_path)
+            lufs = loudness_info.get("integrated_lufs", -100)
+            if lufs < -60:
+                logger.info(f"  [{label.upper()}] 🔇 Audio is silent ({lufs} LUFS). Skipping transcription to prevent hallucinations.")
+                return {
+                    "transcript": {"text": "", "segments": [], "word_count": 0},
+                    "source_separation": {"status": "skipped", "reason": f"Silent audio ({lufs} LUFS)"},
+                    "input_file": str(file_path),
+                    "used_vocals": False
+                }
+        except Exception as e:
+            logger.warning(f"  [{label.upper()}] Could not check loudness: {e}")
+
         # Step 2: Source separation (Demucs) — extract clean vocals
         vocals_path = audio_path  # fallback: use mixed audio
         separation_stats = None
