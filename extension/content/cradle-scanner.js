@@ -1617,10 +1617,42 @@ class CradleScanner {
         if (fileInfo.acceptanceFile) break; // Double check
 
         const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
+                     cell.querySelector('a[href*="/media/cradle/"]') ||
                      cell.querySelector("a i.fa-file")?.parentElement;
         
         if (link && link.href) {
              const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
+
+             // ── nc-download links have NO extension in the URL → handle specially ──
+             if (fullUrl.includes("nc-download")) {
+                 // Try to get file type hint from cell text or link title attribute
+                 const hintSources = [
+                     link.getAttribute("title") || "",
+                     link.textContent?.trim() || "",
+                     cell.textContent?.trim() || ""
+                 ].join(" ");
+                 // Find the first word that looks like a filename with an extension
+                 const hintFile = hintSources.split(/\s+/).find(w => w.includes(".") && w.length > 3);
+                 if (hintFile) {
+                     const hintExt = hintFile.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+                     if (INVALID_MEDIA_EXTS.includes(hintExt)) {
+                         console.log(`[CradleScanner] 🚫 Skipping nc-download acceptance (image hint ${hintExt}): ${hintFile}`);
+                         continue;
+                     }
+                     if (!VALID_VIDEO_EXTS.includes(hintExt)) {
+                         console.log(`[CradleScanner] ⛔ Skipping nc-download acceptance (unknown ext hint): ${hintFile}`);
+                         continue;
+                     }
+                     // Hint is a video extension — use the hint filename
+                     console.log(`[CradleScanner] 🔄 nc-download acceptance: resolved filename from hint: ${hintFile}`);
+                     fileInfo.acceptanceFile = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
+                     console.log(`[CradleScanner] ✅ Found Acceptance (nc-download): ${hintFile}`);
+                     return;
+                 }
+                 // No usable hint → skip this nc-download entirely (can't determine file type)
+                 console.log(`[CradleScanner] ⛔ Skipping nc-download acceptance (no type hint): ${fullUrl}`);
+                 continue;
+             }
 
              // ── Filename extraction (URL is authoritative — do NOT blindly override with textContent) ──
              const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
