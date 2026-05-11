@@ -147,6 +147,18 @@ class FileHandler:
 
             # 🔥 NOWE: Handle emission attachments with suffix
             if file_type == "emission" and file_info.get("type") == "attachment":
+                # Server-side guard: reject non-video files before downloading
+                _emi_name = file_info.get("name", "")
+                _INVALID_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                                 ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+                _emi_ext = Path(_emi_name).suffix.lower()
+                if _emi_ext in _INVALID_EXTS:
+                    self.logger.warning(
+                        f"🚫 [FileHandler] Rejecting non-video emission attachment: '{_emi_name}' "
+                        f"(extension: {_emi_ext}). Only .mp4/.mov/.mxf/.zip are allowed."
+                    )
+                    return {"success": False, "type": "emission_attachment",
+                            "error": f"Non-video file rejected by server: {_emi_name}"}
                 return await self.handle_emission_attachment(file_info, folder_path)
 
             # Regular file download (acceptance attachments)
@@ -157,6 +169,18 @@ class FileHandler:
 
             if not url:
                 return {"success": False, "type": file_type, "error": "No URL provided"}
+
+            # Server-side guard: reject non-video acceptance files before downloading
+            _INVALID_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                             ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+            _acc_ext = Path(original_name).suffix.lower()
+            if _acc_ext in _INVALID_EXTS:
+                self.logger.warning(
+                    f"🚫 [FileHandler] Rejecting non-video {file_type} attachment: '{original_name}' "
+                    f"(extension: {_acc_ext}). Only .mp4/.mov/.mxf/.zip are allowed."
+                )
+                return {"success": False, "type": file_type,
+                        "error": f"Non-video file rejected by server: {original_name}"}
 
             self.logger.info(f"⬇️ Downloading {file_type}: {original_name}")
             self.logger.info(f"   URL: {url}")

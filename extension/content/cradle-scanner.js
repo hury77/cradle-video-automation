@@ -1549,22 +1549,44 @@ class CradleScanner {
                
                const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
 
-               // Try to get filename from text content (same logic as extractAcceptanceFromRow)
+               // ── Filename extraction (URL is authoritative — do NOT blindly override with textContent) ──
                const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
                let filename = cleanUrl.split("/").pop();
-               const textContent = link.parentElement?.textContent?.trim();
-               if (textContent && textContent.includes(".")) {
-                   filename = textContent;
+               try { filename = decodeURIComponent(filename); } catch(e) {}
+
+               const VALID_VIDEO_EXTS  = [".mp4", ".mov", ".mxf", ".zip", ".avi", ".mkv", ".prores"];
+               const INVALID_MEDIA_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                                           ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+               const urlExt = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+
+               // If URL clearly points to an image/document → reject immediately
+               if (INVALID_MEDIA_EXTS.includes(urlExt)) {
+                   console.log(`[CradleScanner] 🚫 Skipping image/doc emission (URL ext ${urlExt}): ${filename}`);
+                   continue;
                }
+
+               // If URL has no recognisable video extension, try the link's own text as a fallback
+               if (!VALID_VIDEO_EXTS.includes(urlExt)) {
+                   const linkText = link.textContent?.trim() || "";
+                   // Take first word that looks like a filename with a known video extension
+                   const candidate = linkText.split(/\s+/).find(w => {
+                       const e = w.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+                       return VALID_VIDEO_EXTS.includes(e);
+                   });
+                   if (candidate) {
+                       filename = candidate;
+                       console.log(`[CradleScanner] 🔄 Resolved emission filename from link text: ${filename}`);
+                   }
+               }
+
                if (!filename || filename.length < 3) {
                    filename = "emission.mp4";
                }
-               
-               // Only accept video files and ZIPs
-               const validExts = [".mp4", ".mov", ".mxf", ".zip"];
-               const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
-               if (!validExts.includes(ext)) {
-                   console.log(`[CradleScanner] ⏩ Skipping non-video emission: ${filename}`);
+
+               // Final extension check — only accept video files and ZIPs
+               const finalExt = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+               if (![".mp4", ".mov", ".mxf", ".zip"].includes(finalExt)) {
+                   console.log(`[CradleScanner] ⏩ Skipping non-video emission (final check): ${filename}`);
                    continue;
                }
                
@@ -1585,7 +1607,11 @@ class CradleScanner {
       if (fileInfo.acceptanceFile) return;
 
     const cells = row.querySelectorAll("td");
-    
+
+    const VALID_VIDEO_EXTS  = [".mp4", ".mov", ".mxf", ".zip", ".avi", ".mkv", ".prores"];
+    const INVALID_MEDIA_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                                ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+
     // Use for...of to allow breaking
     for (const cell of cells) {
         if (fileInfo.acceptanceFile) break; // Double check
@@ -1595,27 +1621,42 @@ class CradleScanner {
         
         if (link && link.href) {
              const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
-             
-             // Try to get filename from text content if URL doesn't have it
-             // Clean URL of trailing slash for better pop()
+
+             // ── Filename extraction (URL is authoritative — do NOT blindly override with textContent) ──
              const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
              let filename = cleanUrl.split("/").pop();
+             try { filename = decodeURIComponent(filename); } catch(e) {}
 
-             const textContent = link.parentElement.textContent.trim();
-             if (textContent.includes(".")) {
-                 filename = textContent;
+             const urlExt = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+
+             // If URL clearly points to an image/document → reject immediately
+             if (INVALID_MEDIA_EXTS.includes(urlExt)) {
+                 console.log(`[CradleScanner] 🚫 Skipping image/doc acceptance (URL ext ${urlExt}): ${filename}`);
+                 continue;
              }
 
-             // Final fallback if filename is empty, just an ID, or misses an extension entirely
+             // If URL has no recognisable video extension, try link's own text as fallback
+             if (!VALID_VIDEO_EXTS.includes(urlExt)) {
+                 const linkText = link.textContent?.trim() || "";
+                 const candidate = linkText.split(/\s+/).find(w => {
+                     const e = w.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+                     return VALID_VIDEO_EXTS.includes(e);
+                 });
+                 if (candidate) {
+                     filename = candidate;
+                     console.log(`[CradleScanner] 🔄 Resolved acceptance filename from link text: ${filename}`);
+                 }
+             }
+
+             // Final fallback if filename is empty or missing extension
              if (!filename || filename.length < 3 || !filename.includes(".")) {
-                  filename = (filename && filename.length >= 3) ? `${filename}.mp4` : "acceptance.mp4"; 
+                 filename = (filename && filename.length >= 3) ? `${filename}.mp4` : "acceptance.mp4";
              }
 
-             // Only accept video files and ZIPs
-             const validExts = [".mp4", ".mov", ".mxf", ".zip"];
-             const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
-             if (!validExts.includes(ext)) {
-                 console.log(`[CradleScanner] ⏩ Skipping non-video acceptance: ${filename}`);
+             // Final extension check — only accept video files and ZIPs
+             const finalExt = filename.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+             if (![".mp4", ".mov", ".mxf", ".zip"].includes(finalExt)) {
+                 console.log(`[CradleScanner] ⏩ Skipping non-video acceptance (final check): ${filename}`);
                  continue;
              }
 
