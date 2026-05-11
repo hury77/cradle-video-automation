@@ -110,7 +110,7 @@ def extract_audio_from_video(
     
     if audio_stream_count == 0:
         logger.warning(f"🔇 No audio streams found in {video_path.name}")
-        return None
+        raise RuntimeError(f"No audio streams found in {video_path.name}")
 
     # ── FFmpeg Command Construction ──
     # We always:
@@ -1448,16 +1448,6 @@ def transcribe_single_file(
             extracted_path = tempfile.mktemp(suffix=f'_{label}.wav')
             temp_files.append(extracted_path)
             audio_path = extract_audio_from_video(file_path, extracted_path)
-            
-            if not audio_path:
-                 logger.info(f"  [{label.upper()}] 🔇 No audio streams found. Skipping transcription.")
-                 return {
-                     "transcript": {"text": "", "segments": [], "word_count": 0},
-                     "source_separation": {"status": "skipped", "reason": "No audio streams"},
-                     "input_file": str(file_path),
-                     "used_vocals": False
-                 }
-            
             logger.info(f"  [{label.upper()}] Audio extracted: {Path(audio_path).name}")
         else:
             audio_path = file_path

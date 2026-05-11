@@ -218,7 +218,7 @@ class AnalystService:
             "     - Jeśli to inne słowa, wstawki lub braki (np. wyciszone słowo w emisji): REJECT i napisz w której sekundzie to wystąpiło.\n"
             "     ⚠️ NIGDY nie ignoruj różnic w tekście tylko dlatego, że podobieństwo wynosi 97%.\n"
             "5. BRAK AUDIO:\n"
-            "   - Jeśli word_count_a = 0 oraz word_count_b = 0, a audio_similarity = 0.0 lub zgłasza błąd ekstrakcji: Oznacza to BRAK ŚCIEŻEK AUDIO.\n"
+            "   - Jeśli audio_similarity = 0.0 lub zgłasza błąd 'No audio streams found': Oznacza to BRAK ŚCIEŻEK AUDIO.\n"
             "   - W uzasadnieniu MUSISZ wyraźnie napisać: 'Brak ścieżek dźwiękowych w obu plikach.' NIGDY nie nazywaj tego 'pełną zgodnością audio' ani 'zgodną transkrypcją'.\n\n"
             "HIERARCHIA PRAWDY:\n"
             "   1. TWARDE REGUŁY (Truth Table powyżej) — nadrzędne nad WSZYSTKIM.\n"
@@ -323,8 +323,8 @@ class AnalystService:
         similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
         
         is_missing_audio = False
-        if ("FFmpeg audio extraction failed" in similarity_error or "FFmpeg failed" in similarity_error) and audio_sim == 0.0:
-            if isinstance(transcription_data, dict) and transcription_data.get("comparison", {}).get("word_count_a", -1) == 0:
+        if audio_sim == 0.0:
+            if "No audio streams found" in similarity_error or "FFmpeg failed" in similarity_error:
                 is_missing_audio = True
 
         if is_missing_audio:
@@ -451,9 +451,8 @@ class AnalystService:
             similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
             
             is_missing_audio = False
-            if ("FFmpeg audio extraction failed" in similarity_error or "FFmpeg failed" in similarity_error) and audio_sim == 0.0:
-                stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
-                if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0:
+            if audio_sim is not None and float(audio_sim) == 0.0:
+                if "No audio streams found" in similarity_error or "FFmpeg failed" in similarity_error:
                     is_missing_audio = True
 
             if is_missing_audio:
