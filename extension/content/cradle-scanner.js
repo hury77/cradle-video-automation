@@ -1194,13 +1194,22 @@ class CradleScanner {
     
     // CRITICAL FIX: Only send network paths to Desktop App.
     // Attachments are handled by Extension. Desktop App shouldn't try to download them without auth.
-    const { templateId, jobNumber, langCode } = this.extractAssetMetadata();
+    const extractedMeta = this.extractAssetMetadata();
+    
+    // Prefer locally saved client from MyTeam, but fallback to metadata extraction
+    let clientName = localStorage.getItem("cradle-current-client");
+    if (!clientName && extractedMeta.clientName) {
+        clientName = extractedMeta.clientName;
+    }
+
     const filesData = {
       action: "FILES_DETECTED",
       cradleId: this.currentCradleId,
-      templateId: templateId,
-      jobNumber: jobNumber,
-      langCode: langCode,
+      templateId: extractedMeta.templateId,
+      jobNumber: extractedMeta.jobNumber,
+      langCode: extractedMeta.langCode,
+      brandName: extractedMeta.brandName,
+      clientName: clientName,
       acceptanceFile: fileInfo.acceptanceFile?.type === "network_path" ? fileInfo.acceptanceFile : null,
       emissionFile: fileInfo.emissionFile?.type === "network_path" ? fileInfo.emissionFile : null,
       timestamp: Date.now(),
@@ -2026,7 +2035,7 @@ class CradleScanner {
 
   // ✅ Extract Template ID and Job Number from asset metadata sidebar
   extractAssetMetadata() {
-    const result = { templateId: null, jobNumber: null, langCode: null, clientName: null };
+    const result = { templateId: null, jobNumber: null, langCode: null, clientName: null, brandName: null };
     try {
       const allElements = document.querySelectorAll('td, th, dt, dd, li, span, div');
       for (const el of allElements) {
@@ -2054,8 +2063,19 @@ class CradleScanner {
           }
         }
         
-        // Client / Brand
-        if (text === 'Client' || text === 'Brand' || text === 'Organisation' || text === 'Client Name') {
+        // Specific Brand check
+        if (text.startsWith('Brand')) {
+          const next = el.nextElementSibling;
+          if (next) { result.brandName = next.textContent.trim(); continue; }
+          const parentRow = el.closest('tr');
+          if (parentRow) {
+            const tds = parentRow.querySelectorAll('td');
+            if (tds.length >= 2) result.brandName = tds[tds.length - 1].textContent.trim();
+          }
+        }
+
+        // Client / Organisation
+        if (text.startsWith('Client') || text.startsWith('Organisation')) {
           const next = el.nextElementSibling;
           if (next) { result.clientName = next.textContent.trim(); continue; }
           const parentRow = el.closest('tr');
@@ -2097,7 +2117,7 @@ class CradleScanner {
     } catch (e) {
       console.warn('[CradleScanner] extractAssetMetadata error:', e);
     }
-    console.log(`[CradleScanner] 📋 Asset metadata — TemplateID: ${result.templateId}, JobNumber: ${result.jobNumber}, LangCode: ${result.langCode}`);
+    console.log(`[CradleScanner] 📋 Asset metadata — TemplateID: ${result.templateId}, JobNumber: ${result.jobNumber}, LangCode: ${result.langCode}, Brand: ${result.brandName}, Client: ${result.clientName}`);
     return result;
   }
 
@@ -2148,6 +2168,7 @@ class CradleScanner {
       jobNumber: jobNumber,
       langCode: langCode,
       clientName: clientName,
+      brandName: extractedMeta.brandName,
       timestamp: Date.now(),
     });
 

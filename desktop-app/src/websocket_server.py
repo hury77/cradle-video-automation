@@ -245,14 +245,19 @@ class WebSocketServer:
         """Handle Video Compare automation request"""
         try:
             cradle_id = data.get("cradleId")
-
+            
             if not cradle_id:
                 await self.send_error(
                     websocket, "No CradleID provided for Video Compare"
                 )
                 return
 
-            # Build file paths
+            # Pass brandName to FileHandler if available
+            brand_name = data.get("brandName")
+            if brand_name:
+                data["brandName"] = brand_name
+                
+            # Find acceptance and emission files
             base_path = Path.home() / "Downloads" / cradle_id
             logger.info(f"🔍 Looking for files in: {base_path}")
 
@@ -434,7 +439,8 @@ class WebSocketServer:
                 await self.send_error(websocket, "No CradleID provided for API Compare")
                 return
 
-            # Build file paths (reuse existing logic from file_handler/server)
+            brand_name = data.get("brandName")
+            client_name = data.get("clientName")
             base_path = Path.home() / "Downloads" / cradle_id
             logger.info(f"🔍 [API] Looking for files in: {base_path}")
             

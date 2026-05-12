@@ -27,21 +27,28 @@ class FileHandler:
         """Handle FILES_DETECTED message from extension"""
         try:
             cradle_id = data.get("cradleId")
-            acceptance_file = data.get("acceptanceFile")
-            emission_file = data.get("emissionFile")
-
-            # Inject metadata from message into file_info dicts so Lucid/network handlers have it
             job_number = data.get("jobNumber")
             template_id = data.get("templateId")
-            lang_code = data.get("langCode")  # e.g. "IT", "FR", "DE"
+            lang_code = data.get("langCode")
+            brand_name = data.get("brandName")
+            client_name = data.get("clientName")
+            acceptance_file = data.get("acceptanceFile")
+            emission_file = data.get("emissionFile")
+            
+            # Inject metadata from message into file_info dicts so Lucid/network handlers have it
+            
             if acceptance_file and isinstance(acceptance_file, dict):
                 acceptance_file.setdefault("jobNumber", job_number)
                 acceptance_file.setdefault("templateId", template_id)
                 acceptance_file.setdefault("langCode", lang_code)
+                acceptance_file.setdefault("brandName", brand_name)
+                acceptance_file.setdefault("clientName", client_name)
             if emission_file and isinstance(emission_file, dict):
                 emission_file.setdefault("jobNumber", job_number)
                 emission_file.setdefault("templateId", template_id)
                 emission_file.setdefault("langCode", lang_code)
+                emission_file.setdefault("brandName", brand_name)
+                emission_file.setdefault("clientName", client_name)
                 # Pass acceptance name for fallback search
                 if acceptance_file and isinstance(acceptance_file, dict):
                     acc_name = acceptance_file.get("name")
@@ -504,24 +511,49 @@ class FileHandler:
           3. Search within that campaign folder for files by Template ID
         """
         try:
-            LUCID_BASES = [
-                Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS"),
-                Path("/Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS")
-            ]
+            LUCID_BASES_CONFIG = {
+                "Electrolux": Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS"),
+                "AEG": Path("/Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS")
+            }
             VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"}
 
             job_number_raw = file_info.get("jobNumber") or ""
             template_id = file_info.get("templateId") or ""
+            brand_name = file_info.get("brandName") or ""
+            client_name = file_info.get("clientName") or ""
 
             # Convert job number: "26|00124" → "26_00124"
             job_prefix = job_number_raw.replace("|", "_").strip()
 
-            self.logger.info(f"🔗 Lucid emission lookup — jobPrefix: '{job_prefix}', templateId: '{template_id}'")
+            self.logger.info(f"🔗 Lucid emission lookup — jobPrefix: '{job_prefix}', templateId: '{template_id}', brand: '{brand_name}', client: '{client_name}'")
             
-            # Step 1: Verify base paths are mounted
+            # Step 1: Identify relevant brand base path
+            target_brand = None
+            brand_query = f"{brand_name} {client_name}".upper()
+            
+            # Prioritize AEG if explicitly mentioned (prevents "Electrolux - AEG - Zanussi" from defaulting only to Electrolux)
+            if "AEG" in brand_query or "ZANUSSI" in brand_query:
+                target_brand = "AEG"
+            elif "ELECTROLUX" in brand_query or "ELX" in brand_query:
+                target_brand = "Electrolux"
+            
+            # Fallback for Job 479 case where brand might be in client name but brandName is null
+            if not target_brand:
+                # If we still don't know, maybe log it
+                pass
+            
+            # Filter bases
+            if target_brand:
+                LUCID_BASES = [LUCID_BASES_CONFIG[target_brand]]
+                self.logger.info(f"🎯 Brand-specific search enabled: {target_brand}")
+            else:
+                LUCID_BASES = list(LUCID_BASES_CONFIG.values())
+                self.logger.warning(f"⚠️ Ambiguous brand. Searching in ALL bases: {[b.name for b in LUCID_BASES]}")
+
+            # Verify base paths are mounted
             mounted_bases = [base for base in LUCID_BASES if base.exists()]
             if not mounted_bases:
-                error = f"No Lucid volumes mounted. Checked: {[str(b) for b in LUCID_BASES]}"
+                error = f"No Lucid volumes mounted for {target_brand or 'all brands'}. Checked: {[str(b) for b in LUCID_BASES]}"
                 self.logger.error(f"❌ {error}")
                 return {"success": False, "error": error}
             
@@ -627,34 +659,52 @@ class FileHandler:
                         f"{acc_stem}*"
                     ])
 
+            import re
+            
+            def get_job_num(s):
+                match = re.search(r'\d{2}_(\d{5})', str(s))
+                return int(match.group(1)) if match else None
+
+            target_job_num = get_job_num(job_prefix) if job_prefix else None
+
+            def get_distance(path_obj):
+                if target_job_num is None:
+                    return 0
+                for part in reversed(path_obj.parts):
+                    num = get_job_num(part)
+                    if num is not None:
+                        return abs(num - target_job_num)
+                return 999999
+
             # ── Search loop: collect candidates per pattern group, pick best ────────
-            # We iterate patterns in priority order and stop at the first pattern GROUP
-            # that yields any candidates. Within that group we pick by format quality.
-            for target_folder in search_targets:
-                for pattern in search_patterns:
-                    self.logger.info(f"🔍 Searching in {target_folder.name} with pattern: {pattern}")
+            # We iterate patterns in priority order. For each pattern, we collect ALL candidates
+            # across ALL search targets, then pick the absolute best one based on quality and distance.
+            for pattern in search_patterns:
+                self.logger.info(f"🔍 Searching across all targets with pattern: {pattern}")
+                all_candidates = []
+                for target_folder in search_targets:
                     candidates = [
                         m for m in target_folder.rglob(pattern)
                         if m.is_file() and m.suffix.lower() in VIDEO_EXTENSIONS
                     ]
-                    if candidates:
-                        # Pick best candidate: highest format quality, then largest size as tiebreaker
-                        best = max(
-                            candidates,
-                            key=lambda f: (FORMAT_QUALITY.get(f.suffix.lower(), 0), f.stat().st_size)
-                        )
-                        found_file = best
+                    all_candidates.extend(candidates)
+                
+                if all_candidates:
+                    # Pick best candidate: highest format quality, MINIMUM distance to job prefix, largest size
+                    best = max(
+                        all_candidates,
+                        key=lambda f: (FORMAT_QUALITY.get(f.suffix.lower(), 0), -get_distance(f), f.stat().st_size)
+                    )
+                    found_file = best
+                    self.logger.info(
+                        f"✅ Found Lucid emission file: {best.name} "
+                        f"(from {len(all_candidates)} candidate(s) matching '{pattern}')"
+                    )
+                    if len(all_candidates) > 1:
                         self.logger.info(
-                            f"✅ Found Lucid emission file: {best.name} "
-                            f"(from {len(candidates)} candidate(s) matching '{pattern}')"
+                            f"   Candidates were: {[str(c) for c in all_candidates]}"
                         )
-                        if len(candidates) > 1:
-                            self.logger.info(
-                                f"   Candidates were: {[c.name for c in candidates]}"
-                            )
-                        break  # Stop at first pattern that yields results
-                if found_file:
-                    break
+                    break  # Stop at first pattern that yields results
 
             if not found_file:
                 error = f"No video file found for templateId='{template_id}' in any matching campaign folder"
@@ -692,7 +742,7 @@ class FileHandler:
                 "path": str(destination),
                 "source": str(found_file),
                 "size": file_size,
-                "campaign_folder": campaign_folder.name,
+                "campaign_folder": campaign_folder.name if campaign_folder else "fallback_search",
             }
 
         except Exception as e:
