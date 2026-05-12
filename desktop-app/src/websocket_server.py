@@ -268,48 +268,9 @@ class WebSocketServer:
                     if zip_result['errors']:
                         logger.error(f"❌ ZIP Errors: {zip_result['errors']}")
 
-                files = list(base_path.glob("*"))
-                logger.info(
-                    f"📁 Files in {cradle_id} folder: {[f.name for f in files]}"
-                )
-                logger.info(f"📊 Total files found: {len(files)}")
+                # ✅ RETRY LOOP: Wait for files to appear (common with slow Chrome downloads)
+                video_files = await self._find_video_files_with_retry(base_path, cradle_id)
 
-                # ✅ ZBIERZ WSZYSTKIE PLIKI WIDEO
-                video_files = []
-                video_extensions = [
-                    ".mp4",
-                    ".mov",
-                    ".mxf",
-                    ".prores",
-                    ".avi",
-                    ".mkv",
-                    ".MP4",
-                    ".MOV",
-                    ".MXF",
-                    ".PRORES",
-                    ".AVI",
-                    ".MKV",
-                ]
-
-                for file_path in files:
-                    if file_path.is_file():
-                        file_size = file_path.stat().st_size
-                        logger.info(
-                            f"🔍 Analyzing file: {file_path.name} ({file_size} bytes)"
-                        )
-
-                        # Sprawdź czy to plik wideo
-                        if any(
-                            file_path.name.endswith(ext) for ext in video_extensions
-                        ):
-                            video_files.append(file_path)
-                            logger.info(f"✅ Video file detected: {file_path.name}")
-                        else:
-                            logger.info(f"⚠️ File ignored (not video): {file_path.name}")
-
-                logger.info(f"📹 Found {len(video_files)} video files total")
-
-                # ✅ INTELIGENTNE ROZRÓŻNIENIE PLIKÓW
                 if len(video_files) >= 2:
                     acceptance_file, emission_file = await self.identify_video_files(
                         video_files, cradle_id
@@ -327,7 +288,7 @@ class WebSocketServer:
                     logger.error(f"❌ No video files found in {cradle_id} folder")
                     await self.send_error(
                         websocket,
-                        f"No video files found in {cradle_id} folder. Found files: {[f.name for f in files]}",
+                        f"No video files found in {cradle_id} folder. Check if downloads are finished.",
                     )
                     return
 
@@ -481,15 +442,8 @@ class WebSocketServer:
                 await self.send_error(websocket, f"Folder not found: {cradle_id}")
                 return
 
-            # ✅ AUTO-UNZIP: Rozpakuj ewentualne ZIPy przed szukaniem wideo
-            zip_result = check_and_unzip_folder(base_path)
-            if zip_result['processed_zips'] > 0:
-                logger.info(f"📦 [API] Auto-unzipped {zip_result['processed_zips']} archives in {cradle_id}")
-                if zip_result['errors']:
-                    logger.error(f"❌ [API] ZIP Errors: {zip_result['errors']}")
-
-            files = list(base_path.glob("*"))
-            video_files = [f for f in files if f.suffix.lower() in [".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"]]
+            # ✅ RETRY LOOP: Wait for files to appear
+            video_files = await self._find_video_files_with_retry(base_path, cradle_id, prefix="[API]")
             
             if len(video_files) < 2:
                 await self.send_error(websocket, f"Need 2 video files, found {len(video_files)}")
@@ -634,6 +588,50 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"❌ [API] Error: {str(e)}")
             await self.send_error(websocket, f"API Error: {str(e)}")
+
+    async def _find_video_files_with_retry(self, base_path, cradle_id, prefix="", max_retries=150):
+        """
+        Helper: Wait for video files to appear in the folder.
+        Dynamic wait: keeps waiting as long as .crdownload files exist,
+        up to max_retries (default 150 * 2s = 5 minutes).
+        """
+        video_extensions = [".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"]
+        video_files = []
+        
+        for attempt in range(max_retries):
+            # 1. Auto-unzip any new archives first
+            zip_result = check_and_unzip_folder(base_path)
+            if zip_result['processed_zips'] > 0:
+                logger.info(f"📦 {prefix} Auto-unzipped {zip_result['processed_zips']} archives")
+            
+            # 2. List and filter video files
+            files = list(base_path.glob("*"))
+            video_files = [f for f in files if f.is_file() and f.suffix.lower() in video_extensions]
+            
+            # Check for active downloads
+            active_downloads = [f.name for f in files if f.name.endswith(".crdownload") or f.name.endswith(".part")]
+            
+            if len(video_files) >= 2 and not active_downloads:
+                if attempt > 0:
+                    logger.info(f"✅ {prefix} Files found and finalized after {attempt} retries!")
+                break
+                
+            # Log current state
+            if active_downloads:
+                status_msg = f"⬇️ Active downloads in progress: {active_downloads}"
+            else:
+                status_msg = f"found {len(video_files)} video files"
+                
+            logger.info(f"⏳ {prefix} Waiting for files in {cradle_id}... (Attempt {attempt+1}/{max_retries}, {status_msg})")
+            
+            # Periodic content log (every 5 attempts to avoid spam)
+            if attempt % 5 == 0:
+                logger.info(f"   📁 Current folder content: {[f.name for f in files]}")
+            
+            await asyncio.sleep(2)
+            
+        logger.info(f"📹 {prefix} Found {len(video_files)} video files total after discovery process")
+        return video_files
 
     async def identify_video_files(self, video_files, cradle_id):
         """Intelligently identify acceptance and emission files"""
