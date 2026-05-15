@@ -391,9 +391,9 @@ class WebSocketServer:
             video_extensions = [".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"]
 
             for file_path in files:
-                if file_path.is_file() and any(
-                    file_path.name.lower().endswith(ext) for ext in video_extensions
-                ):
+                if (file_path.is_file() and 
+                    not file_path.name.startswith("._") and 
+                    any(file_path.name.lower().endswith(ext) for ext in video_extensions)):
                     video_files.append(file_path)
 
             if len(video_files) < 2:
@@ -610,9 +610,9 @@ class WebSocketServer:
             if zip_result['processed_zips'] > 0:
                 logger.info(f"📦 {prefix} Auto-unzipped {zip_result['processed_zips']} archives")
             
-            # 2. List and filter video files
+            # 2. List and filter video files (ignoring macOS resource forks starting with ._)
             files = list(base_path.glob("*"))
-            video_files = [f for f in files if f.is_file() and f.suffix.lower() in video_extensions]
+            video_files = [f for f in files if f.is_file() and not f.name.startswith("._") and f.suffix.lower() in video_extensions]
             
             # Check for active downloads
             active_downloads = [f.name for f in files if f.name.endswith(".crdownload") or f.name.endswith(".part")]
