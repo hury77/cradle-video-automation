@@ -126,8 +126,8 @@ class VideoUtils:
                 errors.append("Resolution too high (maximum 8K supported)")
                 is_valid = False
             
-            if metadata.width < 320 or metadata.height < 240:  # Minimum resolution
-                errors.append("Resolution too low (minimum 320x240 required)")
+            if metadata.width < 100 or metadata.height < 100:  # Minimum resolution
+                errors.append("Resolution too low (minimum 100x100 required)")
                 is_valid = False
             
         except Exception as e:
