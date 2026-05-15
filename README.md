@@ -13,14 +13,30 @@ Browser extension for automating Cradle video comparison workflow
 - ⚙️ **User Control** - Full start/stop control and configuration
 - 🔄 **Background Monitoring** - Optional auto-scanning every 2 minutes
 
+## ⚡ Szybki Start (Backend)
+
+Aby szybko uruchomić backend:
+```bash
+cd ~/Documents/cradle-video-automation/new_video_compare/backend && source ../../.venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+
 ## 🚀 Installation
 
 ### Development Mode (Chrome/Edge)
 
 1. **Clone the repository:**
-   git clone https://github.com/hury77/cradle-video-automation.git
-   cd cradle-video-automation
-   ```
+```bash
+git clone https://github.com/hury77/cradle-video-automation.git
+cd cradle-video-automation
+```
+
+2. **Setup Virtual Environment:**
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r new_video_compare/backend/requirements.txt
+pip install -r desktop-app/requirements.txt
+```
 
 ## 🖥️ Uruchamianie środowiska lokalnego
 

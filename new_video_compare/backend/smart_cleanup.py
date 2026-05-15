@@ -45,7 +45,48 @@ def cleanup(dry_run=True):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. Identify Orphaned Files
+    # 1. Determine Active vs Old Jobs early
+    print(f"🧹 Checking for files older than {RETENTION_DAYS} days (keeping min {MIN_JOBS_TO_KEEP} latest jobs)...")
+    
+    # Get 10 most recent jobs to exclude them
+    cursor.execute("SELECT id FROM comparison_jobs ORDER BY id DESC LIMIT ?", (MIN_JOBS_TO_KEEP,))
+    keep_job_ids = {row[0] for row in cursor.fetchall()}
+    
+    # Get jobs older than 5 days
+    cutoff_date = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("""
+        SELECT id, acceptance_file_id, emission_file_id 
+        FROM comparison_jobs 
+        WHERE (UPPER(status) = 'COMPLETED' OR UPPER(status) = 'FAILED') 
+        AND completed_at < ?
+    """, (cutoff_date,))
+    old_jobs = cursor.fetchall()
+    
+    jobs_to_delete_ids = set()
+    files_to_delete_ids = set()
+    for job_id, acc_id, emi_id in old_jobs:
+        if job_id not in keep_job_ids:
+            jobs_to_delete_ids.add(job_id)
+            if acc_id: files_to_delete_ids.add(acc_id)
+            if emi_id: files_to_delete_ids.add(emi_id)
+            
+    # Remove files that are still needed by the "keep" jobs (overlap check)
+    if keep_job_ids and files_to_delete_ids:
+        placeholders = ','.join(['?'] * len(keep_job_ids))
+        cursor.execute(f"SELECT acceptance_file_id, emission_file_id FROM comparison_jobs WHERE id IN ({placeholders})", list(keep_job_ids))
+        kept_file_ids = set()
+        for acc_id, emi_id in cursor.fetchall():
+            if acc_id: kept_file_ids.add(acc_id)
+            if emi_id: kept_file_ids.add(emi_id)
+        
+        files_to_delete_ids -= kept_file_ids
+
+    # All jobs in the DB
+    cursor.execute("SELECT id FROM comparison_jobs")
+    all_job_ids = {row[0] for row in cursor.fetchall()}
+    active_job_ids_str = {str(jid) for jid in all_job_ids if jid not in jobs_to_delete_ids}
+
+    # 2. Identify Orphaned Files
     print("🧹 Checking for orphaned files...")
     cursor.execute("SELECT file_path FROM files")
     # Store absolute paths for matching
@@ -67,6 +108,18 @@ def cleanup(dry_run=True):
                 
                 # Check if file is NOT in DB
                 if abs_path not in db_files:
+                    # Safety check for job temp files (e.g. diff_frames for ACTIVE jobs)
+                    is_active_job_file = False
+                    for part in file_path.parts:
+                        if part.startswith("job_"):
+                            job_id_str = part[4:]
+                            if job_id_str in active_job_ids_str:
+                                is_active_job_file = True
+                                break
+                                
+                    if is_active_job_file:
+                        continue
+                        
                     orphaned_count += 1
                     try:
                         size = file_path.stat().st_size
@@ -79,40 +132,14 @@ def cleanup(dry_run=True):
                     except Exception as e:
                         print(f"⚠️ Error processing orphan {file_path}: {e}")
 
-    # 2. Identify Old Job Files
-    print(f"🧹 Checking for files older than {RETENTION_DAYS} days (keeping min {MIN_JOBS_TO_KEEP} latest jobs)...")
-    
-    # Get 10 most recent jobs to exclude them
-    cursor.execute("SELECT id FROM comparison_jobs ORDER BY id DESC LIMIT ?", (MIN_JOBS_TO_KEEP,))
-    keep_job_ids = {row[0] for row in cursor.fetchall()}
-    
-    # Get jobs older than 5 days
-    cutoff_date = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("""
-        SELECT id, acceptance_file_id, emission_file_id 
-        FROM comparison_jobs 
-        WHERE (UPPER(status) = 'COMPLETED' OR UPPER(status) = 'FAILED') 
-        AND completed_at < ?
-    """, (cutoff_date,))
-    
-    old_jobs = cursor.fetchall()
-    
-    files_to_delete_ids = set()
-    for job_id, acc_id, emi_id in old_jobs:
-        if job_id not in keep_job_ids:
-            if acc_id: files_to_delete_ids.add(acc_id)
-            if emi_id: files_to_delete_ids.add(emi_id)
-            
-    # Remove files that are still needed by the "keep" jobs (overlap check)
-    if keep_job_ids and files_to_delete_ids:
-        placeholders = ','.join(['?'] * len(keep_job_ids))
-        cursor.execute(f"SELECT acceptance_file_id, emission_file_id FROM comparison_jobs WHERE id IN ({placeholders})", list(keep_job_ids))
-        kept_file_ids = set()
-        for acc_id, emi_id in cursor.fetchall():
-            if acc_id: kept_file_ids.add(acc_id)
-            if emi_id: kept_file_ids.add(emi_id)
-        
-        files_to_delete_ids -= kept_file_ids
+    # 3. Clean empty directories (optional, but good for cleanup)
+    if not dry_run and uploads_path.exists():
+        for dir_path in uploads_path.rglob("*"):
+            if dir_path.is_dir():
+                try:
+                    dir_path.rmdir()
+                except:
+                    pass
             
     job_files_deleted = 0
     job_files_size = 0

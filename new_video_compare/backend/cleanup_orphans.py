@@ -21,6 +21,10 @@ def cleanup_orphans():
         result = conn.execute(text("SELECT file_path FROM files"))
         valid_paths = {row[0] for row in result}
         
+        # Get all valid job IDs to protect their temp files (like diff masks)
+        result = conn.execute(text("SELECT id FROM comparison_jobs"))
+        valid_job_ids = {str(row[0]) for row in result}
+        
         # Also ensure we keep any 'acceptance_frames' folders for active jobs?
         # Those are usually inside a temp dir, but let's check if they are in uploads.
         # The 'files' table should contain the source videos.
@@ -28,7 +32,7 @@ def cleanup_orphans():
         # Based on previous logs: extraction goes to /var/folders/.../T/new_video_compare/...
         # So 'uploads/' primarily contains the source videos.
     
-    print(f"✅ Found {len(valid_paths)} valid files in database.")
+    print(f"✅ Found {len(valid_paths)} valid files and {len(valid_job_ids)} jobs in database.")
     
     # 2. Scan uploads directory
     uploads_dir = Path("uploads")
@@ -56,7 +60,21 @@ def cleanup_orphans():
                 kept_count += 1
                 continue
                 
-            # If we are here, file is not in DB.
+            # Safety check for job temp files (e.g. diff_frames)
+            # Path might look like: uploads/temp/job_480/diff_frames/diff_51.8.png
+            is_valid_job_file = False
+            for part in file_path.parts:
+                if part.startswith("job_"):
+                    job_id_str = part[4:] # Extract ID
+                    if job_id_str in valid_job_ids:
+                        is_valid_job_file = True
+                        break
+                        
+            if is_valid_job_file:
+                kept_count += 1
+                continue
+                
+            # If we are here, file is not in DB and not part of an active job.
             # Safety check: ensure it's actually an uploaded video/file and not a system file
             if file_path.name.startswith("."):
                 continue
