@@ -35,6 +35,8 @@ interface ApiResults {
     report_data?: {
       video?: {
         diff_frames?: Record<string, string>;
+        is_arpp_slate?: boolean;
+        duration_difference?: number;
       };
       ocr?: {
         text_similarity: number | null;
@@ -177,6 +179,43 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const [results, setResults] = useState<ApiResults | null>(null);
   // Inspector Modal State
   const [reanalyzing, setReanalyzing] = useState(false);
+
+  // Calculate ARPP offsets
+  const { acceptanceOffset, emissionOffset, displayDuration } = useMemo(() => {
+    const reportData = results?.overall_result?.report_data;
+    const isArpp = reportData?.video?.is_arpp_slate || false;
+    
+    // Fallback: detect via duration if backend report data is missing or legacy
+    const durAcc = job.acceptance_file?.duration || 0;
+    const durEmi = job.emission_file?.duration || 0;
+    const durationDiff = Math.abs(durAcc - durEmi);
+    const fallbackIsArpp = durationDiff >= 10.5 && durationDiff <= 11.5;
+    
+    const arppActive = isArpp || fallbackIsArpp;
+    
+    let accOffset = 0;
+    let emiOffset = 0;
+    
+    if (arppActive) {
+      if (durAcc > durEmi) {
+        accOffset = 10.0;
+        emiOffset = 0.0;
+      } else {
+        accOffset = 0.0;
+        emiOffset = 10.0;
+      }
+    }
+    
+    // We override duration to be the commercial length (max duration - offset)
+    const baseDuration = duration || Math.max(durAcc, durEmi);
+    const commercialDuration = Math.max(0, baseDuration - Math.max(accOffset, emiOffset));
+    
+    return {
+      acceptanceOffset: accOffset,
+      emissionOffset: emiOffset,
+      displayDuration: commercialDuration
+    };
+  }, [results, job, duration]);
 
   // Audio Visualization Refs
   const waveformRef = useRef<HTMLDivElement>(null);
@@ -388,16 +427,17 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
     const handleTimeUpdate = () => {
       if (acceptanceVideoRef.current) {
-        const time = acceptanceVideoRef.current.currentTime;
-        setCurrentTime(time);
+        const rawTime = acceptanceVideoRef.current.currentTime;
+        const baseTime = Math.max(0, rawTime - acceptanceOffset);
+        setCurrentTime(baseTime);
         
-        // Sync Waveforms - Handled by media element binding now
-        // if (wavesurferRef.current) {
-        //      wavesurferRef.current.setTime(time);
-        // }
-        // if (emissionWavesurferRef.current) {
-        //      emissionWavesurferRef.current.setTime(time);
-        // }
+        // Sync Emission player only when playing to prevent fighting seekers
+        if (emissionVideoRef.current && isPlaying) {
+          const expectedEmiTime = baseTime + emissionOffset;
+          if (Math.abs(emissionVideoRef.current.currentTime - expectedEmiTime) > 0.15) {
+            emissionVideoRef.current.currentTime = expectedEmiTime;
+          }
+        }
       }
     };
 
@@ -416,7 +456,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         }
       });
     };
-  }, []);
+  }, [acceptanceOffset, emissionOffset, isPlaying]);
 
   // Synchronized play/pause
   const togglePlayPause = () => {
@@ -426,36 +466,32 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     if (isPlaying) {
       videos.forEach((video) => video?.pause());
     } else {
-      const syncTime = acceptanceVideoRef.current?.currentTime ?? 0;
-      videos.forEach((video) => {
-        if (video) {
-          video.currentTime = syncTime;
-          video.play();
-        }
-      });
+      if (acceptanceVideoRef.current) {
+        acceptanceVideoRef.current.currentTime = currentTime + acceptanceOffset;
+      }
+      if (emissionVideoRef.current) {
+        emissionVideoRef.current.currentTime = currentTime + emissionOffset;
+      }
+      videos.forEach((video) => video?.play());
     }
 
     setIsPlaying(!isPlaying);
   };
 
   const handleSeek = (time: number) => {
-    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
-    videos.forEach((video) => {
-      if (video) {
-        video.currentTime = time;
-      }
-    });
+    if (acceptanceVideoRef.current) {
+      acceptanceVideoRef.current.currentTime = time + acceptanceOffset;
+    }
+    if (emissionVideoRef.current) {
+      emissionVideoRef.current.currentTime = time + emissionOffset;
+    }
     setCurrentTime(time);
-    
-    // Sync Waveforms explicitly - Handled by media element binding now
-    // if (wavesurferRef.current) wavesurferRef.current.setTime(time);
-    // if (emissionWavesurferRef.current) emissionWavesurferRef.current.setTime(time);
   };
 
   const jumpToDifference = (timestamp: number) => {
     handleSeek(timestamp);
-    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
-    videos.forEach((video) => video?.pause());
+    if (acceptanceVideoRef.current) acceptanceVideoRef.current.pause();
+    if (emissionVideoRef.current) emissionVideoRef.current.pause();
     setIsPlaying(false);
   };
 
@@ -626,6 +662,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 emissionName: job.emission_file?.original_name || job.emission_file?.filename || 'Emission',
                 acceptanceDims: { width: job.acceptance_file?.width || 0, height: job.acceptance_file?.height || 0 },
                 emissionDims: { width: job.emission_file?.width || 0, height: job.emission_file?.height || 0 },
+                acceptanceOffset,
+                emissionOffset
             }}
             initialTimestamp={inspectorInitialTimestamp}
         />
@@ -850,7 +888,6 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
               <div className="flex items-center space-x-2 flex-grow mx-4">
                 {/* Time display moved inside slider row */}
-                
                 <div className="flex-grow flex flex-col">
                   {/* Main Slider Row - Height matched to button (h-12) for perfect alignment */}
                   <div className="h-12 flex items-center space-x-3">
@@ -860,13 +897,13 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     <input
                       type="range"
                       min="0"
-                      max={duration || 100}
+                      max={displayDuration || 100}
                       value={currentTime}
                       onChange={(e) => handleSeek(Number(e.target.value))}
                       className="flex-grow h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                     <span className="text-sm text-gray-600 w-12 font-mono">
-                      {formatTime(duration)}
+                      {formatTime(displayDuration)}
                     </span>
                   </div>
                   
@@ -876,8 +913,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     {/* 1. VIDEO Differences Track (RED) */}
                     <div className="relative h-4 w-full bg-red-50 rounded border border-red-100 flex items-center overflow-hidden">
                       <span className="absolute -left-16 text-xs font-bold text-red-600 uppercase w-14 text-right">Video</span>
-                      {duration > 0 && differences.map((diff, index) => {
-                        const position = (diff.timestamp_seconds / duration) * 100;
+                      {displayDuration > 0 && differences.map((diff, index) => {
+                        const position = (diff.timestamp_seconds / displayDuration) * 100;
                         return (
                           <div
                             key={`video-${index}`}
@@ -897,9 +934,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         );
                       })}
                     </div>
-
-
-
+ 
+ 
+ 
                     {/* 3. AUDIO Differences Track (BLUE) - Placeholder for now */}
                     <div className="relative h-4 w-full bg-blue-50 rounded border border-blue-100 flex items-center">
                       <span className="absolute -left-16 text-xs font-bold text-blue-600 uppercase w-14 text-right">Audio</span>
@@ -907,18 +944,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                          const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
                          const time = parseFloat(timeStr.replace('s', ''));
                          
-                         if (isNaN(time) || duration <= 0) return null;
+                         if (isNaN(time) || displayDuration <= 0) return null;
                          
-                         const position = (time / duration) * 100;
+                         const position = (time / displayDuration) * 100;
                          
                          return (
                            <div
                              key={`audio-${index}`}
                              onClick={() => {
-                               // Optional: Jump to time
-                               if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = time;
-                               if (emissionVideoRef.current) emissionVideoRef.current.currentTime = time;
-                               setCurrentTime(time);
+                               handleSeek(time);
                              }}
                              className="absolute bg-blue-500 hover:bg-blue-600 cursor-pointer z-10 rounded-full"
                              style={{ 

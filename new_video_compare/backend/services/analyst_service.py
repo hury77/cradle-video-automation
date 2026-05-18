@@ -193,7 +193,10 @@ class AnalystService:
             "   1. Jeśli overall_similarity lub video_similarity < 0.95, werdykt MUSI być REJECT lub REVIEW. Nie wolno Ci ignorować tej reguły.\n"
             "   2. Jeśli stt_skipped = true oraz audio_similarity >= 0.98, Twoje uzasadnienie MUSI zawierać jasny przekaz: 'Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio.'\n"
             "   3. NIGDY nie nazywaj różnicy LUFS > 1.0 'akceptowalną' lub 'idealną'. Jeśli system zgłasza has_loudness_issue: true, Twoim obowiązkiem jest to zaraportować jako BŁĄD.\n"
-            "   4. NIGDY nie pisz 'brak różnic w tekście', jeśli text_similarity < 1.0 lub is_text_match = false. Nawet jedna różnica w słowach to RÓŻNICA.\n\n"
+            "   4. NIGDY nie pisz 'brak różnic w tekście', jeśli text_similarity < 1.0 lub is_text_match = false. Nawet jedna różnica w słowach to RÓŻNICA.\n"
+            "   5. ZGODNOŚĆ DŁUGOŚCI:\n"
+            "      - Jeśli is_arpp_slate = true: system automatycznie wyrównał pliki ARPP/Clearcast (11s planszy). Dodaj o tym wzmiankę w uzasadnieniu.\n"
+            "      - Jeśli is_arpp_slate = false ORAZ duration_difference > 0.5: MUSISZ odrzucić plik (REJECT). W uzasadnieniu napisz wyraźnie, że pliki mają różną długość.\n\n"
             "ZASADY DECYZYJNE (TRUTH TABLE — bezwzględne progi):\n"
             "1. OBRAZ (overall_similarity / video_similarity):\n"
             "   - 1.00: Idealne dopasowanie → APPROVE\n"
@@ -375,6 +378,15 @@ class AnalystService:
                     else:
                         parts.append(f"Transkrypcja: różnice (text_similarity={text_sim:.4f}).")
 
+        # Duration / ARPP
+        duration_diff = metrics.get("duration_difference", 0.0)
+        is_arpp = metrics.get("is_arpp_slate", False)
+        
+        if is_arpp:
+            parts.append("Wyrównano format ARPP/Clearcast (ok. 11s planszy).")
+        elif duration_diff > 0.5:
+            parts.append(f"KRYTYCZNA RÓŻNICA: pliki różnią się długością o {duration_diff:.1f}s.")
+
         if not parts:
             return f"Werdykt: {verdict.upper()}. Automatyczna analiza na podstawie metryk."
 
@@ -553,37 +565,42 @@ class AnalystService:
                         logger.info("🔧 Post-processing: Overriding to APPROVE — all metrics within acceptable thresholds.")
 
             # ── Deterministic Threshold Enforcers ─────────────────────────────
-            # Force REVIEW/REJECT if AI hallucinates an APPROVE despite hard metrics
-            if analysis["verdict"] == "approve":
-                reasoning = analysis.get("reasoning", "")
-                override_applied = False
-                
-                # 1. Video Similarity Override
-                video_sim = self._last_metrics.get("overall_similarity", 1.0)
-                if video_sim < 0.95:
-                    analysis["verdict"] = "reject"
-                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej krytycznego progu 95%. Wymuszono status REJECT. [Oryginalna notatka AI: {reasoning}]"
-                    override_applied = True
-                elif video_sim < 0.98:
-                    analysis["verdict"] = "review"
-                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej progu 98%. Wymuszono status REVIEW. [Oryginalna notatka AI: {reasoning}]"
-                    override_applied = True
-                    
-                # 2. LUFS Override (only if we didn't already override to reject)
-                if not override_applied or analysis["verdict"] == "review":
-                    audio_loudness = self._last_metrics.get("audio_loudness", {})
-                    if isinstance(audio_loudness, dict):
-                        lufs_diff = audio_loudness.get("lufs_difference")
-                        if lufs_diff is not None:
-                            abs_lufs = abs(float(lufs_diff))
-                            current_reasoning = analysis.get("reasoning", "")
-                            
-                            if abs_lufs > 2.0 and analysis["verdict"] != "reject":
-                                analysis["verdict"] = "reject"
-                                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza próg krytyczny 2.0. Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
-                            elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
-                                analysis["verdict"] = "review"
-                                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+            # Run UNCONDITIONALLY — ensures hard thresholds override AI regardless of
+            # whether it said approve, review, or reject (e.g. REVIEW when should be REJECT)
+            current_reasoning = analysis.get("reasoning", "")
+
+            # 1. Video Similarity Override — force REJECT if below 0.95, REVIEW if below 0.98
+            video_sim = self._last_metrics.get("overall_similarity", 1.0)
+            if video_sim < 0.95 and analysis["verdict"] != "reject":
+                analysis["verdict"] = "reject"
+                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej krytycznego progu 95%. Wymuszono status REJECT. [Oryginalna notatka AI: {current_reasoning}]"
+                current_reasoning = analysis["reasoning"]
+            elif video_sim < 0.98 and analysis["verdict"] == "approve":
+                analysis["verdict"] = "review"
+                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej progu 98%. Wymuszono status REVIEW. [Oryginalna notatka AI: {current_reasoning}]"
+                current_reasoning = analysis["reasoning"]
+
+            # 2. LUFS Override — force REJECT if diff > 2.0, REVIEW if diff > 1.0
+            audio_loudness = self._last_metrics.get("audio_loudness", {})
+            if isinstance(audio_loudness, dict):
+                lufs_diff = audio_loudness.get("lufs_difference")
+                if lufs_diff is not None:
+                    abs_lufs = abs(float(lufs_diff))
+
+                    if abs_lufs > 2.0 and analysis["verdict"] != "reject":
+                        analysis["verdict"] = "reject"
+                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza próg krytyczny 2.0. Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
+                        current_reasoning = analysis["reasoning"]
+                    elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
+                        analysis["verdict"] = "review"
+                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+
+            # 3. Duration Difference Override (Enforce REJECT if length differs > 0.5s and not ARPP)
+            duration_diff = self._last_metrics.get("duration_difference", 0.0)
+            is_arpp = self._last_metrics.get("is_arpp_slate", False)
+            if duration_diff > 0.5 and not is_arpp and analysis["verdict"] != "reject":
+                analysis["verdict"] = "reject"
+                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Pliki różnią się długością o {duration_diff:.1f}s i nie jest to format z planszami. Wymuszono status REJECT. [Oryginalna notatka: {analysis.get('reasoning', '')}]"
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)

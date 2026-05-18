@@ -61,6 +61,9 @@ class ProcessingResult:
     acceptance_metadata: Optional[VideoMetadata] = None
     emission_metadata: Optional[VideoMetadata] = None
 
+    is_arpp_slate: bool = False
+    duration_difference: float = 0.0
+
     # Error status
     error_message: Optional[str] = None
 
@@ -161,9 +164,12 @@ class VideoProcessor:
 
             # Step 4: Extract frames for analysis
             logger.info("🎬 Step 4: Extracting frames...")
-            acceptance_frames, emission_frames = self._extract_frames_for_analysis(
-                acceptance_file, emission_file, job_temp_dir, processing_config
+            extract_result = self._extract_frames_for_analysis(
+                acceptance_file, emission_file, job_temp_dir, processing_config, acceptance_info, emission_info
             )
+            acceptance_frames, emission_frames = extract_result["acceptance_frames"], extract_result["emission_frames"]
+            is_arpp_slate = extract_result["is_arpp_slate"]
+            duration_difference = extract_result["duration_difference"]
 
             # Step 5: Perform frame-by-frame comparison
             logger.info("🔍 Step 5: Performing frame comparison...")
@@ -187,6 +193,8 @@ class VideoProcessor:
                 frame_similarities=comparison_results["frame_similarities"],
                 difference_timestamps=comparison_results["difference_timestamps"],
                 diff_image_paths=comparison_results["diff_image_paths"],
+                is_arpp_slate=is_arpp_slate,
+                duration_difference=duration_difference,
             )
 
             logger.info(f"✅ Processing complete: {processing_time:.2f}s")
@@ -285,7 +293,9 @@ class VideoProcessor:
         emission_file: str,
         job_temp_dir: Path,
         processing_config: Dict[str, Any],
-    ) -> Tuple[List[str], List[str]]:
+        acceptance_info: VideoInfo,
+        emission_info: VideoInfo,
+    ) -> Dict[str, Any]:
         """Extract frames from both videos for analysis"""
 
         # Get processing configuration
@@ -293,10 +303,27 @@ class VideoProcessor:
             "analysis_fps", 1.0
         )  # 1 frame per second default
         max_frames = processing_config.get("max_frames", 300)  # Max 5 minutes at 1fps
-        start_time = processing_config.get("start_time", 0)  # Start from beginning
+        
+        # Determine ARPP/Clearcast slate logic based on duration diff
+        dur_acc = acceptance_info.metadata.duration
+        dur_emi = emission_info.metadata.duration
+        duration_difference = abs(dur_acc - dur_emi)
+        is_arpp_slate = False
+        
+        start_time_acc = processing_config.get("start_time", 0)
+        start_time_emi = processing_config.get("start_time", 0)
+
+        if 10.5 <= duration_difference <= 11.5:
+            is_arpp_slate = True
+            logger.info(f"⚠️ Detected ARPP/Clearcast slate (11s difference). Applying +10s offset to longer video...")
+            if dur_acc > dur_emi:
+                start_time_acc += 10.0
+            else:
+                start_time_emi += 10.0
 
         logger.info(
-            f"🎬 Extraction config: {frame_rate}fps, max {max_frames} frames, start at {start_time}s"
+            f"🎬 Extraction config: {frame_rate}fps, max {max_frames} frames, "
+            f"acc_start {start_time_acc}s, emi_start {start_time_emi}s"
         )
 
         # Extract acceptance frames
@@ -306,7 +333,7 @@ class VideoProcessor:
             video_path=acceptance_file,
             output_dir=str(acceptance_frame_dir),
             frame_rate=frame_rate,
-            start_time=start_time if start_time > 0 else None,
+            start_time=start_time_acc if start_time_acc > 0 else None,
         )
 
         # Limit frames if needed
@@ -321,7 +348,7 @@ class VideoProcessor:
             video_path=emission_file,
             output_dir=str(emission_frame_dir),
             frame_rate=frame_rate,
-            start_time=start_time if start_time > 0 else None,
+            start_time=start_time_emi if start_time_emi > 0 else None,
         )
 
         # Match frame count
@@ -331,7 +358,12 @@ class VideoProcessor:
 
         logger.info(f"✅ Extracted {len(acceptance_frames)} frame pairs for analysis")
 
-        return acceptance_frames, emission_frames
+        return {
+            "acceptance_frames": acceptance_frames,
+            "emission_frames": emission_frames,
+            "is_arpp_slate": is_arpp_slate,
+            "duration_difference": duration_difference,
+        }
 
     def _compare_frames(
         self, acceptance_frames: List[str], emission_frames: List[str]

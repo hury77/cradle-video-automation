@@ -255,11 +255,18 @@ class FFmpegUtils:
 
         try:
             # Build FFmpeg command with hardware acceleration
-            cmd = [self.ffmpeg_path, "-hwaccel", "auto", "-nostdin", "-i", str(video_path)]
+            # NOTE: -ss must be BEFORE -i for it to work as a fast seek (input seek).
+            # When placed after -i it becomes an output seek which can interact badly
+            # with -vf filters and hardware decode, causing frames to start from 0.
+            cmd = [self.ffmpeg_path, "-hwaccel", "auto", "-nostdin"]
 
-            # Add time range if specified
+            # Add start time BEFORE -i (input seek — correct FFmpeg approach)
             if start_time is not None:
                 cmd.extend(["-ss", str(start_time)])
+
+            cmd.extend(["-i", str(video_path)])
+
+            # duration filter after input (output-side trim)
             if duration is not None:
                 cmd.extend(["-t", str(duration)])
 

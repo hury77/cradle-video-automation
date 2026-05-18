@@ -82,7 +82,9 @@ def get_audio_stream_count(video_path: Path) -> int:
 def extract_audio_from_video(
     video_path: str,
     output_path: Optional[str] = None,
-    sample_rate: int = 44100  # Default to 44.1kHz for AI compatibility (Demucs/Whisper)
+    sample_rate: int = 44100,  # Default to 44.1kHz for AI compatibility (Demucs/Whisper)
+    start_time: Optional[float] = None,
+    duration: Optional[float] = None
 ) -> str:
     """
     Extract audio track from video file using FFmpeg
@@ -91,6 +93,8 @@ def extract_audio_from_video(
         video_path: Path to video file
         output_path: Optional path for output WAV file
         sample_rate: Target sample rate (default 48kHz for broadcast)
+        start_time: Optional start offset in seconds
+        duration: Optional duration in seconds
     
     Returns:
         Path to extracted WAV file
@@ -103,7 +107,7 @@ def extract_audio_from_video(
     if output_path is None:
         output_path = str(video_path.with_suffix('.wav'))
     
-    logger.info(f"🎵 Extracting audio from: {video_path.name}")
+    logger.info(f"🎵 Extracting audio from: {video_path.name} (SS: {start_time}s, T: {duration}s)")
     
     # Count audio streams (crucial for MXF files which often have multiple mono tracks)
     audio_stream_count = get_audio_stream_count(video_path)
@@ -132,14 +136,20 @@ def extract_audio_from_video(
             '-hwaccel', 'auto',
             '-nostdin',
             '-y',
-            '-i', str(video_path),
+        ]
+        if start_time is not None:
+            cmd.extend(['-ss', str(start_time)])
+        cmd.extend(['-i', str(video_path)])
+        if duration is not None:
+            cmd.extend(['-t', str(duration)])
+        cmd.extend([
             '-filter_complex', filter_complex,
             '-map', '[aout]',
             '-acodec', 'pcm_s16le',
             '-ar', str(sample_rate),
             '-ac', '2',
             output_path
-        ]
+        ])
     else:
         # Simple single-stream path
         cmd = [
@@ -147,14 +157,20 @@ def extract_audio_from_video(
             '-hwaccel', 'auto',
             '-nostdin',
             '-y',
-            '-i', str(video_path),
+        ]
+        if start_time is not None:
+            cmd.extend(['-ss', str(start_time)])
+        cmd.extend(['-i', str(video_path)])
+        if duration is not None:
+            cmd.extend(['-t', str(duration)])
+        cmd.extend([
             '-vn',
             '-acodec', 'pcm_s16le',
             '-ar', str(sample_rate),
             '-ac', '2',
             '-af', base_filters,
             output_path
-        ]
+        ])
     
     try:
         result = subprocess.run(
@@ -261,7 +277,10 @@ def measure_loudness(audio_path: str) -> Dict[str, Any]:
 
 def compare_loudness(
     acceptance_path: str,
-    emission_path: str
+    emission_path: str,
+    start_time_acc: Optional[float] = None,
+    start_time_emi: Optional[float] = None,
+    duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Compare loudness between acceptance and emission audio
@@ -269,6 +288,9 @@ def compare_loudness(
     Args:
         acceptance_path: Path to acceptance video/audio
         emission_path: Path to emission video/audio
+        start_time_acc: Optional start offset in seconds for acceptance
+        start_time_emi: Optional start offset in seconds for emission
+        duration: Optional duration in seconds
     
     Returns:
         Comparison results with metrics for both files
@@ -289,7 +311,7 @@ def compare_loudness(
         if acceptance_ext in video_extensions:
             acceptance_audio = tempfile.mktemp(suffix='_acceptance.wav')
             temp_files.append(acceptance_audio)
-            extract_audio_from_video(acceptance_path, acceptance_audio)
+            extract_audio_from_video(acceptance_path, acceptance_audio, start_time=start_time_acc, duration=duration)
         else:
             acceptance_audio = acceptance_path
         
@@ -297,7 +319,7 @@ def compare_loudness(
         if emission_ext in video_extensions:
             emission_audio = tempfile.mktemp(suffix='_emission.wav')
             temp_files.append(emission_audio)
-            extract_audio_from_video(emission_path, emission_audio)
+            extract_audio_from_video(emission_path, emission_audio, start_time=start_time_emi, duration=duration)
         else:
             emission_audio = emission_path
         
@@ -351,7 +373,10 @@ def compare_loudness(
 
 def compare_audio_similarity(
     acceptance_path: str,
-    emission_path: str
+    emission_path: str,
+    start_time_acc: Optional[float] = None,
+    start_time_emi: Optional[float] = None,
+    duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Compare overall audio similarity using MFCC features
@@ -375,14 +400,14 @@ def compare_audio_similarity(
         if acceptance_ext in video_extensions:
             acceptance_audio = tempfile.mktemp(suffix='_acceptance.wav')
             temp_files.append(acceptance_audio)
-            extract_audio_from_video(acceptance_path, acceptance_audio)
+            extract_audio_from_video(acceptance_path, acceptance_audio, start_time=start_time_acc, duration=duration)
         else:
             acceptance_audio = acceptance_path
             
         if emission_ext in video_extensions:
             emission_audio = tempfile.mktemp(suffix='_emission.wav')
             temp_files.append(emission_audio)
-            extract_audio_from_video(emission_path, emission_audio)
+            extract_audio_from_video(emission_path, emission_audio, start_time=start_time_emi, duration=duration)
         else:
             emission_audio = emission_path
         
@@ -1409,7 +1434,9 @@ def transcribe_single_file(
     use_source_separation: bool = True,
     filter_song: bool = False,
     label: str = "file",
-    initial_prompt: Optional[str] = None
+    initial_prompt: Optional[str] = None,
+    start_time: Optional[float] = None,
+    duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Process a SINGLE file end-to-end:
@@ -1427,6 +1454,8 @@ def transcribe_single_file(
         use_source_separation: If True, run Demucs before Whisper
         filter_song: If True, remove segments where music > vocals (remove singing)
         label: Human-readable label for logging
+        start_time: Optional start offset in seconds
+        duration: Optional duration in seconds
     
     Returns:
         Dict with transcription, segments, language, and separation stats
@@ -1434,7 +1463,7 @@ def transcribe_single_file(
     import os
     import shutil
     
-    logger.info(f"🎬 [{label.upper()}] Starting independent transcription pipeline: {Path(file_path).name}")
+    logger.info(f"🎬 [{label.upper()}] Starting independent transcription pipeline: {Path(file_path).name} (SS: {start_time}s, T: {duration}s)")
     
     temp_files = []
     temp_dirs = []
@@ -1447,7 +1476,7 @@ def transcribe_single_file(
         if file_ext in video_extensions:
             extracted_path = tempfile.mktemp(suffix=f'_{label}.wav')
             temp_files.append(extracted_path)
-            audio_path = extract_audio_from_video(file_path, extracted_path)
+            audio_path = extract_audio_from_video(file_path, extracted_path, start_time=start_time, duration=duration)
             logger.info(f"  [{label.upper()}] Audio extracted: {Path(audio_path).name}")
         else:
             audio_path = file_path
@@ -1598,7 +1627,10 @@ def compare_spoken_text(
     filter_song: bool = False,
     audio_similarity_score: Optional[float] = None,
     force_stt: bool = False,
-    initial_prompt: Optional[str] = None
+    initial_prompt: Optional[str] = None,
+    start_time_acc: Optional[float] = None,
+    start_time_emi: Optional[float] = None,
+    duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Full spoken text comparison pipeline:
@@ -1615,6 +1647,9 @@ def compare_spoken_text(
         language: Optional language code
         model_name: Whisper model size
         use_separated_vocals: If True, use Demucs before Whisper
+        start_time_acc: Optional start offset in seconds for acceptance
+        start_time_emi: Optional start offset in seconds for emission
+        duration: Optional duration in seconds
     
     Returns:
         Complete comparison results with both transcripts and diff
@@ -1669,7 +1704,9 @@ def compare_spoken_text(
         use_source_separation=use_separated_vocals,
         filter_song=filter_song,
         label="acceptance",
-        initial_prompt=initial_prompt
+        initial_prompt=initial_prompt,
+        start_time=start_time_acc,
+        duration=duration
     )
     
     # Free memory between heavy processing
@@ -1686,7 +1723,9 @@ def compare_spoken_text(
         use_source_separation=use_separated_vocals,
         filter_song=filter_song,
         label="emission",
-        initial_prompt=initial_prompt
+        initial_prompt=initial_prompt,
+        start_time=start_time_emi,
+        duration=duration
     )
     
     gc.collect()

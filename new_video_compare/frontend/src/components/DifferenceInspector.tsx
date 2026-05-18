@@ -19,6 +19,8 @@ interface DifferenceInspectorProps {
         emissionName: string;
         acceptanceDims: { width: number; height: number };
         emissionDims: { width: number; height: number };
+        acceptanceOffset?: number;
+        emissionOffset?: number;
     };
     initialTimestamp?: number | null;
 }
@@ -67,12 +69,14 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
         const currentDiff = sortedDiffs[selectedIndex];
         if (currentDiff) {
             const time = currentDiff.timestamp_seconds;
+            const accOffset = metadata.acceptanceOffset || 0;
+            const emOffset = metadata.emissionOffset || 0;
             
-            if (accVideoRef.current) accVideoRef.current.currentTime = time;
-            if (emVideoRef.current) emVideoRef.current.currentTime = time;
-            if (contextVideoRef.current) contextVideoRef.current.currentTime = time;
+            if (accVideoRef.current) accVideoRef.current.currentTime = time + accOffset;
+            if (emVideoRef.current) emVideoRef.current.currentTime = time + emOffset;
+            if (contextVideoRef.current) contextVideoRef.current.currentTime = time + accOffset;
         }
-    }, [selectedIndex, isOpen, sortedDiffs]);
+    }, [selectedIndex, isOpen, sortedDiffs, metadata]);
 
     if (!isOpen) return null;
 

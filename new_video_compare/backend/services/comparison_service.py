@@ -280,12 +280,62 @@ class ComparisonService:
                     is_error=False
                 )
                 
+                # Determine ARPP/Clearcast slate logic based on duration diff for audio offset alignment
+                is_arpp_slate = False
+                duration_difference = 0.0
+                start_time_acc = None
+                start_time_emi = None
+                audio_duration = None
+
+                dur_acc = 0.0
+                dur_emi = 0.0
+
+                if video_result:
+                    # Reading from serializable dict or object
+                    if isinstance(video_result, dict):
+                        acc_meta = video_result.get("acceptance_metadata")
+                        emi_meta = video_result.get("emission_metadata")
+                        dur_acc = acc_meta.get("duration", 0.0) if acc_meta else 0.0
+                        dur_emi = emi_meta.get("duration", 0.0) if emi_meta else 0.0
+                    else:
+                        dur_acc = getattr(video_result.acceptance_metadata, "duration", 0.0) if getattr(video_result, "acceptance_metadata", None) else 0.0
+                        dur_emi = getattr(video_result.emission_metadata, "duration", 0.0) if getattr(video_result, "emission_metadata", None) else 0.0
+                
+                if dur_acc <= 0 or dur_emi <= 0:
+                    try:
+                        acc_meta = self.video_processor.ffmpeg.probe_video(acceptance_path)
+                        emi_meta = self.video_processor.ffmpeg.probe_video(emission_path)
+                        dur_acc = acc_meta.duration
+                        dur_emi = emi_meta.duration
+                    except Exception as probe_e:
+                        logger.warning(f"Failed to probe durations for audio offset: {probe_e}")
+
+                if dur_acc > 0 and dur_emi > 0:
+                    duration_difference = abs(dur_acc - dur_emi)
+                    if 10.5 <= duration_difference <= 11.5:
+                        is_arpp_slate = True
+                        logger.info(f"⚠️ Detected ARPP/Clearcast slate in audio phase. Applying offsets: acc={10.0 if dur_acc > dur_emi else 0.0}s, emi={10.0 if dur_emi > dur_acc else 0.0}s")
+                        if dur_acc > dur_emi:
+                            start_time_acc = 10.0
+                            start_time_emi = 0.0
+                            audio_duration = dur_emi - 1.0  # Cut the 1s black at the end
+                        else:
+                            start_time_acc = 0.0
+                            start_time_emi = 10.0
+                            audio_duration = dur_acc - 1.0
+
                 audio_result = {}
                 
                 # LUFS Loudness comparison (new)
                 try:
                     logger.info("📊 Measuring LUFS loudness levels...")
-                    loudness_result = compare_loudness(acceptance_path, emission_path)
+                    loudness_result = compare_loudness(
+                        acceptance_path, 
+                        emission_path,
+                        start_time_acc=start_time_acc,
+                        start_time_emi=start_time_emi,
+                        duration=audio_duration
+                    )
                     audio_result["loudness"] = loudness_result
                 except Exception as lufs_err:
                     logger.warning(f"LUFS comparison failed: {lufs_err}")
@@ -297,7 +347,13 @@ class ComparisonService:
                 # Audio similarity (MFCC-based)
                 try:
                     logger.info("🎼 Computing audio similarity...")
-                    similarity_result = compare_audio_similarity(acceptance_path, emission_path)
+                    similarity_result = compare_audio_similarity(
+                        acceptance_path, 
+                        emission_path,
+                        start_time_acc=start_time_acc,
+                        start_time_emi=start_time_emi,
+                        duration=audio_duration
+                    )
                     audio_result["similarity"] = similarity_result
                     audio_result["similarity_score"] = similarity_result.get("overall_audio_similarity", 0.0)
                 except Exception as sim_err:
@@ -350,7 +406,10 @@ class ComparisonService:
                             filter_song=should_filter_song,
                             audio_similarity_score=audio_result.get("similarity_score"),
                             force_stt=loudness_match_issue,
-                            initial_prompt=job.client_name
+                            initial_prompt=job.client_name,
+                            start_time_acc=start_time_acc,
+                            start_time_emi=start_time_emi,
+                            duration=audio_duration
                         )
                         
                         if stt_result and stt_result.get("error"):
@@ -531,10 +590,13 @@ class ComparisonService:
             }
 
         # Add video diff frames to report_data
-        if video_result and video_result.get("diff_image_paths"):
+        if video_result:
             if "video" not in report_data:
                 report_data["video"] = {}
-            report_data["video"]["diff_frames"] = video_result.get("diff_image_paths")
+            if video_result.get("diff_image_paths"):
+                report_data["video"]["diff_frames"] = video_result.get("diff_image_paths")
+            report_data["video"]["is_arpp_slate"] = video_result.get("is_arpp_slate", False)
+            report_data["video"]["duration_difference"] = video_result.get("duration_difference", 0.0)
 
         # Create main comparison result
         comparison_result = ComparisonResult(
@@ -659,6 +721,8 @@ class ComparisonService:
             "overall_similarity": computed_video_similarity,
             "video_similarity": computed_video_similarity,
             "video_differences_count": video_differences_count,
+            "is_arpp_slate": video_res.get("is_arpp_slate", False) if isinstance(video_res, dict) else getattr(video_res, "is_arpp_slate", False),
+            "duration_difference": video_res.get("duration_difference", 0.0) if isinstance(video_res, dict) else getattr(video_res, "duration_difference", 0.0),
         }
         
         if audio_res and isinstance(audio_res, dict):
@@ -880,17 +944,19 @@ def _run_job_in_process(job_id: int) -> Dict[str, Any]:
 
 async def process_comparison_job(job_id: int) -> Dict[str, Any]:
     """
-    Async wrapper for processing comparison job
-    Uses ProcessPoolExecutor to guarantee non-blocking execution
-    by running the heavy lifting in a completely separate process.
+    Async wrapper for processing comparison job.
+    Uses ThreadPoolExecutor so that the worker runs in the SAME process as uvicorn.
+    This ensures that hot-reloaded modules (via uvicorn --reload) are visible to the worker.
+    ProcessPoolExecutor was previously used but spawns a fresh interpreter that ignores
+    any in-process module reloads — causing stale code to run even after file edits.
     """
     import asyncio
-    from concurrent.futures import ProcessPoolExecutor
-    
+    from concurrent.futures import ThreadPoolExecutor
+
     loop = asyncio.get_running_loop()
-    
-    # Run in a separate process to avoid GIL/CPU blocking
-    with ProcessPoolExecutor(max_workers=1) as pool:
+
+    # Run in a thread to avoid blocking the event loop (GIL is released for I/O-heavy work)
+    with ThreadPoolExecutor(max_workers=1) as pool:
         result = await loop.run_in_executor(pool, _run_job_in_process, job_id)
-        
+
     return result
