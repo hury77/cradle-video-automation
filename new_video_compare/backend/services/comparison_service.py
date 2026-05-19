@@ -727,10 +727,24 @@ class ComparisonService:
         
         if audio_res and isinstance(audio_res, dict):
             metrics["audio_similarity"] = float(audio_res.get("similarity_score", 0.0))
-            metrics["audio_analysis_data"] = audio_res
+            
+            # Prune massive float arrays from audio_analysis_data to align with SOUL.md:
+            # "Bądź ekonomiczny. Nie wysyłaj do LLM więcej danych niż potrzeba. Optymalizuj tokeny."
+            # Only keep minimal attributes that analyst_service uses.
+            stt = audio_res.get("speech_to_text", {})
+            metrics["audio_analysis_data"] = {
+                "similarity": {
+                    "error": audio_res.get("similarity", {}).get("error", "") if isinstance(audio_res.get("similarity"), dict) else ""
+                },
+                "speech_to_text": {
+                    "comparison": {
+                        "word_count_a": stt.get("comparison", {}).get("word_count_a", 0) if isinstance(stt.get("comparison"), dict) else 0,
+                        "word_count_b": stt.get("comparison", {}).get("word_count_b", 0) if isinstance(stt.get("comparison"), dict) else 0,
+                    } if isinstance(stt, dict) else {}
+                }
+            }
             
             # Build transcript summary for AI (text_diff_preview doesn't exist — use real STT fields)
-            stt = audio_res.get("speech_to_text", {})
             stt_similarity = stt.get("text_similarity")
             acceptance_text = stt.get("acceptance_text", "")
             emission_text = stt.get("emission_text", "")

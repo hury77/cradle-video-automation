@@ -76,7 +76,7 @@ class AnalystService:
                 format="json",   # Forces Ollama to return valid JSON (grammar sampling)
                 options={
                     "temperature": 0.1,   # Deterministic — rules over creativity
-                    "num_predict": 300,
+                    "num_predict": 1024,  # Ample headroom to complete the Polish reasoning
                 },
                 keep_alive=0,  # Unload model immediately to free RAM (M4 optimization)
             )
