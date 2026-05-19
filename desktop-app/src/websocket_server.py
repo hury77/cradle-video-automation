@@ -22,6 +22,7 @@ class WebSocketServer:
         self.file_handler = FileHandler()
         self.video_compare = VideoCompareAutomator()
         self.api_client = APIClient()
+        self.expected_files = {}
 
     async def register(self, websocket):
         """Register a new client"""
@@ -202,6 +203,16 @@ class WebSocketServer:
             cradle_id = data.get("cradleId")
             acceptance_file = data.get("acceptanceFile")
             emission_file = data.get("emissionFile")
+
+            # 🔥 Store expected attachment filenames for fallback discovery
+            expected_acc = data.get("expectedAcceptanceName")
+            expected_emi = data.get("expectedEmissionName")
+            if expected_acc or expected_emi:
+                self.expected_files[cradle_id] = {
+                    "acceptance": expected_acc,
+                    "emission": expected_emi
+                }
+                logger.info(f"💾 Stored expected files for {cradle_id}: {self.expected_files[cradle_id]}")
 
             if not cradle_id:
                 await self.send_error(websocket, "No CradleID provided")
@@ -605,6 +616,29 @@ class WebSocketServer:
         video_files = []
         
         for attempt in range(max_retries):
+            # 0. Check parent folder for expected files and move them if found
+            expected = self.expected_files.get(cradle_id, {})
+            expected_acc = expected.get("acceptance")
+            expected_emi = expected.get("emission")
+            parent_path = base_path.parent
+            
+            for expected_name, file_type in [(expected_acc, "acceptance"), (expected_emi, "emission")]:
+                if not expected_name:
+                    continue
+                expected_file_in_parent = parent_path / expected_name
+                # Ensure the file exists, is not an active .crdownload or .part, and is not already in the target subfolder
+                crdownload_file = parent_path / f"{expected_name}.crdownload"
+                part_file = parent_path / f"{expected_name}.part"
+                if expected_file_in_parent.exists() and not crdownload_file.exists() and not part_file.exists():
+                    target_file = base_path / expected_name
+                    if not target_file.exists():
+                        try:
+                            import shutil
+                            shutil.move(str(expected_file_in_parent), str(target_file))
+                            logger.info(f"📦 {prefix} [Fallback Discovery] Moved {file_type} from Downloads root: {expected_name} -> {cradle_id}/")
+                        except Exception as e:
+                            logger.error(f"❌ {prefix} [Fallback Discovery] Failed to move {expected_name}: {str(e)}")
+
             # 1. Auto-unzip any new archives first
             zip_result = check_and_unzip_folder(base_path)
             if zip_result['processed_zips'] > 0:

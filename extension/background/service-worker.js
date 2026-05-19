@@ -73,7 +73,7 @@ async function handleDownload(request, sendResponse) {
     
     chrome.downloads.onChanged.addListener(downloadListener);
     
-    // Timeout after 2 minutes
+    // Timeout after 4 minutes
     setTimeout(() => {
       chrome.downloads.onChanged.removeListener(downloadListener);
       sendResponse({ 
@@ -82,7 +82,7 @@ async function handleDownload(request, sendResponse) {
         filename: filename,
         type: type 
       });
-    }, 120000);
+    }, 240000);
     
   } catch (error) {
     console.error("❌ Download error:", error);

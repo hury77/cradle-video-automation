@@ -1202,6 +1202,24 @@ class CradleScanner {
         clientName = extractedMeta.clientName;
     }
 
+    let expectedAcceptanceName = null;
+    if (fileInfo.acceptanceFile && fileInfo.acceptanceFile.type === "attachment") {
+      let name = fileInfo.acceptanceFile.name || this.extractFilenameFromUrl(fileInfo.acceptanceFile.url);
+      expectedAcceptanceName = name.replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
+    }
+
+    let expectedEmissionName = null;
+    if (fileInfo.emissionFile && fileInfo.emissionFile.type === "attachment") {
+      let name = fileInfo.emissionFile.name || this.extractFilenameFromUrl(fileInfo.emissionFile.url);
+      const dotIndex = name.lastIndexOf(".");
+      if (dotIndex !== -1) {
+        name = name.substring(0, dotIndex) + "_emis" + name.substring(dotIndex);
+      } else {
+        name = name + "_emis";
+      }
+      expectedEmissionName = name.replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
+    }
+
     const filesData = {
       action: "FILES_DETECTED",
       cradleId: this.currentCradleId,
@@ -1212,6 +1230,8 @@ class CradleScanner {
       clientName: clientName,
       acceptanceFile: fileInfo.acceptanceFile?.type === "network_path" ? fileInfo.acceptanceFile : null,
       emissionFile: fileInfo.emissionFile?.type === "network_path" ? fileInfo.emissionFile : null,
+      expectedAcceptanceName: expectedAcceptanceName,
+      expectedEmissionName: expectedEmissionName,
       timestamp: Date.now(),
     };
 
