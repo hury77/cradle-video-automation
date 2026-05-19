@@ -1201,6 +1201,14 @@ def transcribe_audio(
         # so they don't pollute the UI timeline.
         if full_text == "" and full_text_before != "":
             segments = []
+            
+        # ── Single-word brand hallucination filter ────────────────────────────
+        # When there is no real VO, Whisper often hallucinates a single brand name 
+        # (like "Electrolux") from music/silence. A real VO is never just 1 word.
+        if len(full_text.split()) == 1:
+            logger.warning(f"🧹 Single-word hallucination detected ('{full_text.strip()}'). Clearing transcript.")
+            full_text = ""
+            segments = []
 
         transcription = {
             "text": full_text,
