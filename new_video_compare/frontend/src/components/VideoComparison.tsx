@@ -165,9 +165,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const [isMuted, setIsMuted] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
-  // Build video URLs from job data (note: double /files/ in path matches API router)
-  // Use relative URL to allow proxying in dev and direct serving in prod
-  const baseUrl = "";
+  // Build video URLs from job data
+  // Use http://localhost:8001 in dev to bypass webpack dev proxy for large media streams, relative in prod
+  const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8001'
+    : '';
   const acceptanceVideoUrl = `${baseUrl}/api/v1/files/stream/${job.acceptance_file_id}`;
   const emissionVideoUrl = `${baseUrl}/api/v1/files/stream/${job.emission_file_id}`;
 

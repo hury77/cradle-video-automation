@@ -45,10 +45,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Middleware CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Skonfiguruj odpowiednio dla produkcji
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,6 +84,11 @@ app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(settings_router, prefix="/api/v1", tags=["settings"])
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "message": "API działa", "websocket_enabled": True}
+
+
 # Catch-all route for SPA (Single Page Application) - MUST BE LAST
 
 
@@ -108,11 +112,6 @@ async def serve_spa(full_path: str = ""):
             return FileResponse(index_path)
             
     return {"error": "Frontend build not found. Please run 'npm run build' in frontend directory."}
-
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "message": "API działa", "websocket_enabled": True}
 
 
 if __name__ == "__main__":

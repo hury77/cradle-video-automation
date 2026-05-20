@@ -5,6 +5,7 @@ import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
 import KnowledgeBase from "./components/KnowledgeBase";
 import AutomationLogs from "./components/AutomationLogs";
+import { StandalonePlayer } from "./components/StandalonePlayer";
 import { ComparisonJob } from "./types";
 import {
   Cog6ToothIcon,
@@ -13,7 +14,8 @@ import {
   PlusIcon,
   ChartBarIcon,
   ListBulletIcon,
-  BookOpenIcon
+  BookOpenIcon,
+  PlayIcon
 } from "@heroicons/react/24/outline";
 
 import { compareApi } from "./services/api";
@@ -21,7 +23,7 @@ import { compareApi } from "./services/api";
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs">("list");
+  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs" | "player">("list");
   const [backendStatus, setBackendStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
@@ -212,6 +214,13 @@ function App() {
                   <ListBulletIcon className="w-5 h-5 mr-1" />
                   Logs
                 </button>
+                <button
+                  onClick={() => { setSelectedJob(null); setDashboardView("player"); }}
+                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "player" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  <PlayIcon className="w-5 h-5 mr-1" />
+                  Player
+                </button>
               </div>
 
               <button
@@ -282,6 +291,8 @@ function App() {
           <KnowledgeBase onSelectJob={handleSelectJob} />
         ) : dashboardView === "logs" ? (
           <AutomationLogs />
+        ) : dashboardView === "player" ? (
+          <StandalonePlayer />
         ) : (
           <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView as "list" | "stats"} />
         )}

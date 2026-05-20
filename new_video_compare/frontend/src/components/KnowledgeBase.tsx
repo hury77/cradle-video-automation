@@ -21,6 +21,10 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
   const [decisions, setDecisions] = useState<QADecision[]>([]);
   const [clients, setClients] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [pageInput, setPageInput] = useState("1");
+  const limit = 50;
   
   const [filters, setFilters] = useState({
     client_name: "",
@@ -29,22 +33,44 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
 
   const [selectedDecisionDetails, setSelectedDecisionDetails] = useState<QADecision | null>(null);
 
-  const fetchKnowledgeBase = async () => {
+  const fetchKnowledgeBase = async (page: number) => {
     setLoading(true);
     try {
       const query = new URLSearchParams();
       if (filters.client_name) query.append("client_name", filters.client_name);
       if (filters.verdict) query.append("verdict", filters.verdict);
+      
+      const skip = (page - 1) * limit;
+      query.append("skip", skip.toString());
+      query.append("limit", limit.toString());
 
       const res = await fetch(`/api/v1/dashboard/knowledge-base?${query.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setDecisions(data.results);
       setClients(data.clients);
+      setTotalEntries(data.total || 0);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    setPageInput(newPage.toString());
+    fetchKnowledgeBase(newPage);
+  };
+
+  const handleJumpToPage = () => {
+    const pageNum = parseInt(pageInput, 10);
+    const maxPage = Math.max(1, Math.ceil(totalEntries / limit));
+    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= maxPage) {
+      handlePageChange(pageNum);
+    } else {
+      alert(`Wprowadź poprawny numer strony od 1 do ${maxPage}.`);
+      setPageInput(currentPage.toString());
     }
   };
 
@@ -73,7 +99,9 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
   };
 
   useEffect(() => {
-    fetchKnowledgeBase();
+    setCurrentPage(1);
+    setPageInput("1");
+    fetchKnowledgeBase(1);
   }, [filters]);
 
   const getVerdictStyle = (v: string) => {
@@ -140,7 +168,7 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
               Historical QA decisions for Agent 2 training.
             </p>
           </div>
-          <button onClick={fetchKnowledgeBase} className="text-sm text-blue-600 hover:underline">
+          <button onClick={() => fetchKnowledgeBase(currentPage)} className="text-sm text-blue-600 hover:underline">
             Refresh Data
           </button>
         </div>
@@ -206,86 +234,141 @@ const KnowledgeBase: React.FC<{ onSelectJob: (job: any) => void }> = ({ onSelect
           ) : decisions.length === 0 ? (
             <div className="p-12 text-center text-gray-500">No QA decisions found matching the filters.</div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cradle ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Verdict</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reasoning</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Metrics</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {decisions.map(d => {
-                  const m = d.metrics_snapshot || {};
-                  return (
-                    <tr key={d.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-500">
-                        {d.job_id ? `#${d.job_id}` : <span className="text-gray-300 italic">Deleted</span>}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {d.cradle_id || "N/A"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-semibold">
-                        {d.client_name || "-"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border uppercase tracking-wider ${getVerdictStyle(d.verdict)}`}>
-                          {d.verdict}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600 max-w-md truncate" title={d.reasoning || ""}>
-                        {d.reasoning || <span className="text-gray-400 italic">No reasoning provided</span>}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
-                        V: {m.video_similarity ? Math.round(m.video_similarity * 100) + '%' : '-'} | 
-                        A: {m.audio_similarity ? Math.round(m.audio_similarity * 100) + '%' : '-'} | 
-                        O: {m.overall_similarity ? Math.round(m.overall_similarity * 100) + '%' : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(d.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                        {d.job_id ? (
-                          <button
-                            onClick={async () => {
-                              try {
-                                // Fetch full job to populate VideoComparison props
-                                const res = await fetch(`/api/v1/compare/${d.job_id}`);
-                                if (res.ok) {
-                                  const jobData = await res.json();
-                                  onSelectJob(jobData);
-                                } else {
-                                  alert('The Job and its files have been deleted from the database.');
+            <>
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cradle ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Verdict</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reasoning</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Metrics</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {decisions.map(d => {
+                    const m = d.metrics_snapshot || {};
+                    return (
+                      <tr key={d.id} className="hover:bg-gray-50 transition">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-500">
+                          {d.job_id ? `#${d.job_id}` : <span className="text-gray-300 italic">Deleted</span>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {d.cradle_id || "N/A"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-semibold">
+                          {d.client_name || "-"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border uppercase tracking-wider ${getVerdictStyle(d.verdict)}`}>
+                            {d.verdict}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 max-w-md truncate" title={d.reasoning || ""}>
+                          {d.reasoning || <span className="text-gray-400 italic">No reasoning provided</span>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
+                          V: {m.video_similarity ? Math.round(m.video_similarity * 100) + '%' : '-'} | 
+                          A: {m.audio_similarity ? Math.round(m.audio_similarity * 100) + '%' : '-'} | 
+                          O: {m.overall_similarity ? Math.round(m.overall_similarity * 100) + '%' : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(d.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                          {d.job_id ? (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  // Fetch full job to populate VideoComparison props
+                                  const res = await fetch(`/api/v1/compare/${d.job_id}`);
+                                  if (res.ok) {
+                                    const jobData = await res.json();
+                                    onSelectJob(jobData);
+                                  } else {
+                                    alert('The Job and its files have been deleted from the database.');
+                                  }
+                                } catch (e) {
+                                  console.error(e);
                                 }
-                              } catch (e) {
-                                console.error(e);
-                              }
-                            }}
-                            className="text-blue-600 hover:text-blue-900 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition"
-                          >
-                            View Job
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedDecisionDetails(d)}
-                            className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100 transition whitespace-nowrap border border-indigo-100 shadow-sm font-semibold flex items-center justify-center gap-1 mx-auto"
-                            title="View extracted reasoning & metrics for this deleted job"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            AI Details
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                              }}
+                              className="text-blue-600 hover:text-blue-900 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition"
+                            >
+                              View Job
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setSelectedDecisionDetails(d)}
+                              className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100 transition whitespace-nowrap border border-indigo-100 shadow-sm font-semibold flex items-center justify-center gap-1 mx-auto"
+                              title="View extracted reasoning & metrics for this deleted job"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              AI Details
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {/* Pagination Controls */}
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-4">
+                <div className="text-sm text-gray-700">
+                  Pokazywanie <span className="font-semibold">{Math.min((currentPage - 1) * limit + 1, totalEntries)}</span> do{" "}
+                  <span className="font-semibold">{Math.min(currentPage * limit, totalEntries)}</span> z{" "}
+                  <span className="font-semibold">{totalEntries}</span> wpisów
+                </div>
+                <div className="flex items-center space-x-2 flex-wrap gap-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    Poprzednia
+                  </button>
+                  <span className="text-sm text-gray-600 font-medium px-2">
+                    Strona {currentPage} z {Math.max(1, Math.ceil(totalEntries / limit))}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage >= Math.ceil(totalEntries / limit)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    Następna
+                  </button>
+
+                  <div className="h-6 w-px bg-gray-200 mx-2 hidden sm:block"></div>
+
+                  <div className="flex items-center space-x-2 text-sm text-gray-600">
+                    <span>Idź do:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={Math.max(1, Math.ceil(totalEntries / limit))}
+                      value={pageInput}
+                      onChange={(e) => setPageInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleJumpToPage();
+                        }
+                      }}
+                      className="w-16 px-2.5 py-1.5 border border-gray-300 rounded-lg text-center text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={handleJumpToPage}
+                      className="px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 shadow-sm transition"
+                    >
+                      Idź
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
