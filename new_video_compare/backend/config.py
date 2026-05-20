@@ -170,8 +170,8 @@ SENSITIVITY_THRESHOLDS = {
         "description": "Recommended balance of speed and accuracy"
     },
     "high": {
-        "ssim_min": 0.94,           # Strict but tolerates mp4/mov codec differences
-        "pixel_diff_tolerance": 0.015,  # 1.5% hard-pixel tolerance (catches text shifts missed by global SSIM)
+        "ssim_min": 0.95,           # Balanced — 0.98 caused compression false-positives (matched with automation)
+        "pixel_diff_tolerance": 0.005,  # 0.5% hard-pixel tolerance (catches smallest text shifts without compression noise) (matched with automation)
         "normalize_quality": True,     # Normalize quality before comparison
         "enable_source_separation": True,  # Demucs source separation + voiceover comparison
         "enable_whisper": True,        # Whisper transcription for VO comparison
