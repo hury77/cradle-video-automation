@@ -519,6 +519,35 @@ class ComparisonService:
             return {"success": False, "error": str(e)}
 
         finally:
+            # Automatyczne czyszczenie plików DEV zaraz po procesowaniu (zarówno sukces jak i błąd)
+            try:
+                from config import settings
+                if settings.is_development:
+                    logger.info(f"🧹 [DEV MODE] Auto-cleaning files for job {job_id} in finally block...")
+                    job_to_clean = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first()
+                    if job_to_clean:
+                        # 1. Kasowanie klatek tymczasowych
+                        try:
+                            self.video_processor._cleanup_processing_files(job_id)
+                            logger.info(f"🧹 [DEV MODE] Cleaned up temporary frames for job {job_id}")
+                        except Exception as temp_err:
+                            logger.error(f"⚠️ [DEV MODE] Failed to cleanup frames for job {job_id}: {temp_err}")
+                        
+                        # 2. Kasowanie wideo źródłowych
+                        for file_obj in [job_to_clean.acceptance_file, job_to_clean.emission_file]:
+                            if file_obj and file_obj.file_path:
+                                try:
+                                    p = Path(file_obj.file_path)
+                                    if p.exists():
+                                        p.unlink()
+                                        logger.info(f"🧹 [DEV MODE] Deleted video file: {file_obj.file_path}")
+                                    else:
+                                        logger.warning(f"⚠️ [DEV MODE] Video file not found on disk: {file_obj.file_path}")
+                                except Exception as del_err:
+                                    logger.error(f"⚠️ [DEV MODE] Failed to delete video file {file_obj.file_path}: {del_err}")
+            except Exception as finally_err:
+                logger.error(f"⚠️ [DEV MODE] Error in finally block during cleanup: {finally_err}")
+
             db.close()
 
     def _save_results(

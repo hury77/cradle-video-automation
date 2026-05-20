@@ -91,10 +91,12 @@ function App() {
   const setupWebSocket = () => {
     try {
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Fix: If running on dev port 3000, connect to backend on 8001 (IPv4)
-      const wsHost = window.location.port === "3000" 
-        ? "127.0.0.1:8001" 
-        : window.location.host;
+      // Dynamic port mapping: 3000 -> 8001, 3001 -> 8002, etc. (port + 5001)
+      let wsHost = window.location.host;
+      if (window.location.port === "3000" || window.location.port === "3001") {
+        const backendPort = parseInt(window.location.port) + 5001;
+        wsHost = `127.0.0.1:${backendPort}`;
+      }
       const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/connect`);
 
       ws.onopen = () => {

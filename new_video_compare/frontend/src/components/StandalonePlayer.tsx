@@ -152,9 +152,17 @@ export const StandalonePlayer: React.FC = () => {
           if (fileStatus.is_processed) {
             // Processing success!
             const newFile: VideoFile = {
-              url: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-                ? `http://localhost:8001/api/v1/files/stream/${fileId}`
-                : `/api/v1/files/stream/${fileId}`,
+              url: (() => {
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                  const port = window.location.port;
+                  if (port === '3000' || port === '3001') {
+                    const backendPort = parseInt(port) + 5001;
+                    return `http://localhost:${backendPort}/api/v1/files/stream/${fileId}`;
+                  }
+                  return `http://localhost:8001/api/v1/files/stream/${fileId}`;
+                }
+                return `/api/v1/files/stream/${fileId}`;
+              })(),
               name: file.name,
               size: file.size,
               isLocal: false,

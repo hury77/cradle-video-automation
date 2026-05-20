@@ -21,7 +21,13 @@ class WebSocketServer:
         self.clients = set()
         self.file_handler = FileHandler()
         self.video_compare = VideoCompareAutomator()
-        self.api_client = APIClient()
+        # Get base API URL from env, with default fallback
+        api_url = os.environ.get("API_URL")
+        if not api_url:
+            backend_port = os.environ.get("PORT", "8001")
+            api_url = f"http://localhost:{backend_port}/api/v1"
+            
+        self.api_client = APIClient(base_url=api_url)
         self.expected_files = {}
 
     async def register(self, websocket):

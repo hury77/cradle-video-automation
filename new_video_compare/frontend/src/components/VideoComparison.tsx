@@ -166,10 +166,18 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Build video URLs from job data
-  // Use http://localhost:8001 in dev to bypass webpack dev proxy for large media streams, relative in prod
-  const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8001'
-    : '';
+  // Use http://localhost:800X in dev to bypass webpack dev proxy for large media streams, relative in prod
+  const baseUrl = (() => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      const port = window.location.port;
+      if (port === '3000' || port === '3001') {
+        const backendPort = parseInt(port) + 5001;
+        return `http://localhost:${backendPort}`;
+      }
+      return 'http://localhost:8001';
+    }
+    return '';
+  })();
   const acceptanceVideoUrl = `${baseUrl}/api/v1/files/stream/${job.acceptance_file_id}`;
   const emissionVideoUrl = `${baseUrl}/api/v1/files/stream/${job.emission_file_id}`;
 

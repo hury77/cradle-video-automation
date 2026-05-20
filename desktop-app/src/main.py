@@ -22,14 +22,49 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def load_env():
+    """Manual .env loader looking in app root and project root"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    paths = [
+        os.path.join(current_dir, '../.env'),        # desktop-app/.env
+        os.path.join(current_dir, '../../.env'),      # project-root/.env
+    ]
+    for env_path in paths:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            parts = line.split('=', 1)
+                            if len(parts) == 2:
+                                key, val = parts
+                                key = key.strip()
+                                val = val.strip().strip('"').strip("'")
+                                os.environ[key] = val
+                print(f"Loaded environment from: {os.path.abspath(env_path)}")
+            except Exception as e:
+                print(f"Failed to read env file {env_path}: {e}")
+
 async def main():
     """Main application entry point"""
+    # Load .env file at startup
+    load_env()
+    
+    # Get WebSocket port from environment (default: 8765)
+    ws_port_str = os.environ.get("DESKTOP_WS_PORT", "8765")
+    try:
+        ws_port = int(ws_port_str)
+    except ValueError:
+        logger.warning(f"⚠️ Invalid DESKTOP_WS_PORT: {ws_port_str}. Using default 8765.")
+        ws_port = 8765
+
     while True:
         try:
-            logger.info("Starting Cardle-Video-Automation Desktop App")
+            logger.info(f"Starting Cradle-Video-Automation Desktop App on port {ws_port}")
             
             # Start WebSocket server
-            await server.start_server()
+            await server.start_server(port=ws_port)
             break # If server stops gracefully
             
         except KeyboardInterrupt:

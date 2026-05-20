@@ -116,5 +116,6 @@ async def serve_spa(full_path: str = ""):
 
 if __name__ == "__main__":
     import uvicorn
+    from config import settings
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run("main:app", host=settings.host, port=settings.port, reload=settings.reload)

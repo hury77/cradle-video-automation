@@ -12,7 +12,10 @@ class DesktopConnection {
 
   connect() {
     try {
-      this.ws = new WebSocket("ws://localhost:8765");
+      const manifest = chrome.runtime.getManifest();
+      const isDev = manifest.name.toLowerCase().includes("[dev]");
+      const port = isDev ? "8766" : "8765";
+      this.ws = new WebSocket(`ws://localhost:${port}`);
 
       this.ws.onopen = () => {
         console.log("🔗 Connected to Desktop App");
