@@ -114,6 +114,61 @@ System uczy się z każdego przetworzonego assetu. Historia decyzji to najcennie
 
 ---
 
+## 🌐 Architektura środowisk — Zasady portów (nienaruszalne)
+
+> **Separacja środowisk LIVE i DEV jest absolutnie obowiązkowa. Żaden agent nie może jej naruszyć.**
+
+### Mapowanie portów
+
+| Środowisko | Frontend | Backend | Opis |
+|---|---|---|---|
+| **LIVE** | `:3000` | `:8001` | Produkcja — nietykalny |
+| **DEV** | `:3001` | `:8002` | Deweloperski — do testów |
+
+### Reguły (bezwzględne)
+
+| Reguła | Opis |
+|---|---|
+| 🚫 **LIVE frontend zawsze na :3000** | `react-scripts start` dla LIVE uruchamiany z `PORT=3000` i proxy → `:8001` |
+| 🚫 **DEV frontend zawsze na :3001** | `react-scripts start` dla DEV uruchamiany z `PORT=3001` i proxy → `:8002` |
+| 🚫 **NIE mieszaj środowisk** | DEV frontend nigdy nie może proxyować do backendu LIVE (`:8001`) |
+| 🚫 **NIE zatrzymuj LIVE bez zgody** | Proces LIVE (`:3000` + `:8001`) może być zatrzymany TYLKO za jawną zgodą człowieka |
+| ✅ **DEV można restartować swobodnie** | Procesy DEV (`:3001` + `:8002`) można zatrzymywać i uruchamiać bez ryzyka |
+
+### Jak uruchamiać środowiska
+
+```bash
+# LIVE frontend (nietykalny w normalnej pracy)
+PORT=3000 REACT_APP_API_URL=http://localhost:8001 npm start
+
+# DEV frontend (do codziennej pracy deweloperskiej)
+PORT=3001 REACT_APP_API_URL=http://localhost:8002 npm start
+```
+
+### Izolacja DEV od LIVE — zasada build/ (nienaruszalna)
+
+> **Zmiany w kodzie (`src/`) nie wpływają na LIVE dopóki człowiek świadomie nie zarządzi wdrożenia.**
+
+LIVE frontend (`localhost:3000`) serwuje wyłącznie pliki ze skompilowanego katalogu `frontend/build/`.
+DEV frontend (`localhost:3001`) serwuje kod bezpośrednio z `frontend/src/` przez hot reload.
+
+Katalog `build/` jest aktualizowany **wyłącznie ręcznie** przez:
+```bash
+npm run build
+```
+
+| Sytuacja | Wpływ na LIVE |
+|---|---|
+| Edycja plików w `src/` | ❌ Brak — LIVE nadal działa na starym `build/` |
+| Hot reload na DEV (:3001) | ❌ Brak — tylko DEV widzi zmianę |
+| Restart procesu DEV | ❌ Brak — LIVE (PID osobny) nie jest dotknięty |
+| `npm run build` | ✅ Aktualizuje `build/` — ale LIVE widzi zmiany dopiero po restarcie procesu `:3000` |
+| Restart LIVE (:3000) po buildzie | ✅ Wdrożenie — LIVE widzi nową wersję |
+
+🚫 **Żaden agent NIE uruchamia `npm run build` ani NIE restartuje LIVE frontendu bez jawnej zgody człowieka.**
+
+---
+
 ## 🔒 Baza Wiedzy (Knowledge Base) — Zasady Ochrony
 
 > **Baza danych `qa_decisions` to biblia systemu. Jest nienaruszalna.**
