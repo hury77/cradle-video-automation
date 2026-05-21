@@ -53,11 +53,12 @@ def get_db():
     Database dependency for FastAPI
     Creates and yields database session
     """
+    import traceback
     db = SessionLocal()
     try:
         yield db
     except Exception as e:
-        logger.error(f"Database session error: {e}")
+        logger.error(f"Database session error: {e}\n{traceback.format_exc()}")
         db.rollback()
         raise
     finally:
