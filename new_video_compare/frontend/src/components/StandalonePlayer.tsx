@@ -153,15 +153,10 @@ export const StandalonePlayer: React.FC = () => {
             // Processing success!
             const newFile: VideoFile = {
               url: (() => {
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                  const port = window.location.port;
-                  if (port === '3000' || port === '3001') {
-                    const backendPort = parseInt(port) + 5001;
-                    return `http://localhost:${backendPort}/api/v1/files/stream/${fileId}`;
-                  }
-                  return `http://localhost:8001/api/v1/files/stream/${fileId}`;
-                }
-                return `/api/v1/files/stream/${fileId}`;
+                // Use REACT_APP_API_URL env var (set at startup per environment)
+                // LIVE: http://localhost:8001, DEV: http://localhost:8002
+                const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:8001';
+                return `${apiBase}/api/v1/files/stream/${fileId}`;
               })(),
               name: file.name,
               size: file.size,
@@ -317,7 +312,19 @@ export const StandalonePlayer: React.FC = () => {
       // Seek both to current timeline before playing to maintain strict sync
       if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = currentTime;
       if (emissionVideoRef.current) emissionVideoRef.current.currentTime = currentTime;
-      videos.forEach((video) => video?.play());
+      // Attach .catch() DIRECTLY to the play promise to prevent React Error Overlay from intercepting it
+      videos.forEach((video) => {
+        if (video) {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err: any) => {
+              if (err?.name !== 'AbortError') {
+                console.error('[Player] play() error:', err);
+              }
+            });
+          }
+        }
+      });
     }
     setIsPlaying(!isPlaying);
   };
@@ -335,19 +342,48 @@ export const StandalonePlayer: React.FC = () => {
   };
 
   const handleRefresh = () => {
+    // IMPORTANT: Do NOT call video.load() here — it resets the element to HAVE_NOTHING
+    // state and causes onError to fire before the video can rebuffer, crashing both players.
+    // Simply seeking to 0 is safe for both blob URLs and server streams.
     const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+    const wasPlaying = isPlaying;
+
+    // Pause both videos first
+    videos.forEach((video) => video?.pause());
+    setIsPlaying(false);
+
+    // Seek both to start — use canplay event to ensure video is ready before playing
+    let readyCount = 0;
+    const totalActive = videos.filter(Boolean).length;
+
     videos.forEach((video) => {
-      if (video) {
-        video.load(); // Force reload the media element to clear buffers
-        video.currentTime = 0;
-      }
+      if (!video) return;
+
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        readyCount++;
+        if (wasPlaying && readyCount >= totalActive) {
+          // Both seeked — resume playback
+          videos.forEach((v) => {
+            if (v) {
+              const playPromise = v.play();
+              if (playPromise !== undefined) {
+                playPromise.catch((err: any) => {
+                  if (err?.name !== 'AbortError') {
+                    console.error('[Player] refresh play() error:', err);
+                  }
+                });
+              }
+            }
+          });
+          setIsPlaying(true);
+        }
+      };
+
+      video.addEventListener('seeked', onSeeked);
+      video.currentTime = 0;
     });
-    // If it was playing, resume playback after refresh
-    if (isPlaying) {
-      setTimeout(() => {
-        videos.forEach((video) => video?.play());
-      }, 50);
-    }
+
     setCurrentTime(0);
   };
 
@@ -464,8 +500,10 @@ export const StandalonePlayer: React.FC = () => {
   useEffect(() => {
     const currentPolls = activePollsRef.current;
     return () => {
-      cleanUpFile(acceptanceFile);
-      cleanUpFile(emissionFile);
+      // Note: We DO NOT call cleanUpFile() here because React StrictMode 
+      // unmounts and remounts immediately, which would prematurely revoke 
+      // the Blob URLs while they are still in state.
+      // Old files are already properly cleaned up in handleDrop/uploadAndProcess.
       
       // Clear all active background timeouts
       if (currentPolls.acceptance) {

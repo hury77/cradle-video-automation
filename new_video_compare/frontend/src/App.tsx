@@ -161,6 +161,13 @@ function App() {
                   </p>
                 </div>
               </div>
+              {/* DEV environment badge — visible only on port 3001 */}
+              {window.location.port === "3001" && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 border border-orange-300 animate-pulse" title="Środowisko deweloperskie — zmiany nie wpływają na LIVE">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span>
+                  DEV
+                </span>
+              )}
             </div>
 
             <div className="flex items-center space-x-4">

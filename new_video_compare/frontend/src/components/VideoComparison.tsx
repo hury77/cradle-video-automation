@@ -476,13 +476,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     if (isPlaying) {
       videos.forEach((video) => video?.pause());
     } else {
-      if (acceptanceVideoRef.current) {
-        acceptanceVideoRef.current.currentTime = currentTime + acceptanceOffset;
-      }
-      if (emissionVideoRef.current) {
-        emissionVideoRef.current.currentTime = currentTime + emissionOffset;
-      }
-      videos.forEach((video) => video?.play());
+      videos.forEach((video) => {
+        if (video) {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err: any) => {
+              if (err?.name !== 'AbortError') console.error('Play error:', err);
+            });
+          }
+        }
+      });
     }
 
     setIsPlaying(!isPlaying);
