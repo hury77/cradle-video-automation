@@ -366,7 +366,17 @@ def cleanup_video_temp_files(self, temp_dirs: list) -> Dict[str, Any]:
 
         for i, temp_dir in enumerate(temp_dirs):
             if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
+                from pathlib import Path
+                path_obj = Path(temp_dir)
+                if path_obj.is_dir() and path_obj.name.startswith("job_"):
+                    acc_frames = path_obj / "acceptance_frames"
+                    em_frames = path_obj / "emission_frames"
+                    if acc_frames.exists():
+                        shutil.rmtree(acc_frames)
+                    if em_frames.exists():
+                        shutil.rmtree(em_frames)
+                else:
+                    shutil.rmtree(temp_dir)
                 cleaned_dirs.append(temp_dir)
 
             # Progress update

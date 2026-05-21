@@ -306,9 +306,37 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
                     freed_space_bytes += temp_file.stat().st_size
                     temp_file.unlink()
                 elif temp_file.is_dir():
-                    size = get_dir_size(str(temp_file))
-                    freed_space_bytes += size
-                    shutil.rmtree(temp_file)
+                    if temp_file.name.startswith("job_"):
+                        # Extract job ID
+                        try:
+                            job_id = int(temp_file.name.split("_")[1])
+                            # Check if job exists in db
+                            job_exists = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first() is not None
+                        except Exception:
+                            job_exists = False
+                        
+                        if job_exists:
+                            # Job exists, only delete heavy frames to preserve difference masks
+                            acc_frames = temp_file / "acceptance_frames"
+                            em_frames = temp_file / "emission_frames"
+                            if acc_frames.exists():
+                                size = get_dir_size(str(acc_frames))
+                                freed_space_bytes += size
+                                shutil.rmtree(acc_frames)
+                            if em_frames.exists():
+                                size = get_dir_size(str(em_frames))
+                                freed_space_bytes += size
+                                shutil.rmtree(em_frames)
+                        else:
+                            # Job does not exist in DB, delete entire folder
+                            size = get_dir_size(str(temp_file))
+                            freed_space_bytes += size
+                            shutil.rmtree(temp_file)
+                    else:
+                        # Non-job folder, delete it
+                        size = get_dir_size(str(temp_file))
+                        freed_space_bytes += size
+                        shutil.rmtree(temp_file)
             except Exception as e:
                 print(f"Error deleting temp file {temp_file}: {e}")
     

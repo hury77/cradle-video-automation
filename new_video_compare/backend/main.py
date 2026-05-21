@@ -71,8 +71,20 @@ async def dev_cleanup_loop():
                             age = now - mtime
                             if age > retention_seconds:
                                 try:
-                                    shutil.rmtree(job_folder)
-                                    logger.info(f"🧹 [CLEANER] Deleted old DEV temp frames folder (>10 min): {job_folder.name}")
+                                    acc_frames = job_folder / "acceptance_frames"
+                                    em_frames = job_folder / "emission_frames"
+                                    cleaned_subfolders = []
+                                    if acc_frames.exists():
+                                        shutil.rmtree(acc_frames)
+                                        cleaned_subfolders.append("acceptance_frames")
+                                    if em_frames.exists():
+                                        shutil.rmtree(em_frames)
+                                        cleaned_subfolders.append("emission_frames")
+                                    
+                                    if cleaned_subfolders:
+                                        logger.info(f"🧹 [CLEANER] Deleted heavy frames ({', '.join(cleaned_subfolders)}) in DEV temp folder (>10 min): {job_folder.name}")
+                                    else:
+                                        logger.debug(f"🧹 [CLEANER] No heavy frames to clean in DEV temp folder: {job_folder.name}")
                                 except Exception as e:
                                     logger.error(f"🧹 [CLEANER] Failed to delete DEV temp folder {job_folder.name}: {e}")
         except asyncio.CancelledError:
