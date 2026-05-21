@@ -164,8 +164,9 @@ media/
 .DS_Store
 **/.DS_Store
 
-# Large files
-*.log
+# Large files — baza danych jest backupowana lokalnie (scripts/backup_db.py), nie w git
+*.db
+
 temp/
 */temp/
 new_video_compare/media/downloads/
