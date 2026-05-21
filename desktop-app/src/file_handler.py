@@ -542,10 +542,11 @@ class FileHandler:
                 # If we still don't know, maybe log it
                 pass
             
-            # Filter bases
+            # Filter bases (prioritize target_brand if known, but fallback to all bases to handle misplaced folders)
             if target_brand:
-                LUCID_BASES = [LUCID_BASES_CONFIG[target_brand]]
-                self.logger.info(f"🎯 Brand-specific search enabled: {target_brand}")
+                other_brands = [b for name, b in LUCID_BASES_CONFIG.items() if name != target_brand]
+                LUCID_BASES = [LUCID_BASES_CONFIG[target_brand]] + other_brands
+                self.logger.info(f"🎯 Brand-specific search enabled (prioritized): {target_brand}")
             else:
                 LUCID_BASES = list(LUCID_BASES_CONFIG.values())
                 self.logger.warning(f"⚠️ Ambiguous brand. Searching in ALL bases: {[b.name for b in LUCID_BASES]}")
