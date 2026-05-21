@@ -577,11 +577,18 @@ class VideoProcessor:
             try:
                 for item in self.temp_dir.iterdir():
                     if item.is_dir():
-                        shutil.rmtree(item)
-                        deleted_count += 1
+                        for sub_item in item.rglob("*"):
+                            if sub_item.is_file() and sub_item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                                sub_item.unlink()
+                        try:
+                            item.rmdir()
+                            deleted_count += 1
+                        except OSError:
+                            pass
                     elif item.is_file():
-                        item.unlink()
-                        deleted_count += 1
+                        if item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                            item.unlink()
+                            deleted_count += 1
 
                 logger.info(f"🧹 Cleaned up {deleted_count} temporary items")
 

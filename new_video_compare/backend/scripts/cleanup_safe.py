@@ -92,6 +92,10 @@ def main():
         if is_valid_job_file:
             continue
             
+        # SOUL.md Rule: Protect .png and .jpg files needed for difference masks FOREVER
+        if path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
+            continue
+            
         try:
             size = path.stat().st_size
             path.unlink()

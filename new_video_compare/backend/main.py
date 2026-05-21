@@ -74,17 +74,18 @@ async def dev_cleanup_loop():
                                     acc_frames = job_folder / "acceptance_frames"
                                     em_frames = job_folder / "emission_frames"
                                     cleaned_subfolders = []
-                                    if acc_frames.exists():
-                                        shutil.rmtree(acc_frames)
-                                        cleaned_subfolders.append("acceptance_frames")
-                                    if em_frames.exists():
-                                        shutil.rmtree(em_frames)
-                                        cleaned_subfolders.append("emission_frames")
+                                    # SOUL.md Rule: Protect .png and .jpg files needed for difference masks
+                                    for subfolder in [acc_frames, em_frames]:
+                                        if subfolder.exists():
+                                            for item in subfolder.iterdir():
+                                                if item.is_file() and item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                                                    item.unlink()
+                                                    cleaned_subfolders.append(item.name)
                                     
                                     if cleaned_subfolders:
-                                        logger.info(f"🧹 [CLEANER] Deleted heavy frames ({', '.join(cleaned_subfolders)}) in DEV temp folder (>10 min): {job_folder.name}")
+                                        logger.info(f"🧹 [CLEANER] Deleted heavy temp files (but protected PNG/JPG masks) in DEV folder (>10 min): {job_folder.name}")
                                     else:
-                                        logger.debug(f"🧹 [CLEANER] No heavy frames to clean in DEV temp folder: {job_folder.name}")
+                                        logger.debug(f"🧹 [CLEANER] No non-image temp files to clean in DEV temp folder: {job_folder.name}")
                                 except Exception as e:
                                     logger.error(f"🧹 [CLEANER] Failed to delete DEV temp folder {job_folder.name}: {e}")
         except asyncio.CancelledError:

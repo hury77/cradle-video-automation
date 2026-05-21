@@ -303,40 +303,23 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
         for temp_file in temp_dir.iterdir():
             try:
                 if temp_file.is_file():
-                    freed_space_bytes += temp_file.stat().st_size
-                    temp_file.unlink()
+                    # Protect images
+                    if temp_file.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                        freed_space_bytes += temp_file.stat().st_size
+                        temp_file.unlink()
                 elif temp_file.is_dir():
-                    if temp_file.name.startswith("job_"):
-                        # Extract job ID
-                        try:
-                            job_id = int(temp_file.name.split("_")[1])
-                            # Check if job exists in db
-                            job_exists = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first() is not None
-                        except Exception:
-                            job_exists = False
-                        
-                        if job_exists:
-                            # Job exists, only delete heavy frames to preserve difference masks
-                            acc_frames = temp_file / "acceptance_frames"
-                            em_frames = temp_file / "emission_frames"
-                            if acc_frames.exists():
-                                size = get_dir_size(str(acc_frames))
-                                freed_space_bytes += size
-                                shutil.rmtree(acc_frames)
-                            if em_frames.exists():
-                                size = get_dir_size(str(em_frames))
-                                freed_space_bytes += size
-                                shutil.rmtree(em_frames)
-                        else:
-                            # Job does not exist in DB, delete entire folder
-                            size = get_dir_size(str(temp_file))
-                            freed_space_bytes += size
-                            shutil.rmtree(temp_file)
-                    else:
-                        # Non-job folder, delete it
-                        size = get_dir_size(str(temp_file))
-                        freed_space_bytes += size
-                        shutil.rmtree(temp_file)
+                    # Instead of deleting entire folders which might contain .png masks, 
+                    # we iterate and delete only non-image files.
+                    for item in temp_file.rglob("*"):
+                        if item.is_file() and item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                            freed_space_bytes += item.stat().st_size
+                            item.unlink()
+                    
+                    # Try to delete the directory if it's empty (this will naturally fail and keep the dir if protected images remain)
+                    try:
+                        temp_file.rmdir()
+                    except OSError:
+                        pass
             except Exception as e:
                 print(f"Error deleting temp file {temp_file}: {e}")
     

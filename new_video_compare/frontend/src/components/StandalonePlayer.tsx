@@ -8,6 +8,8 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   ArrowUpTrayIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 
 interface VideoFile {
@@ -426,6 +428,21 @@ export const StandalonePlayer: React.FC = () => {
     setCurrentTime(time);
   };
 
+  const handleStep = (frames: number) => {
+    // Zakładamy 25 fps jako standard dla broadcast
+    const fps = 25;
+    const stepTime = frames / fps; 
+    const newTime = Math.max(0, Math.min(currentTime + stepTime, duration));
+    
+    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+    if (isPlaying) {
+      videos.forEach((video) => video?.pause());
+      setIsPlaying(false);
+    }
+    
+    handleSeek(newTime);
+  };
+
   // Sync individual volumes & master mute state
   useEffect(() => {
     if (acceptanceVideoRef.current) {
@@ -518,10 +535,19 @@ export const StandalonePlayer: React.FC = () => {
   }, [acceptanceFile, emissionFile]);
 
   // Format MM:SS for timeline
+  // Format MM:SS for timeline
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  // Format MM:SS:FF for timecode (25 fps)
+  const formatTimecode = (time: number, fps = 25) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    const frames = Math.floor((time % 1) * fps);
+    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -768,9 +794,14 @@ export const StandalonePlayer: React.FC = () => {
           
           {/* Timeline and Seek Bar */}
           <div className="flex-grow flex items-center space-x-4">
-            <span className="text-sm text-gray-500 font-mono w-12 text-right">
-              {formatTime(currentTime)}
-            </span>
+            <div className="flex flex-col items-end w-20 flex-shrink-0">
+              <span className="text-sm text-gray-700 font-mono font-medium">
+                {formatTimecode(currentTime)}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono">
+                {formatTime(currentTime)}
+              </span>
+            </div>
             <input
               type="range"
               min="0"
@@ -781,13 +812,28 @@ export const StandalonePlayer: React.FC = () => {
               disabled={!acceptanceFile && !emissionFile}
               className="flex-grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-40"
             />
-            <span className="text-sm text-gray-500 font-mono w-12">
-              {formatTime(duration)}
-            </span>
+            <div className="flex flex-col items-start w-20 flex-shrink-0">
+              <span className="text-sm text-gray-700 font-mono font-medium">
+                {formatTimecode(duration)}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono">
+                {formatTime(duration)}
+              </span>
+            </div>
           </div>
 
           {/* Navigation Control Buttons */}
           <div className="flex items-center justify-center space-x-3 flex-shrink-0">
+            {/* Step Backward */}
+            <button
+              onClick={() => handleStep(-1)}
+              disabled={!acceptanceFile && !emissionFile}
+              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              title="-1 Klatka"
+            >
+              <ChevronLeftIcon className="w-5 h-5" />
+            </button>
+
             {/* Play/Pause Button */}
             <button
               onClick={togglePlayPause}
@@ -800,6 +846,16 @@ export const StandalonePlayer: React.FC = () => {
               title="Odtwarzaj / Pauza"
             >
               {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
+            </button>
+
+            {/* Step Forward */}
+            <button
+              onClick={() => handleStep(1)}
+              disabled={!acceptanceFile && !emissionFile}
+              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              title="+1 Klatka"
+            >
+              <ChevronRightIcon className="w-5 h-5" />
             </button>
 
             {/* Stop Button */}
