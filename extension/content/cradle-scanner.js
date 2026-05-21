@@ -80,8 +80,11 @@ class DesktopConnection {
                   setTimeout(() => {
                     // Open results in new tab first (if ID exists)
                     if (resultData.job_id) {
-                        console.log(`[CradleScanner] 🌍 Opening results for Job ${resultData.job_id}`);
-                        window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
+                        const manifest = chrome.runtime.getManifest();
+                        const isDev = manifest.name.toLowerCase().includes("[dev]");
+                        const fPort = isDev ? "3001" : "3000";
+                        console.log(`[CradleScanner] 🌍 Opening results for Job ${resultData.job_id} on port ${fPort}`);
+                        window.open(`http://localhost:${fPort}/compare/${resultData.job_id}`, '_blank');
                     }
 
                     // Notify the Base Tab (My Team Tasks) to show the popup
@@ -97,7 +100,10 @@ class DesktopConnection {
                } else {
                   console.log("[CradleScanner] ℹ️ Not in auto-compare mode, skipping hand-off prompt.");
                   if (resultData.job_id) {
-                      window.open(`http://localhost:3000/compare/${resultData.job_id}`, '_blank');
+                      const manifest = chrome.runtime.getManifest();
+                      const isDev = manifest.name.toLowerCase().includes("[dev]");
+                      const fPort = isDev ? "3001" : "3000";
+                      window.open(`http://localhost:${fPort}/compare/${resultData.job_id}`, '_blank');
                   }
                }
             } else {
@@ -1921,7 +1927,9 @@ class CradleScanner {
     const savedStatesButton = this.findSavedStatesButton();
 
     if (!savedStatesButton) {
-      throw new Error("Saved States button not found");
+      console.warn("[CradleScanner] Saved States button not found. Proceeding without active filters.");
+      this.showNotification("Saved States not found. Proceeding without filters.", "warning");
+      return;
     }
 
     console.log("[CradleScanner] 🎯 Found Saved States button, clicking...");
@@ -1934,7 +1942,9 @@ class CradleScanner {
     const qaOption = this.findQAOption();
 
     if (!qaOption) {
-      throw new Error("QA FINAL PROOFREADING option not found");
+      console.warn("[CradleScanner] QA FINAL PROOFREADING option not found (often in Incognito). Proceeding without active filters.");
+      this.showNotification("QA filter option not found. Proceeding with unfiltered table.", "warning");
+      return;
     }
 
     console.log(

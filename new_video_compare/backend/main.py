@@ -29,11 +29,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+import asyncio
+import time
+import shutil
+
+async def dev_cleanup_loop():
+    from config import settings
+    # Run only in development environment
+    if not settings.is_development:
+        logger.info("🧹 [CLEANER] LIVE mode detected. Periodic cleaner disabled.")
+        return
+        
+    logger.info("🧹 [CLEANER] DEV mode detected. Starting periodic cleaner task (10 min retention)...")
+    uploads_dir = Path(__file__).parent / "uploads"
+    
+    while True:
+        try:
+            await asyncio.sleep(60) # Scan every 60 seconds
+            now = time.time()
+            retention_seconds = 600 # 10 minutes retention
+            
+            if uploads_dir.exists():
+                # 1. Clean old source video files in uploads
+                for item in uploads_dir.iterdir():
+                    if item.is_file() and item.suffix.lower() in [".mp4", ".mov", ".mxf", ".zip"]:
+                        mtime = item.stat().st_mtime
+                        age = now - mtime
+                        if age > retention_seconds:
+                            try:
+                                item.unlink()
+                                logger.info(f"🧹 [CLEANER] Deleted old DEV video file (>10 min): {item.name}")
+                            except Exception as e:
+                                logger.error(f"🧹 [CLEANER] Failed to delete DEV video {item.name}: {e}")
+                                
+                # 2. Clean old temp frame folders in uploads/temp
+                temp_dir = uploads_dir / "temp"
+                if temp_dir.exists():
+                    for job_folder in temp_dir.iterdir():
+                        if job_folder.is_dir() and job_folder.name.startswith("job_"):
+                            mtime = job_folder.stat().st_mtime
+                            age = now - mtime
+                            if age > retention_seconds:
+                                try:
+                                    shutil.rmtree(job_folder)
+                                    logger.info(f"🧹 [CLEANER] Deleted old DEV temp frames folder (>10 min): {job_folder.name}")
+                                except Exception as e:
+                                    logger.error(f"🧹 [CLEANER] Failed to delete DEV temp folder {job_folder.name}: {e}")
+        except asyncio.CancelledError:
+            logger.info("🧹 [CLEANER] Periodic cleaner task cancelled.")
+            break
+        except Exception as err:
+            logger.error(f"🧹 [CLEANER] Error in DEV periodic cleaner: {err}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Uruchomienie aplikacji - system WebSocket zainicjalizowany")
+    # Start periodic background cleanup task
+    cleanup_task = asyncio.create_task(dev_cleanup_loop())
     yield
+    # Clean up background task on exit
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Zamknięcie aplikacji - czyszczenie połączeń WebSocket")
 
 

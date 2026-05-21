@@ -718,7 +718,7 @@ async def stream_video(
 
     # Absolute path to backend/uploads — derived from this file's location, not CWD
     BACKEND_UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads"
-    # LIVE backend uploads (for DEV fallback)
+    # LIVE backend uploads (for DEV fallback - DEV shares DB with LIVE so files are there)
     LIVE_UPLOADS_DIR = Path("/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/uploads")
 
     # Get file path — resolve relative paths to absolute backend uploads dir
@@ -737,10 +737,10 @@ async def stream_video(
         # Fallback 2: Absolute backend uploads dir with original filename
         elif (BACKEND_UPLOADS_DIR / filename).exists():
             file_path = BACKEND_UPLOADS_DIR / filename
-        # Fallback 3: LIVE uploads (useful for DEV environment sharing LIVE DB files)
+        # Fallback 3: LIVE uploads (DEV uses same DB as LIVE, files live in LIVE uploads)
         elif LIVE_UPLOADS_DIR.exists() and (LIVE_UPLOADS_DIR / filename).exists():
             file_path = LIVE_UPLOADS_DIR / filename
-            logger.info(f"📂 Using LIVE fallback for file: {filename}")
+            logger.info(f"📂 [DEV] Using LIVE uploads fallback for file: {filename}")
 
     # Instead of raising 404 immediately, we handle checking in the proxy section
     
