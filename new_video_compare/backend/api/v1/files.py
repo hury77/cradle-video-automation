@@ -707,8 +707,11 @@ async def stream_video(
                 
             needs_transcoding_flag = needs_transcoding(file_record)
                 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error retrieving file {file_id}: {e}")
+        import traceback
+        logger.error(f"Error retrieving file {file_id}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Database error")
 
     # DB Session is CLOSED here. We are safe to stream indefinitely.

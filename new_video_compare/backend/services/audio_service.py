@@ -6,11 +6,16 @@ Provides loudness measurement (LUFS), source separation, and voiceover compariso
 import logging
 import subprocess
 import tempfile
+import threading
+import fcntl
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Global threading lock for MLX/Whisper GPU accesses to prevent parallel Metal driver buffer collisions
+_whisper_lock = threading.Lock()
 
 # Lazy load expensive libraries
 _pyloudnorm = None
@@ -1060,7 +1065,16 @@ def transcribe_audio(
         Dict with transcription text, segments with timestamps, and metadata
     """
     # 1. Get raw result from transcription engine
+    _whisper_lock.acquire()
+    lock_file = None
     try:
+        # Acquire system-wide process lock to prevent concurrent Metal GPU driver buffer collisions (e.g. across DEV and LIVE backends)
+        try:
+            lock_file = open('/tmp/mlx_whisper_gpu.lock', 'w')
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        except Exception as lock_err:
+            logger.warning(f"⚠️ Could not acquire system-wide file lock: {lock_err}. Proceeding with thread lock only.")
+
         # Prefer MLX for M-series Macs
         try:
             mlx_whisper = get_mlx_whisper()
@@ -1223,6 +1237,15 @@ def transcribe_audio(
     except Exception as e:
         logger.error(f"❌ Transcription failed (Engine/Processing): {e}")
         return {"error": str(e), "text": "", "segments": []}
+    finally:
+        # Release system-wide file lock
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as close_err:
+                logger.warning(f"⚠️ Error releasing file lock: {close_err}")
+        _whisper_lock.release()
 
 
 def normalize_text(text: str) -> str:

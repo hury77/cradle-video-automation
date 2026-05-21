@@ -566,6 +566,9 @@ export const StandalonePlayer: React.FC = () => {
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onError={() => {
+                  setAcceptanceError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
@@ -675,6 +678,9 @@ export const StandalonePlayer: React.FC = () => {
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onError={() => {
+                  setEmissionError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
