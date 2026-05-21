@@ -713,28 +713,31 @@ async def stream_video(
 
     # DB Session is CLOSED here. We are safe to stream indefinitely.
 
-    # Get file path
+    # Absolute path to backend/uploads — derived from this file's location, not CWD
+    BACKEND_UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads"
+    # LIVE backend uploads (for DEV fallback)
+    LIVE_UPLOADS_DIR = Path("/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/uploads")
+
+    # Get file path — resolve relative paths to absolute backend uploads dir
     file_path = Path(file_path_str)
     if not file_path.is_absolute():
-        file_path = settings.upload_dir / filename
-    
-    
-    # Check if file exists at stored path
+        # Strip leading 'uploads/' prefix if present, then join with absolute uploads dir
+        relative_name = Path(file_path_str).name
+        file_path = BACKEND_UPLOADS_DIR / relative_name
+
+    # Check if file exists at resolved path
     if not file_path.exists():
-        # Fallback 1: Check in settings.upload_dir
+        # Fallback 1: Try settings.upload_dir (may be configured differently)
         fallback_path = settings.upload_dir / filename
         if fallback_path.exists():
             file_path = fallback_path
-        else:
-             # Fallback 2: Check in new_video_compare/backend/uploads (where we know they are)
-             backend_upload_path = Path("new_video_compare/backend/uploads") / filename
-             if backend_upload_path.exists():
-                 file_path = backend_upload_path
-             else:
-                 # Fallback 3: Check relative to backend dir logic
-                 relative_backend_upload = Path("uploads") / filename
-                 if relative_backend_upload.exists():
-                     file_path = relative_backend_upload
+        # Fallback 2: Absolute backend uploads dir with original filename
+        elif (BACKEND_UPLOADS_DIR / filename).exists():
+            file_path = BACKEND_UPLOADS_DIR / filename
+        # Fallback 3: LIVE uploads (useful for DEV environment sharing LIVE DB files)
+        elif LIVE_UPLOADS_DIR.exists() and (LIVE_UPLOADS_DIR / filename).exists():
+            file_path = LIVE_UPLOADS_DIR / filename
+            logger.info(f"📂 Using LIVE fallback for file: {filename}")
 
     # Instead of raising 404 immediately, we handle checking in the proxy section
     
