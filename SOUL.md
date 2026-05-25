@@ -121,26 +121,34 @@ System uczy się z każdego przetworzonego assetu. Historia decyzji to najcennie
 
 ### Mapowanie portów
 
-| Środowisko | Frontend | Backend | Opis |
-|---|---|---|---|
-| **LIVE** | `:3000` | `:8001` | Produkcja — nietykalny |
-| **DEV** | `:3001` | `:8002` | Deweloperski — do testów |
+| Środowisko | Adres | Opis |
+|---|---|---|
+| **LIVE** | `:8001` | Produkcja — FastAPI serwuje wszystko: frontend `build/`, `/uploads`, `/api` |
+| **DEV frontend** | `:3001` | Deweloperski — hot reload z `src/` |
+| **DEV backend** | `:8002` | Deweloperski backend |
+
+> **LIVE działa jako jeden serwer (FastAPI :8001).**
+> Frontend (`build/`), pliki uploads (maski, wideo) i API — wszystko z jednego procesu.
+> Nie ma oddzielnego serwera statycznego na :3000.
 
 ### Reguły (bezwzględne)
 
 | Reguła | Opis |
 |---|---|
-| 🚫 **LIVE frontend zawsze na :3000** | `react-scripts start` dla LIVE uruchamiany z `PORT=3000` i proxy → `:8001` |
+| 🚫 **LIVE działa tylko z build/** | FastAPI `:8001` serwuje wyłącznie skompilowany `frontend/build/`. Pliki `src/` są niewidoczne dla LIVE. |
 | 🚫 **DEV frontend zawsze na :3001** | `react-scripts start` dla DEV uruchamiany z `PORT=3001` i proxy → `:8002` |
 | 🚫 **NIE mieszaj środowisk** | DEV frontend nigdy nie może proxyować do backendu LIVE (`:8001`) |
-| 🚫 **NIE zatrzymuj LIVE bez zgody** | Proces LIVE (`:3000` + `:8001`) może być zatrzymany TYLKO za jawną zgodą człowieka |
+| 🚫 **NIE restartuj LIVE bez zgody** | Proces LIVE (`:8001`) może być zatrzymany TYLKO za jawną zgodą człowieka |
 | ✅ **DEV można restartować swobodnie** | Procesy DEV (`:3001` + `:8002`) można zatrzymywać i uruchamiać bez ryzyka |
 
 ### Jak uruchamiać środowiska
 
 ```bash
-# LIVE frontend (nietykalny w normalnej pracy)
-PORT=3000 REACT_APP_API_URL=http://localhost:8001 npm start
+# LIVE — jeden serwer, wszystko z FastAPI
+# (frontend build/ + /uploads + /api — port 8001)
+cd new_video_compare/backend
+uvicorn main:app --host 0.0.0.0 --port 8001
+# Dostęp: http://localhost:8001
 
 # DEV frontend (do codziennej pracy deweloperskiej)
 PORT=3001 REACT_APP_API_URL=http://localhost:8002 npm start
@@ -150,7 +158,11 @@ PORT=3001 REACT_APP_API_URL=http://localhost:8002 npm start
 
 > **Zmiany w kodzie (`src/`) nie wpływają na LIVE dopóki człowiek świadomie nie zarządzi wdrożenia.**
 
-LIVE frontend (`localhost:3000`) serwuje wyłącznie pliki ze skompilowanego katalogu `frontend/build/`.
+LIVE działa w trybie **single-server**: FastAPI (`:8001`) serwuje jednocześnie:
+- `frontend/build/` → skompilowany frontend React
+- `/uploads/` → pliki wideo, maski różnicowe (.png/.jpg)
+- `/api/` → REST API
+
 DEV frontend (`localhost:3001`) serwuje kod bezpośrednio z `frontend/src/` przez hot reload.
 
 Katalog `build/` jest aktualizowany **wyłącznie ręcznie** przez:
@@ -162,11 +174,11 @@ npm run build
 |---|---|
 | Edycja plików w `src/` | ❌ Brak — LIVE nadal działa na starym `build/` |
 | Hot reload na DEV (:3001) | ❌ Brak — tylko DEV widzi zmianę |
-| Restart procesu DEV | ❌ Brak — LIVE (PID osobny) nie jest dotknięty |
-| `npm run build` | ✅ Aktualizuje `build/` — ale LIVE widzi zmiany dopiero po restarcie procesu `:3000` |
-| Restart LIVE (:3000) po buildzie | ✅ Wdrożenie — LIVE widzi nową wersję |
+| Restart procesu DEV | ❌ Brak — LIVE (osobny proces) nie jest dotknięty |
+| `npm run build` | ✅ Aktualizuje `build/` — ale LIVE widzi zmiany dopiero po restarcie `:8001` |
+| Restart LIVE (:8001) po buildzie | ✅ Wdrożenie — LIVE widzi nową wersję |
 
-🚫 **Żaden agent NIE uruchamia `npm run build` ani NIE restartuje LIVE frontendu bez jawnej zgody człowieka.**
+🚫 **Żaden agent NIE uruchamia `npm run build` ani NIE restartuje LIVE (`:8001`) bez jawnej zgody człowieka.**
 
 ---
 
