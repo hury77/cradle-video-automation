@@ -56,6 +56,15 @@ class FileHandler:
                         acc_name = os.path.basename(acceptance_file.get("path"))
                     if acc_name:
                         emission_file.setdefault("acceptanceName", acc_name)
+                # Fallback: gdy acceptanceFile=null (Cradle nie wysłało),
+                # użyj expectedAcceptanceName z WebSocket — zawiera prawidłową nazwę pliku.
+                if not emission_file.get("acceptanceName"):
+                    expected_acc = data.get("expectedAcceptanceName")
+                    if expected_acc:
+                        emission_file["acceptanceName"] = expected_acc
+                        self.logger.info(
+                            f"💡 acceptanceName set from expectedAcceptanceName: {expected_acc}"
+                        )
 
             self.logger.info(f"📁 Processing files for CradleID: {cradle_id} | jobNumber: {job_number} | templateId: {template_id} | langCode: {lang_code}")
 
