@@ -13,12 +13,12 @@ Browser extension for automating Cradle video comparison workflow
 - ⚙️ **User Control** - Full start/stop control and configuration
 - 🔄 **Background Monitoring** - Optional auto-scanning every 2 minutes
 
-## ⚡ Szybki Start (Backend)
+## ⚡ Szybki Start (LIVE)
 
-Aby szybko uruchomić backend:
 ```bash
-cd ~/Documents/cradle-video-automation/new_video_compare/backend && source ../../.venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+cd ~/Documents/cradle-video-automation/new_video_compare/backend && source ../../.venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8001
 ```
+➡️ **LIVE dostępny pod: http://localhost:8001**
 
 ## 🚀 Installation
 
@@ -40,25 +40,44 @@ pip install -r desktop-app/requirements.txt
 
 ## 🖥️ Uruchamianie środowiska lokalnego
 
-Aby autodetekcja i porównywanie wideo zadziałało, musisz odpalić lokalne serwisy w 3 osobnych oknach terminala:
+System działa w dwóch trybach: **LIVE** (produkcja) i **DEV** (development).
 
-### 1. Uruchamianie Backendu (FastAPI)
-W pierwszym oknie terminala:
+### LIVE — 2 terminale
+
+#### 1. Backend LIVE (FastAPI — serwuje frontend + API + uploads)
 ```bash
 cd ~/Documents/cradle-video-automation/new_video_compare/backend
 source ../../.venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn main:app --host 0.0.0.0 --port 8001
+```
+➡️ http://localhost:8001 (frontend + API w jednym)
+
+#### 2. Desktop App (WebSocket + Obsługa Plików)
+```bash
+cd ~/Documents/cradle-video-automation/desktop-app
+source ../.venv/bin/activate
+python src/main.py
 ```
 
-### 2. Uruchamianie Frontendu (React)
-W drugim oknie terminala:
+---
+
+### DEV — 3 terminale
+
+#### 1. Backend DEV
+```bash
+cd ~/Documents/cradle-video-automation/new_video_compare/backend
+source ../../.venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+```
+
+#### 2. Frontend DEV (hot reload z src/)
 ```bash
 cd ~/Documents/cradle-video-automation/new_video_compare/frontend
-npm start
+PORT=3001 REACT_APP_API_URL=http://localhost:8002 REACT_APP_WS_URL=ws://localhost:8002/ws npm start
 ```
+➡️ http://localhost:3001
 
-### 3. Uruchamianie Desktop App (WebSocket + Obsługa Plików Lokalnych)
-W trzecim oknie terminala:
+#### 3. Desktop App
 ```bash
 cd ~/Documents/cradle-video-automation/desktop-app
 source ../.venv/bin/activate
@@ -67,39 +86,41 @@ python src/main.py
 
 ## 🔄 Jak zrestartować poszczególne serwisy (po aktualizacji kodu)
 
-### 1. Przeładowanie Rozszerzenia Chrome (Agenta 1)
-Gdy kod w folderze `extension/` zostanie zaktualizowany (zwłaszcza główny skrypt `cradle-scanner.js`):
-1. Wejdź w przeglądarce pod adres `chrome://extensions/`
-2. Znajdź rozszerzenie **Cradle Scanner**
-3. Kliknij okrągłą ikonę **Odśwież (Reload)** w prawym dolnym rogu kafelka rozszerzenia
-4. Odśwież otwartą główną kartę z systemem Cradle, aby skrypty załadowały się ponownie
+### 1. Przeładowanie Rozszerzenia Chrome
+Gdy kod w `extension/` zostanie zaktualizowany:
+1. Wejdź pod `chrome://extensions/`
+2. Znajdź **Cradle Scanner** → kliknij **Odśwież**
+3. Odśwież kartę z systemem Cradle
 
 ### 2. Restart Desktop App (Python)
-Aplikacja Desktopowa **nie ma** mechanizmu auto-reload. Gdy kod w `desktop-app/` ulegnie zmianie:
-1. Otwórz 3. terminal, w którym aktualnie działa na pierwszym planie proces `python src/main.py`
-2. Wciśnij na klawiaturze `Ctrl + C`, aby bezpiecznie wymusić zatrzymanie serwera WebSocket i zwolnić port
-3. Wciśnij strzałkę w górę (aby przywołać poprzednią komendę wiersza poleceń) lub wpisz ręcznie:
+1. Terminal z `python src/main.py` → `Ctrl + C`
+2. Ponownie uruchom:
 ```bash
 python src/main.py
 ```
-> **Uwaga**: Kliknięcie Enter zatwierdzi komendę i połączy WebSocketa od nowa.
 
-### 3. Restart Backendu (FastAPI)
-Zazwyczaj **nie jest wymagany** - uvicorn przeładowuje się sam dzięki fladze `--reload`. Jeśli jednak proces zawiesi się lub musisz zrestartować go ręcznie:
-1. Wyszukaj główny terminal (z działającym procesem `uvicorn`)
-2. Wciśnij `Ctrl + C`, by bezpiecznie wyłączyć serwer.
-3. Wciśnij strzałkę w górę lub wklej pełną komendę:
+### 3. Restart Backendu LIVE (FastAPI :8001)
+Wymagany po `npm run build` lub zmianie kodu backendowego:
+1. Terminal z `uvicorn` → `Ctrl + C`
+2. Ponownie uruchom:
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn main:app --host 0.0.0.0 --port 8001
+```
+> ⚠️ LIVE backend **nie ma** `--reload`. Restart jest świadomy i celowy.
+
+### 4. Restart Frontendu DEV (React :3001)
+Zazwyczaj **nie jest wymagany** — DEV korzysta z hot reload. W razie problemów:
+1. Terminal z `npm start` → `Ctrl + C`
+2. Ponownie uruchom:
+```bash
+PORT=3001 REACT_APP_API_URL=http://localhost:8002 REACT_APP_WS_URL=ws://localhost:8002/ws npm start
 ```
 
-### 4. Restart Frontendu (React)
-Zazwyczaj również **nie jest wymagany** - React używa na nowo *Fast Refresh*. W razie problemów (np. zmiana paczek w `node_modules`):
-1. Wyszukaj terminal, w którym działa proces `npm start`
-2. Wciśnij `Ctrl + C` (jeśli system zapyta "Terminate batch job?", wpisz `Y` i zatwierdź Enterem).
-3. Wciśnij strzałkę w górę lub wpisz komendę startową:
+### 5. Wdrożenie nowej wersji frontendu na LIVE
 ```bash
-npm start
+cd ~/Documents/cradle-video-automation/new_video_compare/frontend
+npm run build
+# Następnie zrestartuj backend LIVE (:8001)
 ```
 
 ## 🧹 Czyszczenie miejsca na dysku (Zgodne z SOUL.md)
