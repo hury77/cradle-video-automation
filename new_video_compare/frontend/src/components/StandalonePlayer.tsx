@@ -1028,7 +1028,7 @@ export const StandalonePlayer: React.FC = () => {
       {/* Title Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Niezależny Odtwarzacz Synchroniczny</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Cradle DualPlay</h2>
           <p className="text-gray-500 text-sm">
             Przeciągnij i upuść pliki wideo, aby odtworzyć je obok siebie w pełnej synchronizacji. Obsługuje formaty MP4, MOV oraz MXF.
           </p>
