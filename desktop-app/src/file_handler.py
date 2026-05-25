@@ -620,6 +620,32 @@ class FileHandler:
             # Format quality ranking: higher = better
             FORMAT_QUALITY = {".mov": 3, ".mxf": 3, ".prores": 2, ".mp4": 1, ".avi": 1, ".mkv": 1}
 
+            # ── Derive lang_code from acceptance filename when Cradle doesn't supply it ──
+            # Rule (SOUL.md): nie zgadujemy — pobieramy emisję z takim samym kodem
+            # językowym jak akcept.  Np. 251222JSVY_SI.mp4 → lang_code = "SI".
+            acceptance_name_full = file_info.get("acceptanceName")
+            if not lang_code and acceptance_name_full:
+                acc_stem = Path(acceptance_name_full).stem  # e.g. "251222JSVY_SI"
+                parts = acc_stem.split("_")
+                if len(parts) >= 2:
+                    candidate = parts[-1]
+                    if 2 <= len(candidate) <= 4 and candidate.isalpha():
+                        lang_code = candidate
+                        self.logger.info(
+                            f"🌍 langCode not provided — derived '{lang_code}' "
+                            f"from acceptance filename: {acceptance_name_full}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"⚠️ langCode null, cannot derive from '{acceptance_name_full}' "
+                            f"(last part: '{candidate}'). Will search broadly — risk of wrong-language emission!"
+                        )
+                else:
+                    self.logger.warning(
+                        f"⚠️ langCode null and acceptance '{acceptance_name_full}' "
+                        f"has no language suffix. Will search broadly."
+                    )
+
             if template_id:
                 if lang_code:
                     # Resolve all filename aliases for this language
@@ -650,7 +676,6 @@ class FileHandler:
                 search_patterns = [f"*{cradle_id}*"]
 
             # FINAL FALLBACK: Search by Acceptance File name (stem)
-            acceptance_name_full = file_info.get("acceptanceName")
             if acceptance_name_full:
                 acc_stem = Path(acceptance_name_full).stem
                 if len(acc_stem) > 4:  # Avoid too short generic names

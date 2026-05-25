@@ -44,4 +44,15 @@ module.exports = function (app) {
       logLevel: 'warn',
     })
   );
+
+  // Pliki statyczne backendu: maski różnicowe (diff_frames), transkodowane wideo itp.
+  // BEZ tego proxy żądania do /uploads/* trafiają do Reacta i dostają 404.
+  app.use(
+    '/uploads',
+    createProxyMiddleware({
+      target: `http://localhost:${backendPort}`,
+      changeOrigin: true,
+      logLevel: 'warn',
+    })
+  );
 };
