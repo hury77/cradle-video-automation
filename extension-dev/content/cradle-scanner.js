@@ -288,6 +288,9 @@ class CradleScanner {
                          label: "Escape", 
                          color: "#9e9e9e", 
                          onClick: () => {
+                             // Escape przerywa filtrowanie po kliencie
+                             localStorage.removeItem("cradle_client_filter");
+                             console.log("[CradleScanner] 🏢 Client filter cleared on Escape");
                              this.stopAutomation();
                          } 
                      }
@@ -890,10 +893,22 @@ class CradleScanner {
 
       this.status = "No pending assets found";
       const activeFilter = localStorage.getItem("cradle_client_filter") || "";
-      const noAssetsMsg = activeFilter
-        ? `❌ Brak assetów dla klienta "${activeFilter}"`
-        : "❌ No pending assets available for processing";
-      this.showNotification(noAssetsMsg, "warning");
+
+      if (activeFilter) {
+        // Brak assetów dla wybranego klienta — fallback do pierwszego od góry
+        console.log(`[CradleScanner] ℹ️ No assets for client "${activeFilter}", falling back to first available asset`);
+        this.showNotification(`ℹ️ Brak assetów dla "${activeFilter}" — biorę pierwszego z listy`, "info");
+
+        // Tymczasowo wyłącz filtr i szukaj ponownie
+        const savedFilter = activeFilter;
+        localStorage.removeItem("cradle_client_filter");
+        await this.findPendingAsset();
+        // Po zakończeniu przywróć filtr (jeśli asset nie znaleziony, zostanie na kolejny cykl)
+        localStorage.setItem("cradle_client_filter", savedFilter);
+        return;
+      }
+
+      this.showNotification("❌ No pending assets available for processing", "warning");
       console.log(
         "[CradleScanner] No pending assets found - all are either processing or completed"
       );
