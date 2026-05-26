@@ -79,10 +79,10 @@ class DesktopConnection {
                   // Use a slightly longer delay to ensure notifications are visible
                   setTimeout(() => {
                     // Open results in new tab first (if ID exists)
-                    if (resultData.job_id) {
+                     if (resultData.job_id) {
                         const manifest = chrome.runtime.getManifest();
                         const isDev = manifest.name.toLowerCase().includes("[dev]");
-                        const fPort = isDev ? "3001" : "3000";
+                        const fPort = isDev ? "3001" : "8001";
                         console.log(`[CradleScanner] 🌍 Opening results for Job ${resultData.job_id} on port ${fPort}`);
                         window.open(`http://localhost:${fPort}/compare/${resultData.job_id}`, '_blank');
                     }
@@ -102,7 +102,7 @@ class DesktopConnection {
                   if (resultData.job_id) {
                       const manifest = chrome.runtime.getManifest();
                       const isDev = manifest.name.toLowerCase().includes("[dev]");
-                      const fPort = isDev ? "3001" : "3000";
+                      const fPort = isDev ? "3001" : "8001";
                       window.open(`http://localhost:${fPort}/compare/${resultData.job_id}`, '_blank');
                   }
                }
