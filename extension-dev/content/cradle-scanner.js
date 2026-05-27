@@ -805,6 +805,22 @@ class CradleScanner {
         throw new Error("No data rows found in assets table after waiting");
       }
 
+      // Wykryj indeks kolumny "client" z nagłówka tabeli
+      let clientColIndex = 4; // fallback
+      const headerRow = assetsTable.querySelector("thead tr, tr:first-child");
+      if (headerRow) {
+        const headerCells = headerRow.querySelectorAll("th, td");
+        for (let h = 0; h < headerCells.length; h++) {
+          const hText = headerCells[h].textContent.trim().toLowerCase();
+          if (hText.includes("client") || hText.includes("klient") || hText.includes("organisation") || hText.includes("organization") || hText.includes("brand")) {
+            clientColIndex = h;
+            console.log(`[CradleScanner] 🏢 Client column detected at index ${h} (header: "${headerCells[h].textContent.trim()}")`);
+            break;
+          }
+        }
+      }
+      console.log(`[CradleScanner] Using client column index: ${clientColIndex}`);
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const cells = row.querySelectorAll("td");
@@ -831,40 +847,49 @@ class CradleScanner {
         }
 
         if (state.includes("pending")) {
-          // Check if already processed in this session to prevent infinite loops
+          // Extract client name from Client column FIRST (before any other checks)
+          // Kolumna klienta — logujemy wszystkie komórki żeby debugować indeks
+          const allCellTexts = Array.from(cells).map((c, idx) => `[${idx}]="${c.textContent.trim()}"`).join(", ");
+          console.log(`[CradleScanner] Row ${i} cells: ${allCellTexts}`);
+          const clientName = cells.length > clientColIndex ? cells[clientColIndex].textContent.trim() || null : null;
+          console.log(`[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, clientName="${clientName}"`);
+
+          // --- Filtr klienta (opcjonalny) ---
+          // UWAGA: filtr czytamy z chrome.storage.local (wspólne z popupem).
+          // localStorage content scriptu jest izolowany od localStorage popupa (różne originy)!
+          const chromeStorageData = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
+          const clientFilter = (chromeStorageData.cradle_client_filter || "").trim();
+
+          if (clientFilter) {
+            if (!clientName) {
+              // Filtr jest ustawiony, ale nie możemy odczytać nazwy klienta z wiersza.
+              // Bezpieczne zachowanie: POMIJAMY — nie bierzemy assetu o nieznanym kliencie.
+              console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — filter "${clientFilter}" set but client name unknown (null). Skipping to be safe.`);
+              continue;
+            }
+            if (!clientName.toLowerCase().includes(clientFilter.toLowerCase())) {
+              console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — client "${clientName}" doesn't match filter "${clientFilter}"`);
+              continue;
+            }
+            console.log(`[CradleScanner] ✅ Client filter match: "${clientName}" matches "${clientFilter}"`);
+          }
+          // --- koniec filtru klienta ---
+
+          // Oznacz jako przetworzony DOPIERO PO przejściu przez filtr klienta.
+          // (Oznaczanie przed filtrem powodowało że pominięte assety były blacklistowane na zawsze)
           const processedJobsStr = localStorage.getItem("cradle-processed-jobs") || "[]";
           const processedJobs = JSON.parse(processedJobsStr);
           if (processedJobs.includes(cradleId)) {
             console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} - already processed in this session.`);
             continue;
           }
-
-          const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
-
-          // Mark as processed
           processedJobs.push(cradleId);
           localStorage.setItem("cradle-processed-jobs", JSON.stringify(processedJobs));
 
-          // Extract client name from Client column (index 4 in the table)
-          const clientName = cells.length > 4 ? cells[4].textContent.trim() : null;
-
-          // --- Filtr klienta (opcjonalny) ---
-          // UWAGA: filtr czytamy z chrome.storage.local (wspólne z popupem).
-          // localStorage content scriptu jest izolowany od localStorage popupa (różne originy)!
-          const chromeStorageData = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
-          const clientFilter = chromeStorageData.cradle_client_filter || "";
-          if (clientFilter && clientName) {
-            if (!clientName.toLowerCase().includes(clientFilter.toLowerCase())) {
-              console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — client "${clientName}" doesn't match filter "${clientFilter}"`);
-              continue;
-            }
-          }
-          // --- koniec filtru klienta ---
+          const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
 
           if (clientName) {
             localStorage.setItem("cradle-current-client", clientName);
-            console.log(`[CradleScanner] 🏢 Client detected: ${clientName}`);
-
             // Zapisz do historii klientów (dla datalist w popupie) — przez chrome.storage.local
             chrome.storage.local.get("cradle_client_history", (res) => {
               const history = res.cradle_client_history || [];
@@ -875,9 +900,7 @@ class CradleScanner {
             });
           }
 
-          console.log(
-            `[CradleScanner] ✅ Found earliest pending asset: ${cradleId}`
-          );
+          console.log(`[CradleScanner] ✅ Found matching pending asset: ${cradleId} (client: ${clientName || "unknown"})`);
           console.log(`[CradleScanner] Opening URL: ${assetUrl}`);
 
           this.status = `Opening asset ${cradleId}`;
