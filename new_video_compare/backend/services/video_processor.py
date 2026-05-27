@@ -320,13 +320,6 @@ class VideoProcessor:
                 start_time_acc += 10.0
             else:
                 start_time_emi += 10.0
-        elif 9.5 <= duration_difference <= 10.5:
-            is_arpp_slate = True
-            logger.info(f"⚠️ Detected Clearcast slate (10s difference). Applying +10s offset to longer video...")
-            if dur_acc > dur_emi:
-                start_time_acc += 10.0
-            else:
-                start_time_emi += 10.0
 
         logger.info(
             f"🎬 Extraction config: {frame_rate}fps, max {max_frames} frames, "
