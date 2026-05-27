@@ -802,6 +802,18 @@ class CradleScanner {
         throw new Error("No data rows found in assets table after waiting");
       }
 
+      // Kolumna "Client" w tabeli My Team Tasks — indeks 5 (potwierdzone screenshotem)
+      const CLIENT_COL = 5;
+
+      // Odczyt filtra klienta RAZ przed pętlą
+      const { cradle_client_filter: clientFilter = "" } = await new Promise(resolve =>
+        chrome.storage.local.get("cradle_client_filter", resolve)
+      );
+      const activeClientFilter = clientFilter.trim();
+      if (activeClientFilter) {
+        console.log(`[CradleScanner] 🏢 Client filter active: "${activeClientFilter}"`);
+      }
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const cells = row.querySelectorAll("td");
@@ -828,30 +840,41 @@ class CradleScanner {
         }
 
         if (state.includes("pending")) {
-          // Check if already processed in this session to prevent infinite loops
+          const clientName = cells.length > CLIENT_COL ? cells[CLIENT_COL].textContent.trim() || null : null;
+          console.log(`[CradleScanner] Row ${i}: ID=${cradleId}, client="${clientName}"`);
+
+          // --- Filtr klienta ---
+          if (activeClientFilter) {
+            if (!clientName) {
+              console.log(`[CradleScanner] ⏭️ Skip ${cradleId} — client unknown, filter "${activeClientFilter}" active`);
+              continue;
+            }
+            if (!clientName.toLowerCase().includes(activeClientFilter.toLowerCase())) {
+              console.log(`[CradleScanner] ⏭️ Skip ${cradleId} — "${clientName}" ≠ "${activeClientFilter}"`);
+              continue;
+            }
+            console.log(`[CradleScanner] ✅ Match: "${clientName}" ⊃ "${activeClientFilter}"`);
+          }
+          // --- koniec filtru klienta ---
+
+          // Oznacz jako przetworzony po przejściu przez filtr
           const processedJobsStr = localStorage.getItem("cradle-processed-jobs") || "[]";
           const processedJobs = JSON.parse(processedJobsStr);
           if (processedJobs.includes(cradleId)) {
             console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} - already processed in this session.`);
             continue;
           }
-
-          const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
-
-          // Mark as processed
           processedJobs.push(cradleId);
           localStorage.setItem("cradle-processed-jobs", JSON.stringify(processedJobs));
 
-          // Extract client name from Client column (index 4 in the table)
-          const clientName = cells.length > 4 ? cells[4].textContent.trim() : null;
+          const assetUrl = `https://cradle.egplusww.pl/assets/deliverable-details/${cradleId}/comments/`;
+
           if (clientName) {
             localStorage.setItem("cradle-current-client", clientName);
             console.log(`[CradleScanner] 🏢 Client detected: ${clientName}`);
           }
 
-          console.log(
-            `[CradleScanner] ✅ Found earliest pending asset: ${cradleId}`
-          );
+          console.log(`[CradleScanner] ✅ Found matching pending asset: ${cradleId}`);
           console.log(`[CradleScanner] Opening URL: ${assetUrl}`);
 
           this.status = `Opening asset ${cradleId}`;
