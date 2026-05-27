@@ -314,7 +314,7 @@ class ComparisonService:
                     duration_difference = abs(dur_acc - dur_emi)
                     if 10.5 <= duration_difference <= 11.5:
                         is_arpp_slate = True
-                        logger.info(f"⚠️ Detected ARPP/Clearcast slate in audio phase. Applying offsets: acc={10.0 if dur_acc > dur_emi else 0.0}s, emi={10.0 if dur_emi > dur_acc else 0.0}s")
+                        logger.info(f"⚠️ Detected ARPP slate (~11s) in audio phase. Applying offsets: acc={10.0 if dur_acc > dur_emi else 0.0}s, emi={10.0 if dur_emi > dur_acc else 0.0}s")
                         if dur_acc > dur_emi:
                             start_time_acc = 10.0
                             start_time_emi = 0.0
@@ -323,6 +323,17 @@ class ComparisonService:
                             start_time_acc = 0.0
                             start_time_emi = 10.0
                             audio_duration = dur_acc - 1.0
+                    elif 9.5 <= duration_difference <= 10.5:
+                        is_arpp_slate = True  # Reuse same flag — drives same downstream logic (APPROVE, no duration REJECT)
+                        logger.info(f"⚠️ Detected Clearcast slate (~10s) in audio phase. Applying offsets: acc={10.0 if dur_acc > dur_emi else 0.0}s, emi={10.0 if dur_emi > dur_acc else 0.0}s")
+                        if dur_acc > dur_emi:
+                            start_time_acc = 10.0
+                            start_time_emi = 0.0
+                            audio_duration = dur_emi  # No trailing black cut for Clearcast
+                        else:
+                            start_time_acc = 0.0
+                            start_time_emi = 10.0
+                            audio_duration = dur_acc  # No trailing black cut for Clearcast
 
                 audio_result = {}
                 
