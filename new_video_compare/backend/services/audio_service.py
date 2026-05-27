@@ -241,7 +241,7 @@ def measure_loudness(audio_path: str) -> Dict[str, Any]:
     duration = len(data_mono) / rate
     
     result = {
-        "integrated_lufs": round(float(integrated_lufs), 2),
+        "integrated_lufs": None if (np.isinf(integrated_lufs) or np.isnan(integrated_lufs)) else round(float(integrated_lufs), 2),
         "true_peak_db": round(float(true_peak_db), 2),
         "duration_seconds": round(duration, 2),
         "sample_rate": rate,
@@ -349,7 +349,7 @@ def compare_loudness(
             "acceptance": acceptance_loudness,
             "emission": emission_loudness,
             "comparison": {
-                "lufs_difference": round(lufs_diff, 2),
+                "lufs_difference": None if (np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2),
                 "peak_difference_db": round(peak_diff, 2),
                 "is_lufs_match": is_lufs_match,
                 "is_peak_match": is_peak_match,
@@ -452,6 +452,8 @@ def compare_audio_similarity(
         
         # Spectral correlation
         spectral_corr = float(np.corrcoef(spec_acc.flatten(), spec_emi.flatten())[0, 1])
+        if np.isnan(spectral_corr) or np.isinf(spectral_corr):
+            spectral_corr = 0.0
         
         result = {
             "mfcc_similarity": round(overall_similarity, 4),
