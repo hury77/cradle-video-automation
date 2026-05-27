@@ -33,28 +33,37 @@ class PopupController {
     }
 
     // --- Filtr klienta ---
+    // WAŻNE: popup.js i cradle-scanner.js mają OSOBNE localStorage (różne originy).
+    // Jedynym wspólnym storage między popupem a content scriptem jest chrome.storage.local.
     if (this.clientFilterInput) {
-      // Wczytaj zapisany filtr
-      this.clientFilterInput.value = localStorage.getItem("cradle_client_filter") || "";
+      // Wczytaj zapisany filtr z chrome.storage.local (wspólne dla popup + content script)
+      chrome.storage.local.get(["cradle_client_filter", "cradle_client_history"], (result) => {
+        this.clientFilterInput.value = result.cradle_client_filter || "";
 
-      // Wypełnij datalist historią klientów
-      const history = JSON.parse(localStorage.getItem("cradle_client_history") || "[]");
-      history.forEach(name => {
-        const opt = document.createElement("option");
-        opt.value = name;
-        this.clientHistoryList.appendChild(opt);
+        // Wypełnij datalist historią klientów
+        const history = result.cradle_client_history || [];
+        history.forEach(name => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          this.clientHistoryList.appendChild(opt);
+        });
       });
 
-      // Zapisuj na bieżąco przy każdej zmianie
+      // Zapisuj na bieżąco przy każdej zmianie do chrome.storage.local
       this.clientFilterInput.addEventListener("input", (e) => {
-        localStorage.setItem("cradle_client_filter", e.target.value.trim());
+        const val = e.target.value.trim();
+        if (val) {
+          chrome.storage.local.set({ cradle_client_filter: val });
+        } else {
+          chrome.storage.local.remove("cradle_client_filter");
+        }
       });
     }
 
     if (this.clearFilterBtn) {
       this.clearFilterBtn.addEventListener("click", () => {
         this.clientFilterInput.value = "";
-        localStorage.removeItem("cradle_client_filter");
+        chrome.storage.local.remove("cradle_client_filter");
         this.log("🏢 Filtr klienta wyczyszczony");
       });
     }
@@ -113,18 +122,25 @@ class PopupController {
 
   async startAutomation() {
     try {
-      const activeFilter = localStorage.getItem("cradle_client_filter") || "";
-      if (activeFilter) {
-        this.log(`🚀 Starting automation (filtr: "${activeFilter}")...`);
-      } else {
-        this.log("🚀 Starting automation (wszyscy klienci)...");
-      }
-      this.updateUI(true);
+      // Odczyt z chrome.storage.local (wspólne z content scriptem)
+      chrome.storage.local.get("cradle_client_filter", async (result) => {
+        const activeFilter = result.cradle_client_filter || "";
+        if (activeFilter) {
+          this.log(`🚀 Starting automation (filtr: "${activeFilter}")...`);
+        } else {
+          this.log("🚀 Starting automation (wszyscy klienci)...");
+        }
+        this.updateUI(true);
 
-      await this.sendCommandToContentScript("START_AUTOMATION");
-
-      // Monitor automation
-      this.monitorAutomation();
+        try {
+          await this.sendCommandToContentScript("START_AUTOMATION");
+          // Monitor automation
+          this.monitorAutomation();
+        } catch (error) {
+          this.log(`❌ Failed to start: ${error.message}`, "error");
+          this.updateUI(false);
+        }
+      });
     } catch (error) {
       this.log(`❌ Failed to start: ${error.message}`, "error");
       this.updateUI(false);

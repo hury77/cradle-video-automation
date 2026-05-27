@@ -289,7 +289,7 @@ class CradleScanner {
                          color: "#9e9e9e", 
                          onClick: () => {
                              // Escape przerywa filtrowanie po kliencie
-                             localStorage.removeItem("cradle_client_filter");
+                             chrome.storage.local.remove("cradle_client_filter");
                              console.log("[CradleScanner] 🏢 Client filter cleared on Escape");
                              this.stopAutomation();
                          } 
@@ -849,7 +849,10 @@ class CradleScanner {
           const clientName = cells.length > 4 ? cells[4].textContent.trim() : null;
 
           // --- Filtr klienta (opcjonalny) ---
-          const clientFilter = localStorage.getItem("cradle_client_filter") || "";
+          // UWAGA: filtr czytamy z chrome.storage.local (wspólne z popupem).
+          // localStorage content scriptu jest izolowany od localStorage popupa (różne originy)!
+          const chromeStorageData = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
+          const clientFilter = chromeStorageData.cradle_client_filter || "";
           if (clientFilter && clientName) {
             if (!clientName.toLowerCase().includes(clientFilter.toLowerCase())) {
               console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — client "${clientName}" doesn't match filter "${clientFilter}"`);
@@ -862,12 +865,14 @@ class CradleScanner {
             localStorage.setItem("cradle-current-client", clientName);
             console.log(`[CradleScanner] 🏢 Client detected: ${clientName}`);
 
-            // Zapisz do historii klientów (dla datalist w popupie)
-            const history = JSON.parse(localStorage.getItem("cradle_client_history") || "[]");
-            if (!history.includes(clientName)) {
-              history.push(clientName);
-              localStorage.setItem("cradle_client_history", JSON.stringify(history));
-            }
+            // Zapisz do historii klientów (dla datalist w popupie) — przez chrome.storage.local
+            chrome.storage.local.get("cradle_client_history", (res) => {
+              const history = res.cradle_client_history || [];
+              if (!history.includes(clientName)) {
+                history.push(clientName);
+                chrome.storage.local.set({ cradle_client_history: history });
+              }
+            });
           }
 
           console.log(
@@ -892,7 +897,9 @@ class CradleScanner {
       }
 
       this.status = "No pending assets found";
-      const activeFilter = localStorage.getItem("cradle_client_filter") || "";
+      // Sprawdź aktywny filtr z chrome.storage.local
+      const storageResult = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
+      const activeFilter = storageResult.cradle_client_filter || "";
 
       if (activeFilter) {
         // Brak assetów dla wybranego klienta — fallback do pierwszego od góry
@@ -900,11 +907,10 @@ class CradleScanner {
         this.showNotification(`ℹ️ Brak assetów dla "${activeFilter}" — biorę pierwszego z listy`, "info");
 
         // Tymczasowo wyłącz filtr i szukaj ponownie
-        const savedFilter = activeFilter;
-        localStorage.removeItem("cradle_client_filter");
+        await new Promise(resolve => chrome.storage.local.remove("cradle_client_filter", resolve));
         await this.findPendingAsset();
         // Po zakończeniu przywróć filtr (jeśli asset nie znaleziony, zostanie na kolejny cykl)
-        localStorage.setItem("cradle_client_filter", savedFilter);
+        chrome.storage.local.set({ cradle_client_filter: activeFilter });
         return;
       }
 
