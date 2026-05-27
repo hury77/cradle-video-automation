@@ -303,12 +303,23 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
         for temp_file in temp_dir.iterdir():
             try:
                 if temp_file.is_file():
-                    freed_space_bytes += temp_file.stat().st_size
-                    temp_file.unlink()
+                    # Protect images
+                    if temp_file.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                        freed_space_bytes += temp_file.stat().st_size
+                        temp_file.unlink()
                 elif temp_file.is_dir():
-                    size = get_dir_size(str(temp_file))
-                    freed_space_bytes += size
-                    shutil.rmtree(temp_file)
+                    # Instead of deleting entire folders which might contain .png masks, 
+                    # we iterate and delete only non-image files.
+                    for item in temp_file.rglob("*"):
+                        if item.is_file() and item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                            freed_space_bytes += item.stat().st_size
+                            item.unlink()
+                    
+                    # Try to delete the directory if it's empty (this will naturally fail and keep the dir if protected images remain)
+                    try:
+                        temp_file.rmdir()
+                    except OSError:
+                        pass
             except Exception as e:
                 print(f"Error deleting temp file {temp_file}: {e}")
     

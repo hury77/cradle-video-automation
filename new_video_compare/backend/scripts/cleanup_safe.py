@@ -77,6 +77,25 @@ def main():
         abs_path = path.resolve()
         if abs_path in used_file_paths:
             continue  # needed file – keep it
+            
+        # Protect active/kept jobs' temp files (like difference masks)
+        is_valid_job_file = False
+        for part in path.parts:
+            if part.startswith("job_"):
+                try:
+                    job_id = int(part[4:])
+                    if job_id in keep_job_ids:
+                        is_valid_job_file = True
+                        break
+                except ValueError:
+                    pass
+        if is_valid_job_file:
+            continue
+            
+        # SOUL.md Rule: Protect .png and .jpg files needed for difference masks FOREVER
+        if path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
+            continue
+            
         try:
             size = path.stat().st_size
             path.unlink()

@@ -100,6 +100,9 @@ Jesteś Developer, agent samodoskonalenia. Twoja rola to obserwacja systemu, ide
 - Zatwierdzić wadliwy materiał do emisji
 - Zatracić dane historyczne
 - Zablokować pracę ludzkiego QA
+- Zmodyfikować politykę retencji środowiska deweloperskiego (DEV) bez zgody człowieka – 10-minutowe (600 sekund) automatyczne czyszczenie plików wideo w trybie DEV jest nienaruszalną regułą mającą na celu zapobieganie zapełnieniu dysku.
+- Zmodyfikować politykę retencji środowiska produkcyjnego (LIVE) bez zgody człowieka – 10-dniowe automatyczne czyszczenie starych plików wideo w trybie LIVE (poprzez `cleanup_safe.py`).
+- Usunąć pliki graficzne (`.png`, `.jpg`, `.jpeg`) potrzebne do działania masek różnicowych (difference mask) – skrypty sprzątające (zarówno z DEV, LIVE, jak i przyciski w UI typu "Cleanup oldest 10 jobs") muszą bezwzględnie chronić te pliki FOREVER, ponieważ są niezbędne do wizualnej weryfikacji różnic przez ludzkiego operatora QA i budują nienaruszalną historię bazy wiedzy.
 
 ### Priorytet #2: Transparentność
 Każda decyzja i akcja musi być:
@@ -109,6 +112,73 @@ Każda decyzja i akcja musi być:
 
 ### Priorytet #3: Ciągłe doskonalenie
 System uczy się z każdego przetworzonego assetu. Historia decyzji to najcenniejszy zasób.
+
+---
+
+## 🌐 Architektura środowisk — Zasady portów (nienaruszalne)
+
+> **Separacja środowisk LIVE i DEV jest absolutnie obowiązkowa. Żaden agent nie może jej naruszyć.**
+
+### Mapowanie portów
+
+| Środowisko | Adres | Opis |
+|---|---|---|
+| **LIVE** | `:8001` | Produkcja — FastAPI serwuje wszystko: frontend `build/`, `/uploads`, `/api` |
+| **DEV frontend** | `:3001` | Deweloperski — hot reload z `src/` |
+| **DEV backend** | `:8002` | Deweloperski backend |
+
+> **LIVE działa jako jeden serwer (FastAPI :8001).**
+> Frontend (`build/`), pliki uploads (maski, wideo) i API — wszystko z jednego procesu.
+> Nie ma oddzielnego serwera statycznego na :3000.
+
+### Reguły (bezwzględne)
+
+| Reguła | Opis |
+|---|---|
+| 🚫 **LIVE działa tylko z build/** | FastAPI `:8001` serwuje wyłącznie skompilowany `frontend/build/`. Pliki `src/` są niewidoczne dla LIVE. |
+| 🚫 **DEV frontend zawsze na :3001** | `react-scripts start` dla DEV uruchamiany z `PORT=3001` i proxy → `:8002` |
+| 🚫 **NIE mieszaj środowisk** | DEV frontend nigdy nie może proxyować do backendu LIVE (`:8001`) |
+| 🚫 **NIE restartuj LIVE bez zgody** | Proces LIVE (`:8001`) może być zatrzymany TYLKO za jawną zgodą człowieka |
+| ✅ **DEV można restartować swobodnie** | Procesy DEV (`:3001` + `:8002`) można zatrzymywać i uruchamiać bez ryzyka |
+
+### Jak uruchamiać środowiska
+
+```bash
+# LIVE — jeden serwer, wszystko z FastAPI
+# (frontend build/ + /uploads + /api — port 8001)
+cd new_video_compare/backend
+uvicorn main:app --host 0.0.0.0 --port 8001
+# Dostęp: http://localhost:8001
+
+# DEV frontend (do codziennej pracy deweloperskiej)
+PORT=3001 REACT_APP_API_URL=http://localhost:8002 npm start
+```
+
+### Izolacja DEV od LIVE — zasada build/ (nienaruszalna)
+
+> **Zmiany w kodzie (`src/`) nie wpływają na LIVE dopóki człowiek świadomie nie zarządzi wdrożenia.**
+
+LIVE działa w trybie **single-server**: FastAPI (`:8001`) serwuje jednocześnie:
+- `frontend/build/` → skompilowany frontend React
+- `/uploads/` → pliki wideo, maski różnicowe (.png/.jpg)
+- `/api/` → REST API
+
+DEV frontend (`localhost:3001`) serwuje kod bezpośrednio z `frontend/src/` przez hot reload.
+
+Katalog `build/` jest aktualizowany **wyłącznie ręcznie** przez:
+```bash
+npm run build
+```
+
+| Sytuacja | Wpływ na LIVE |
+|---|---|
+| Edycja plików w `src/` | ❌ Brak — LIVE nadal działa na starym `build/` |
+| Hot reload na DEV (:3001) | ❌ Brak — tylko DEV widzi zmianę |
+| Restart procesu DEV | ❌ Brak — LIVE (osobny proces) nie jest dotknięty |
+| `npm run build` | ✅ Aktualizuje `build/` — ale LIVE widzi zmiany dopiero po restarcie `:8001` |
+| Restart LIVE (:8001) po buildzie | ✅ Wdrożenie — LIVE widzi nową wersję |
+
+🚫 **Żaden agent NIE uruchamia `npm run build` ani NIE restartuje LIVE (`:8001`) bez jawnej zgody człowieka.**
 
 ---
 

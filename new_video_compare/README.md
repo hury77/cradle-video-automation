@@ -38,16 +38,33 @@ Automatyzacja procesu porównywania plików acceptance i emission z wykorzystani
 
 ## 🚀 Quick Start
 
+### LIVE (produkcja)
 ```bash
-# Backend
+# Backend — serwuje wszystko: frontend build/, /uploads, /api
 cd new_video_compare/backend
 source ../../.venv/bin/activate
-python -m uvicorn main:app --host 0.0.0.0 --port 8001
-
-# Frontend (nowy terminal)
-cd new_video_compare/frontend
-npm install
-npm run dev
+uvicorn main:app --host 0.0.0.0 --port 8001
 ```
+➡️ **LIVE: http://localhost:8001**
 
-Backend: http://localhost:8001 | Frontend: http://localhost:3000
+### DEV (development)
+```bash
+# Backend DEV (nowy terminal)
+cd new_video_compare/backend
+source ../../.venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+
+# Frontend DEV (nowy terminal)
+cd new_video_compare/frontend
+PORT=3001 REACT_APP_API_URL=http://localhost:8002 REACT_APP_WS_URL=ws://localhost:8002/ws npm start
+```
+➡️ **DEV frontend: http://localhost:3001 | DEV backend: http://localhost:8002**
+
+### Wdrożenie na LIVE
+```bash
+# 1. Zbuduj frontend
+cd new_video_compare/frontend
+npm run build
+
+# 2. Zrestartuj LIVE backend (widzi nowy build/ automatycznie)
+```

@@ -295,7 +295,7 @@ class WebSocketServer:
 
                 if len(video_files) >= 2:
                     acceptance_file, emission_file = await self.identify_video_files(
-                        video_files, cradle_id
+                        video_files, cradle_id, lang_code=data.get("langCode")
                     )
 
                 elif len(video_files) == 1:
@@ -422,7 +422,7 @@ class WebSocketServer:
 
             # Identify acceptance and emission files
             acceptance_file, emission_file = await self.identify_video_files(
-                video_files, cradle_id
+                video_files, cradle_id, lang_code=data.get("langCode")
             )
 
             if not acceptance_file or not emission_file:
@@ -473,7 +473,9 @@ class WebSocketServer:
                 return
 
             # Identify files
-            acceptance_path, emission_path = await self.identify_video_files(video_files, cradle_id)
+            acceptance_path, emission_path = await self.identify_video_files(
+                video_files, cradle_id, lang_code=data.get("langCode")
+            )
             
             if not acceptance_path or not emission_path:
                 await self.send_error(websocket, "Could not identify acceptance and emission files")
@@ -679,8 +681,64 @@ class WebSocketServer:
         logger.info(f"📹 {prefix} Found {len(video_files)} video files total after discovery process")
         return video_files
 
-    async def identify_video_files(self, video_files, cradle_id):
+    async def identify_video_files(self, video_files, cradle_id, lang_code=None):
         """Intelligently identify acceptance and emission files"""
+        # ─────────────────────────────────────────────
+        # Filter files by language code first if provided
+        # ─────────────────────────────────────────────
+        if lang_code:
+            import re
+            LANG_FILENAME_ALIASES = {
+                "EL": ["GR", "EL", "Greek", "GREEK", "Gr"],
+                "DE": ["DE", "GER", "German", "GERMAN", "Ger"],
+                "FR": ["FR", "FRE", "French", "FRENCH", "Fra"],
+                "IT": ["IT", "ITA", "Italian", "ITALIAN", "Ita"],
+                "ES": ["ES", "ESP", "Spanish", "SPANISH", "Esp"],
+                "PL": ["PL", "POL", "Polish", "POLISH", "Pol"],
+                "NL": ["NL", "DUT", "Dutch", "DUTCH", "Ned"],
+                "PT": ["PT", "POR", "Portuguese", "PORTUGUESE", "Por"],
+                "RU": ["RU", "RUS", "Russian", "RUSSIAN", "Rus"],
+                "CZ": ["CZ", "CZE", "Czech", "CZECH", "Cs"],
+                "HU": ["HU", "HUN", "Hungarian", "HUNGARIAN", "Hun"],
+                "RO": ["RO", "ROM", "Romanian", "ROMANIAN", "Ron"],
+                "SV": ["SV", "SE", "SWE", "Swedish", "SWEDISH", "Swe"],
+                "DA": ["DA", "DK", "DAN", "Danish", "DANISH", "Dan"],
+                "NO": ["NO", "NOR", "Norwegian", "NORWEGIAN", "Nor"],
+                "FI": ["FI", "FIN", "Finnish", "FINNISH", "Fin"],
+                "TR": ["TR", "TUR", "Turkish", "TURKISH", "Tur"],
+                "EN": ["EN", "ENG", "English", "ENGLISH", "Eng"],
+            }
+            target_lang = lang_code.upper()
+            if target_lang in LANG_FILENAME_ALIASES:
+                target_aliases = {a.lower() for a in LANG_FILENAME_ALIASES[target_lang]}
+                target_aliases.add(target_lang.lower())
+                
+                other_aliases = set()
+                for other_lang, aliases in LANG_FILENAME_ALIASES.items():
+                    if other_lang != target_lang:
+                        for alias in aliases:
+                            other_aliases.add(alias.lower())
+                
+                logger.info(f"🌍 Language filtering enabled for target: {target_lang} (aliases: {target_aliases})")
+                filtered_files = []
+                for video_file in video_files:
+                    name_lower = video_file.name.lower()
+                    tokens = set(re.split(r'[_.\-\s]+', name_lower))
+                    
+                    has_other_lang = any(alias in tokens for alias in other_aliases)
+                    has_target_lang = any(alias in tokens for alias in target_aliases)
+                    
+                    if has_other_lang and not has_target_lang:
+                        logger.info(f"🗑️ [LangFilter] Filtering out file belonging to other language: {video_file.name}")
+                        continue
+                    filtered_files.append(video_file)
+                
+                if len(filtered_files) >= 2:
+                    logger.info(f"✅ [LangFilter] Successfully filtered files: {[f.name for f in filtered_files]}")
+                    video_files = filtered_files
+                else:
+                    logger.warning(f"⚠️ [LangFilter] Filtering would leave only {len(filtered_files)} files (< 2). Bypassing filter to keep all files: {[f.name for f in video_files]}")
+
         acceptance_file = None
         emission_file = None
 

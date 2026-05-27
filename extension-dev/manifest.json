@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Cradle Scanner [DEV]",
+  "version": "1.0",
+  "description": "Automated Cradle video processing — DEV environment",
+  
+  "permissions": [
+    "activeTab",
+    "storage",
+    "downloads",
+    "scripting"
+  ],
+  
+  "host_permissions": [
+    "*://cradle.egplusww.pl/*"
+  ],
+  
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["*://cradle.egplusww.pl/*"],
+      "js": ["content/cradle-scanner.js"],
+      "run_at": "document_end"
+    }
+  ],
+  
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Cradle Scanner [DEV]"
+  },
+  
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  }
+}

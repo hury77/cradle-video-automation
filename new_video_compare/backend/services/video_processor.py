@@ -320,6 +320,13 @@ class VideoProcessor:
                 start_time_acc += 10.0
             else:
                 start_time_emi += 10.0
+        elif 9.5 <= duration_difference <= 10.5:
+            is_arpp_slate = True
+            logger.info(f"⚠️ Detected Clearcast slate (10s difference). Applying +10s offset to longer video...")
+            if dur_acc > dur_emi:
+                start_time_acc += 10.0
+            else:
+                start_time_emi += 10.0
 
         logger.info(
             f"🎬 Extraction config: {frame_rate}fps, max {max_frames} frames, "
@@ -577,11 +584,18 @@ class VideoProcessor:
             try:
                 for item in self.temp_dir.iterdir():
                     if item.is_dir():
-                        shutil.rmtree(item)
-                        deleted_count += 1
+                        for sub_item in item.rglob("*"):
+                            if sub_item.is_file() and sub_item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                                sub_item.unlink()
+                        try:
+                            item.rmdir()
+                            deleted_count += 1
+                        except OSError:
+                            pass
                     elif item.is_file():
-                        item.unlink()
-                        deleted_count += 1
+                        if item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                            item.unlink()
+                            deleted_count += 1
 
                 logger.info(f"🧹 Cleaned up {deleted_count} temporary items")
 

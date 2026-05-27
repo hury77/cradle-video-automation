@@ -476,13 +476,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     if (isPlaying) {
       videos.forEach((video) => video?.pause());
     } else {
-      if (acceptanceVideoRef.current) {
-        acceptanceVideoRef.current.currentTime = currentTime + acceptanceOffset;
-      }
-      if (emissionVideoRef.current) {
-        emissionVideoRef.current.currentTime = currentTime + emissionOffset;
-      }
-      videos.forEach((video) => video?.play());
+      videos.forEach((video) => {
+        if (video) {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err: any) => {
+              if (err?.name !== 'AbortError') console.error('Play error:', err);
+            });
+          }
+        }
+      });
     }
 
     setIsPlaying(!isPlaying);
@@ -1240,7 +1243,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               <>
                                 <div className="text-center mb-3">
                                   <span className="text-4xl font-bold text-gray-800">
-                                    {loudness.acceptance.integrated_lufs}
+                                    {typeof loudness.acceptance.integrated_lufs === 'number' ? loudness.acceptance.integrated_lufs : 'N/A'}
                                   </span>
                                   <span className="text-lg text-gray-500 ml-1">LUFS</span>
                                 </div>
@@ -1267,7 +1270,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               <>
                                 <div className="text-center mb-3">
                                   <span className="text-4xl font-bold text-gray-800">
-                                    {loudness.emission.integrated_lufs}
+                                    {typeof loudness.emission.integrated_lufs === 'number' ? loudness.emission.integrated_lufs : 'N/A'}
                                   </span>
                                   <span className="text-lg text-gray-500 ml-1">LUFS</span>
                                 </div>
@@ -1291,8 +1294,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           <div className="grid grid-cols-2 gap-4 text-center">
                             <div className={`p-3 rounded-lg ${loudness.comparison.is_lufs_match ? 'bg-green-100' : 'bg-red-100'}`}>
                               <div className="text-sm text-gray-600">LUFS Difference</div>
-                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.lufs_difference) > 1 ? 'text-red-500' : 'text-green-600'}`}>
-                                {loudness.comparison.lufs_difference > 0 ? '+' : ''}{loudness.comparison.lufs_difference.toFixed(1)} LU
+                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.lufs_difference || 0) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                                {typeof loudness.comparison.lufs_difference === 'number' ? `${loudness.comparison.lufs_difference > 0 ? '+' : ''}${loudness.comparison.lufs_difference.toFixed(1)} LU` : 'N/A'}
                                 <span className="ml-2 text-xs font-normal opacity-70">
                                   ({loudness.comparison.is_lufs_match ? '✓ Within tolerance ±1 LU' : '⚠️ Out of tolerance'})
                                 </span>
@@ -1300,8 +1303,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                             </div>
                             <div className={`p-3 rounded-lg ${loudness.comparison.is_peak_match ? 'bg-green-100' : 'bg-red-100'}`}>
                               <div className="text-sm text-gray-600">Peak Difference</div>
-                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.peak_difference_db) > 1 ? 'text-red-500' : 'text-green-600'}`}>
-                                {loudness.comparison.peak_difference_db > 0 ? '+' : ''}{loudness.comparison.peak_difference_db.toFixed(1)} dB
+                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.peak_difference_db || 0) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                                {typeof loudness.comparison.peak_difference_db === 'number' ? `${loudness.comparison.peak_difference_db > 0 ? '+' : ''}${loudness.comparison.peak_difference_db.toFixed(1)} dB` : 'N/A'}
                                 <span className="ml-2 text-xs font-normal opacity-70">
                                   ({loudness.comparison.is_peak_match ? '✓ Within tolerance ±1 dB' : '⚠️ Out of tolerance'})
                                 </span>

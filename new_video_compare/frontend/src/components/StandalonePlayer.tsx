@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   PlayIcon,
   PauseIcon,
@@ -8,6 +8,11 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   ArrowUpTrayIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  CameraIcon,
 } from "@heroicons/react/24/outline";
 
 interface VideoFile {
@@ -47,9 +52,33 @@ export const StandalonePlayer: React.FC = () => {
   const [isDraggingAcceptance, setIsDraggingAcceptance] = useState(false);
   const [isDraggingEmission, setIsDraggingEmission] = useState(false);
 
+  // ── Diff Overlay State ────────────────────────────────────────────────────
+  const [diffMode, setDiffMode] = useState(false);
+  const [wipePosition, setWipePosition] = useState(50); // 0-100%
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [diffTimestamps, setDiffTimestamps] = useState<
+    { time: number; severity: "certain" | "review" }[]
+  >([]);
+  const [screenshotSaving, setScreenshotSaving] = useState(false);
+
   // Video Refs
   const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
   const emissionVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Diff overlay refs
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const diffWorkerRef = useRef<Worker | null>(null);
+  const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const wipeContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingWipeRef = useRef(false);
+  // Track already-logged timestamps (keyed by rounded second)
+  const loggedTimesRef = useRef<Set<number>>(new Set());
+  // Canvas-based wipe display (draws directly from main video refs - no extra <video> elements)
+  const wipeCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Mirror of wipePosition for use inside RAF closure (avoids stale state)
+  const wipePositionRef = useRef(50);
+  // requestAnimationFrame handle
+  const rafIdRef = useRef<number | null>(null);
 
   // Check if a file is standard browser playable (like .mp4)
   const isBrowserPlayable = (filename: string) => {
@@ -153,15 +182,10 @@ export const StandalonePlayer: React.FC = () => {
             // Processing success!
             const newFile: VideoFile = {
               url: (() => {
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                  const port = window.location.port;
-                  if (port === '3000' || port === '3001') {
-                    const backendPort = parseInt(port) + 5001;
-                    return `http://localhost:${backendPort}/api/v1/files/stream/${fileId}`;
-                  }
-                  return `http://localhost:8001/api/v1/files/stream/${fileId}`;
-                }
-                return `/api/v1/files/stream/${fileId}`;
+                // Use REACT_APP_API_URL env var (set at startup per environment)
+                // LIVE: http://localhost:8001, DEV: http://localhost:8002
+                const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:8001';
+                return `${apiBase}/api/v1/files/stream/${fileId}`;
               })(),
               name: file.name,
               size: file.size,
@@ -317,7 +341,19 @@ export const StandalonePlayer: React.FC = () => {
       // Seek both to current timeline before playing to maintain strict sync
       if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = currentTime;
       if (emissionVideoRef.current) emissionVideoRef.current.currentTime = currentTime;
-      videos.forEach((video) => video?.play());
+      // Attach .catch() DIRECTLY to the play promise to prevent React Error Overlay from intercepting it
+      videos.forEach((video) => {
+        if (video) {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err: any) => {
+              if (err?.name !== 'AbortError') {
+                console.error('[Player] play() error:', err);
+              }
+            });
+          }
+        }
+      });
     }
     setIsPlaying(!isPlaying);
   };
@@ -335,19 +371,48 @@ export const StandalonePlayer: React.FC = () => {
   };
 
   const handleRefresh = () => {
+    // IMPORTANT: Do NOT call video.load() here — it resets the element to HAVE_NOTHING
+    // state and causes onError to fire before the video can rebuffer, crashing both players.
+    // Simply seeking to 0 is safe for both blob URLs and server streams.
     const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+    const wasPlaying = isPlaying;
+
+    // Pause both videos first
+    videos.forEach((video) => video?.pause());
+    setIsPlaying(false);
+
+    // Seek both to start — use canplay event to ensure video is ready before playing
+    let readyCount = 0;
+    const totalActive = videos.filter(Boolean).length;
+
     videos.forEach((video) => {
-      if (video) {
-        video.load(); // Force reload the media element to clear buffers
-        video.currentTime = 0;
-      }
+      if (!video) return;
+
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        readyCount++;
+        if (wasPlaying && readyCount >= totalActive) {
+          // Both seeked — resume playback
+          videos.forEach((v) => {
+            if (v) {
+              const playPromise = v.play();
+              if (playPromise !== undefined) {
+                playPromise.catch((err: any) => {
+                  if (err?.name !== 'AbortError') {
+                    console.error('[Player] refresh play() error:', err);
+                  }
+                });
+              }
+            }
+          });
+          setIsPlaying(true);
+        }
+      };
+
+      video.addEventListener('seeked', onSeeked);
+      video.currentTime = 0;
     });
-    // If it was playing, resume playback after refresh
-    if (isPlaying) {
-      setTimeout(() => {
-        videos.forEach((video) => video?.play());
-      }, 50);
-    }
+
     setCurrentTime(0);
   };
 
@@ -389,6 +454,467 @@ export const StandalonePlayer: React.FC = () => {
     }
     setCurrentTime(time);
   };
+
+  const handleStep = (frames: number) => {
+    // Zakładamy 25 fps jako standard dla broadcast
+    const fps = 25;
+    const stepTime = frames / fps; 
+    const newTime = Math.max(0, Math.min(currentTime + stepTime, duration));
+    
+    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+    if (isPlaying) {
+      videos.forEach((video) => video?.pause());
+      setIsPlaying(false);
+    }
+    
+    handleSeek(newTime);
+  };
+
+  // ── Diff Overlay Logic ───────────────────────────────────────────────────
+
+  /** Teleport both players to a specific timestamp and pause */
+  const teleportToTimestamp = useCallback((time: number) => {
+    if (acceptanceVideoRef.current) {
+      acceptanceVideoRef.current.pause();
+      acceptanceVideoRef.current.currentTime = time;
+    }
+    if (emissionVideoRef.current) {
+      emissionVideoRef.current.pause();
+      emissionVideoRef.current.currentTime = time;
+    }
+    setIsPlaying(false);
+    setCurrentTime(time);
+  }, []);
+
+  /** Capture one frame from each video, diff them in the Worker, paint overlay */
+  const analyzeCurrentFrame = useCallback(() => {
+    const accVideo = acceptanceVideoRef.current;
+    const emiVideo = emissionVideoRef.current;
+    const canvas = overlayCanvasRef.current;
+    if (!accVideo || !emiVideo || !canvas || !diffWorkerRef.current) return;
+    if (accVideo.readyState < 2 || emiVideo.readyState < 2) return;
+
+    // Use the smaller of the two resolutions to avoid stretching
+    const W = Math.min(accVideo.videoWidth  || 1280, 1280);
+    const H = Math.min(accVideo.videoHeight || 720,  720);
+    if (W === 0 || H === 0) return;
+
+    canvas.width  = W;
+    canvas.height = H;
+
+    // Temporary canvas to extract pixel data
+    const tmpCanvas = document.createElement("canvas");
+    tmpCanvas.width = W;
+    tmpCanvas.height = H;
+    const tmpCtx = tmpCanvas.getContext("2d", { willReadFrequently: true })!;
+
+    tmpCtx.drawImage(accVideo, 0, 0, W, H);
+    const accData = tmpCtx.getImageData(0, 0, W, H);
+
+    tmpCtx.clearRect(0, 0, W, H);
+    tmpCtx.drawImage(emiVideo, 0, 0, W, H);
+    const emiData = tmpCtx.getImageData(0, 0, W, H);
+
+    diffWorkerRef.current.postMessage(
+      { acceptanceData: accData, emissionData: emiData, width: W, height: H },
+      [accData.data.buffer, emiData.data.buffer]
+    );
+  }, []);
+
+  /** Start diff mode: create Worker, begin periodic analysis */
+  const activateDiffMode = useCallback(() => {
+    if (!acceptanceVideoRef.current || !emissionVideoRef.current) return;
+
+    // Create off-screen canvas for the diff overlay output.
+    // After the wipe-panel refactor the <canvas ref={overlayCanvasRef}> is no longer
+    // in the DOM, so we must create it programmatically — otherwise the worker
+    // result is discarded and no highlights are shown.
+    const offscreen = document.createElement("canvas");
+    offscreen.width  = Math.min(acceptanceVideoRef.current.videoWidth  || 1280, 1280);
+    offscreen.height = Math.min(acceptanceVideoRef.current.videoHeight || 720,  720);
+    overlayCanvasRef.current = offscreen;
+
+    // Create Web Worker inline via Blob to avoid CRA webpack Worker loader issues
+    const workerCode = `
+      const THRESHOLD_AUTOMATION = 30;
+      const THRESHOLD_REVIEW = 15;
+      self.onmessage = function(e) {
+        var acceptanceData = e.data.acceptanceData;
+        var emissionData   = e.data.emissionData;
+        var width  = e.data.width;
+        var height = e.data.height;
+        var total  = width * height;
+        var overlay = new Uint8ClampedArray(total * 4);
+        var certain = 0, review = 0;
+        for (var i = 0; i < total; i++) {
+          var idx = i * 4;
+          var dr = Math.abs(acceptanceData.data[idx]   - emissionData.data[idx]);
+          var dg = Math.abs(acceptanceData.data[idx+1] - emissionData.data[idx+1]);
+          var db = Math.abs(acceptanceData.data[idx+2] - emissionData.data[idx+2]);
+          var m  = Math.max(dr, dg, db);
+          if (m > THRESHOLD_AUTOMATION) {
+            overlay[idx]=255; overlay[idx+1]=0;   overlay[idx+2]=0;   overlay[idx+3]=230;
+            certain++;
+          } else if (m > THRESHOLD_REVIEW) {
+            overlay[idx]=255; overlay[idx+1]=200; overlay[idx+2]=0;   overlay[idx+3]=200;
+            review++;
+          } else {
+            overlay[idx+3]=0;
+          }
+        }
+        var img = new ImageData(overlay, width, height);
+        self.postMessage(
+          { overlayData: img, certaintDiffRatio: certain/total, reviewDiffRatio: review/total, hasDifferences: certain>0||review>0 },
+          [img.data.buffer]
+        );
+      };
+    `;
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const worker = new Worker(URL.createObjectURL(blob));
+    diffWorkerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent) => {
+      const { overlayData, certaintDiffRatio, reviewDiffRatio } = e.data;
+      const canvas = overlayCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (overlayData) ctx.putImageData(overlayData, 0, 0);
+
+      // Log timestamps
+      const time = acceptanceVideoRef.current?.currentTime ?? 0;
+      const roundedTime = Math.floor(time);
+      if (!loggedTimesRef.current.has(roundedTime)) {
+        const isCertain = certaintDiffRatio > 0.005;  // >0.5% pixels certain
+        const isReview  = reviewDiffRatio   > 0.02;   // >2% pixels review
+        if (isCertain || isReview) {
+          loggedTimesRef.current.add(roundedTime);
+          setDiffTimestamps(prev => [
+            ...prev,
+            { time, severity: isCertain ? "certain" : "review" }
+          ]);
+        }
+      }
+    };
+
+    setDiffMode(true);
+    setIsAnalyzing(true);
+    loggedTimesRef.current.clear();
+    setDiffTimestamps([]);
+
+    // Analyze once immediately, then every 500ms during playback
+    analyzeCurrentFrame();
+    analysisIntervalRef.current = setInterval(() => {
+      if (!acceptanceVideoRef.current?.paused) {
+        analyzeCurrentFrame();
+      }
+    }, 500);
+  }, [analyzeCurrentFrame]);
+
+  /** Stop diff mode: terminate Worker, clear overlay */
+  const deactivateDiffMode = useCallback(() => {
+    if (analysisIntervalRef.current) {
+      clearInterval(analysisIntervalRef.current);
+      analysisIntervalRef.current = null;
+    }
+    if (diffWorkerRef.current) {
+      diffWorkerRef.current.terminate();
+      diffWorkerRef.current = null;
+    }
+    const canvas = overlayCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    setDiffMode(false);
+    setIsAnalyzing(false);
+  }, []);
+
+  /** Clean up worker on unmount */
+  useEffect(() => {
+    return () => { deactivateDiffMode(); };
+  }, [deactivateDiffMode]);
+
+  /** Also run analysis on seek/step when diff mode is active */
+  useEffect(() => {
+    if (diffMode) {
+      analyzeCurrentFrame();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, diffMode]);
+
+  // ── Wipe slider mouse handlers ───────────────────────────────────────────
+  const handleWipeMouseDown = (e: React.MouseEvent) => {
+    isDraggingWipeRef.current = true;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingWipeRef.current || !wipeContainerRef.current) return;
+      const rect = wipeContainerRef.current.getBoundingClientRect();
+      const pos = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+      setWipePosition(pos);
+    };
+    const onMouseUp = () => { isDraggingWipeRef.current = false; };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  // Keep wipePositionRef in sync so RAF closure sees the latest value
+  useEffect(() => {
+    wipePositionRef.current = wipePosition;
+  }, [wipePosition]);
+
+  // ── Canvas-based Wipe RAF loop ────────────────────────────────────────────
+  // Draws acceptance (clipped) + emission + diff overlay directly from the main
+  // video refs. Zero extra <video> elements → no ref hijacking → no freeze.
+  useEffect(() => {
+    if (!diffMode) {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      return;
+    }
+
+    const drawFrame = () => {
+      const accVideo = acceptanceVideoRef.current;
+      const emiVideo = emissionVideoRef.current;
+      const wipeCanvas = wipeCanvasRef.current;
+      const overlayCanvas = overlayCanvasRef.current;
+
+      if (!accVideo || !emiVideo || !wipeCanvas) {
+        rafIdRef.current = requestAnimationFrame(drawFrame);
+        return;
+      }
+
+      // Match canvas resolution to its CSS display size
+      const W = wipeCanvas.clientWidth  || 1280;
+      const H = wipeCanvas.clientHeight || 720;
+      if (wipeCanvas.width !== W)  wipeCanvas.width  = W;
+      if (wipeCanvas.height !== H) wipeCanvas.height = H;
+
+      const ctx = wipeCanvas.getContext("2d")!;
+      ctx.clearRect(0, 0, W, H);
+
+      const wp = wipePositionRef.current;
+
+      // 1. Draw emission full-width (right side / background)
+      if (emiVideo.readyState >= 2) {
+        ctx.drawImage(emiVideo, 0, 0, W, H);
+      }
+
+      // 2. Draw acceptance, clipped to the left portion (wipe position)
+      if (accVideo.readyState >= 2 && wp > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, Math.round(W * wp / 100), H);
+        ctx.clip();
+        ctx.drawImage(accVideo, 0, 0, W, H);
+        ctx.restore();
+      }
+
+      // 3. Diff overlay (source-over — renders at full color, not washed out by screen blend)
+      if (overlayCanvas && overlayCanvas.width > 0) {
+        ctx.globalAlpha = 0.72;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.drawImage(overlayCanvas, 0, 0, W, H);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      }
+
+      // 4. Wipe divider line + handle
+      const lineX = Math.round(W * wp / 100);
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "rgba(255,255,255,0.6)";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(lineX, 0);
+      ctx.lineTo(lineX, H);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Handle circle
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(lineX, H / 2, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.2)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Arrows inside circle
+      ctx.fillStyle = "#374151";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("❮❯", lineX, H / 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+
+      // 5. Corner labels
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "rgba(34,197,94,0.9)";
+      ctx.fillRect(10, 10, 90, 22);
+      ctx.fillStyle = "#fff";
+      ctx.fillText("ACCEPTANCE", 14, 26);
+
+      ctx.fillStyle = "rgba(239,68,68,0.9)";
+      ctx.fillRect(W - 84, 10, 74, 22);
+      ctx.fillStyle = "#fff";
+      ctx.fillText("EMISSION", W - 80, 26);
+
+      rafIdRef.current = requestAnimationFrame(drawFrame);
+    };
+
+    rafIdRef.current = requestAnimationFrame(drawFrame);
+
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, [diffMode]);
+
+  // ── Screenshot ───────────────────────────────────────────────────────────
+  const captureScreenshot = useCallback(async () => {
+    const accVideo = acceptanceVideoRef.current;
+    const emiVideo = emissionVideoRef.current;
+    if (!accVideo || !emiVideo) return;
+
+    // Pause first so both frames are stable
+    const wasPlaying = !accVideo.paused;
+    if (wasPlaying) {
+      accVideo.pause();
+      emiVideo.pause();
+    }
+
+    // Wait one animation frame so the browser has rendered the paused frame
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+    setScreenshotSaving(true);
+    try {
+      // Each side: max 960px (total 1920px)
+      const SIDE_W = 960;
+      const aspectRatio = (accVideo.videoHeight || 720) / (accVideo.videoWidth || 1280);
+      const SIDE_H = Math.round(SIDE_W * aspectRatio);
+      const LABEL_H = 60;
+
+      const canvas = document.createElement("canvas");
+      canvas.width  = SIDE_W * 2;          // 1920px total
+      canvas.height = SIDE_H + LABEL_H;
+      const ctx = canvas.getContext("2d")!;
+
+      // Dark background
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw frames
+      if (accVideo.readyState >= 2) ctx.drawImage(accVideo, 0, LABEL_H, SIDE_W, SIDE_H);
+      if (emiVideo.readyState >= 2) ctx.drawImage(emiVideo, SIDE_W, LABEL_H, SIDE_W, SIDE_H);
+
+      // Diff overlay on both sides
+      const overlayCanvas = overlayCanvasRef.current;
+      if (overlayCanvas && overlayCanvas.width > 0 && diffMode) {
+        ctx.globalAlpha = 0.85;
+        ctx.globalCompositeOperation = "screen";
+        ctx.drawImage(overlayCanvas, 0, LABEL_H, SIDE_W, SIDE_H);
+        ctx.drawImage(overlayCanvas, SIDE_W, LABEL_H, SIDE_W, SIDE_H);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      }
+
+      // Center divider
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(SIDE_W, LABEL_H);
+      ctx.lineTo(SIDE_W, canvas.height);
+      ctx.stroke();
+
+      // Label bar
+      const tc = formatTimecode(accVideo.currentTime);
+      // Green strip (acceptance)
+      ctx.fillStyle = "#14532d";
+      ctx.fillRect(0, 0, SIDE_W, LABEL_H);
+      ctx.fillStyle = "#22c55e";
+      ctx.font = "bold 18px 'Courier New', monospace";
+      ctx.textBaseline = "middle";
+      ctx.fillText("ACCEPTANCE", 20, 22);
+      ctx.fillStyle = "#86efac";
+      ctx.font = "13px 'Courier New', monospace";
+      ctx.fillText(acceptanceFile?.name?.slice(0, 40) ?? "", 20, 46);
+
+      // Red strip (emission)
+      ctx.fillStyle = "#450a0a";
+      ctx.fillRect(SIDE_W, 0, SIDE_W, LABEL_H);
+      ctx.fillStyle = "#ef4444";
+      ctx.font = "bold 18px 'Courier New', monospace";
+      ctx.fillText("EMISSION", SIDE_W + 20, 22);
+      ctx.fillStyle = "#fca5a5";
+      ctx.font = "13px 'Courier New', monospace";
+      ctx.fillText(emissionFile?.name?.slice(0, 40) ?? "", SIDE_W + 20, 46);
+
+      // Timecode centered at top
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(SIDE_W - 90, 0, 180, LABEL_H);
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "bold 16px 'Courier New', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(tc, SIDE_W, LABEL_H / 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+
+      // Diff legend (bottom-right corner)
+      if (diffMode) {
+        ctx.fillStyle = "rgba(15,23,42,0.85)";
+        ctx.fillRect(canvas.width - 210, canvas.height - 56, 200, 50);
+        ctx.fillStyle = "#dc2626";
+        ctx.fillRect(canvas.width - 198, canvas.height - 44, 14, 14);
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "12px sans-serif";
+        ctx.fillText("Pewna różnica", canvas.width - 178, canvas.height - 33);
+        ctx.fillStyle = "#eab308";
+        ctx.fillRect(canvas.width - 198, canvas.height - 24, 14, 10);
+        ctx.fillStyle = "#e2e8f0";
+        ctx.fillText("Do sprawdzenia", canvas.width - 178, canvas.height - 14);
+      }
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const prefix = (acceptanceFile?.name ?? "screenshot")
+          .replace(/\.[^.]+$/, "")
+          .slice(0, 15)
+          .replace(/[^a-zA-Z0-9_-]/g, "_");
+        const tcSafe = tc.replace(/:/g, "-");
+        const filename = `${prefix}_${tcSafe}.png`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        setScreenshotSaving(false);
+        // Resume playback if it was playing before
+        if (wasPlaying) {
+          accVideo.play().catch(() => {});
+          emiVideo.play().catch(() => {});
+          setIsPlaying(true);
+        }
+      }, "image/png");
+    } catch (err) {
+      console.error("Screenshot failed:", err);
+      setScreenshotSaving(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acceptanceFile, emissionFile, diffMode]);
 
   // Sync individual volumes & master mute state
   useEffect(() => {
@@ -464,8 +990,10 @@ export const StandalonePlayer: React.FC = () => {
   useEffect(() => {
     const currentPolls = activePollsRef.current;
     return () => {
-      cleanUpFile(acceptanceFile);
-      cleanUpFile(emissionFile);
+      // Note: We DO NOT call cleanUpFile() here because React StrictMode 
+      // unmounts and remounts immediately, which would prematurely revoke 
+      // the Blob URLs while they are still in state.
+      // Old files are already properly cleaned up in handleDrop/uploadAndProcess.
       
       // Clear all active background timeouts
       if (currentPolls.acceptance) {
@@ -480,21 +1008,146 @@ export const StandalonePlayer: React.FC = () => {
   }, [acceptanceFile, emissionFile]);
 
   // Format MM:SS for timeline
+  // Format MM:SS for timeline
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
+  // Format MM:SS:FF for timecode (25 fps)
+  const formatTimecode = (time: number, fps = 25) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    const frames = Math.floor((time % 1) * fps);
+    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-6 pb-20">
       {/* Title Header */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">Niezależny Odtwarzacz Synchroniczny</h2>
-        <p className="text-gray-500 text-sm">
-          Przeciągnij i upuść pliki wideo, aby odtworzyć je obok siebie w pełnej synchronizacji. Obsługuje formaty MP4, MOV oraz MXF.
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Cradle DualPlay</h2>
+          <p className="text-gray-500 text-sm">
+            Przeciągnij i upuść pliki wideo, aby odtworzyć je obok siebie w pełnej synchronizacji. Obsługuje formaty MP4, MOV oraz MXF.
+          </p>
+        </div>
+
+        {/* ── Diff Mode Toolbar ── */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
+            disabled={!acceptanceFile || !emissionFile}
+            title={diffMode ? "Wyłącz tryb porównania" : "Włącz tryb porównania (Diff Overlay)"}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+              diffMode
+                ? "bg-red-600 hover:bg-red-700 text-white shadow-red-600/20"
+                : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
+            }`}
+          >
+            {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+            {diffMode ? "Diff ON" : "Diff OFF"}
+            {isAnalyzing && diffMode && (
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            )}
+          </button>
+
+          <button
+            onClick={captureScreenshot}
+            disabled={!acceptanceFile || !emissionFile || screenshotSaving}
+            title="Zapisz screenshot do Downloads"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <CameraIcon className="w-4 h-4" />
+            {screenshotSaving ? "Zapisuję…" : "Screenshot"}
+          </button>
+        </div>
       </div>
+
+      {/* ── Wipe / Diff Overlay Panel (visible only in diff mode) ── */}
+      {diffMode && acceptanceFile && emissionFile && (
+        <div className="mb-6 bg-gray-950 rounded-2xl overflow-hidden border border-gray-800 shadow-xl">
+          <div className="px-5 py-3 flex items-center justify-between border-b border-gray-800">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-white">Wipe / Diff View</span>
+              <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                <span className="w-3 h-3 rounded-sm bg-red-600 inline-block" /> Pewna różnica
+                <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Do sprawdzenia
+              </span>
+            </div>
+            <button
+              onClick={() => analyzeCurrentFrame()}
+              className="text-xs px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+            >
+              Odśwież klatkę
+            </button>
+          </div>
+
+          {/* Wipe container — canvas-based, reads directly from main video refs.
+               NO extra <video> elements here → no ref conflicts → no freeze on exit. */}
+          <div
+            ref={wipeContainerRef}
+            className="relative w-full select-none"
+            style={{ background: "#000", aspectRatio: "16/9", cursor: "col-resize" }}
+            onMouseDown={handleWipeMouseDown}
+          >
+            <canvas
+              ref={wipeCanvasRef}
+              className="block w-full h-full"
+            />
+          </div>
+
+          {/* Wipe position slider */}
+          <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
+            <span className="text-xs text-gray-400 w-16">Pozycja:</span>
+            <input
+              type="range" min={0} max={100} step={0.5}
+              value={wipePosition}
+              onChange={(e) => setWipePosition(parseFloat(e.target.value))}
+              className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-white cursor-pointer"
+            />
+            <span className="text-xs text-gray-400 w-10 text-right font-mono">{wipePosition.toFixed(0)}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Diff Timestamps Panel ── */}
+      {diffMode && diffTimestamps.length > 0 && (
+        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-800">Wykryte różnice ({diffTimestamps.length})</span>
+            <span className="text-xs text-gray-400">Kliknij aby teleportować oba playery</span>
+          </div>
+          <div className="flex flex-wrap gap-2 p-4">
+            {diffTimestamps.map((ts, i) => (
+              <button
+                key={i}
+                onClick={() => teleportToTimestamp(ts.time)}
+                title={ts.severity === "certain" ? "Pewna różnica" : "Do sprawdzenia"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border transition-all hover:scale-105 ${
+                  ts.severity === "certain"
+                    ? "bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
+                    : "bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${
+                  ts.severity === "certain" ? "bg-red-500" : "bg-yellow-400"
+                }`} />
+                {formatTimecode(ts.time)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── No-diff info (diff mode active, no differences yet) ── */}
+      {diffMode && diffTimestamps.length === 0 && isAnalyzing && (
+        <div className="mb-6 px-5 py-3 bg-green-50 border border-green-200 rounded-2xl text-sm text-green-700 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          Analiza w toku — brak wykrytych różnic.
+        </div>
+      )}
 
       {/* Video Panels Area */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -566,6 +1219,9 @@ export const StandalonePlayer: React.FC = () => {
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onError={() => {
+                  setAcceptanceError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
@@ -675,6 +1331,9 @@ export const StandalonePlayer: React.FC = () => {
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onError={() => {
+                  setEmissionError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
@@ -724,9 +1383,14 @@ export const StandalonePlayer: React.FC = () => {
           
           {/* Timeline and Seek Bar */}
           <div className="flex-grow flex items-center space-x-4">
-            <span className="text-sm text-gray-500 font-mono w-12 text-right">
-              {formatTime(currentTime)}
-            </span>
+            <div className="flex flex-col items-end w-20 flex-shrink-0">
+              <span className="text-sm text-gray-700 font-mono font-medium">
+                {formatTimecode(currentTime)}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono">
+                {formatTime(currentTime)}
+              </span>
+            </div>
             <input
               type="range"
               min="0"
@@ -737,13 +1401,28 @@ export const StandalonePlayer: React.FC = () => {
               disabled={!acceptanceFile && !emissionFile}
               className="flex-grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-40"
             />
-            <span className="text-sm text-gray-500 font-mono w-12">
-              {formatTime(duration)}
-            </span>
+            <div className="flex flex-col items-start w-20 flex-shrink-0">
+              <span className="text-sm text-gray-700 font-mono font-medium">
+                {formatTimecode(duration)}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono">
+                {formatTime(duration)}
+              </span>
+            </div>
           </div>
 
           {/* Navigation Control Buttons */}
           <div className="flex items-center justify-center space-x-3 flex-shrink-0">
+            {/* Step Backward */}
+            <button
+              onClick={() => handleStep(-1)}
+              disabled={!acceptanceFile && !emissionFile}
+              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              title="-1 Klatka"
+            >
+              <ChevronLeftIcon className="w-5 h-5" />
+            </button>
+
             {/* Play/Pause Button */}
             <button
               onClick={togglePlayPause}
@@ -758,6 +1437,16 @@ export const StandalonePlayer: React.FC = () => {
               {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
             </button>
 
+            {/* Step Forward */}
+            <button
+              onClick={() => handleStep(1)}
+              disabled={!acceptanceFile && !emissionFile}
+              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              title="+1 Klatka"
+            >
+              <ChevronRightIcon className="w-5 h-5" />
+            </button>
+
             {/* Stop Button */}
             <button
               onClick={handleStop}
@@ -767,6 +1456,17 @@ export const StandalonePlayer: React.FC = () => {
             >
               <StopIcon className="w-5 h-5" />
             </button>
+
+            {/* Analyze current frame (only visible in diff mode) */}
+            {diffMode && (
+              <button
+                onClick={() => analyzeCurrentFrame()}
+                title="Analizuj bieżącą klatkę"
+                className="w-10 h-10 flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-colors"
+              >
+                <EyeIcon className="w-5 h-5" />
+              </button>
+            )}
 
             {/* Refresh Button */}
             <button

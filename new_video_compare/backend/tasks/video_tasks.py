@@ -366,7 +366,16 @@ def cleanup_video_temp_files(self, temp_dirs: list) -> Dict[str, Any]:
 
         for i, temp_dir in enumerate(temp_dirs):
             if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
+                from pathlib import Path
+                path_obj = Path(temp_dir)
+                if path_obj.is_dir():
+                    for item in path_obj.rglob("*"):
+                        if item.is_file() and item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                            item.unlink()
+                    try:
+                        path_obj.rmdir()
+                    except OSError:
+                        pass
                 cleaned_dirs.append(temp_dir)
 
             # Progress update

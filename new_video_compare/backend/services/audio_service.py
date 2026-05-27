@@ -6,11 +6,16 @@ Provides loudness measurement (LUFS), source separation, and voiceover compariso
 import logging
 import subprocess
 import tempfile
+import threading
+import fcntl
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Global threading lock for MLX/Whisper GPU accesses to prevent parallel Metal driver buffer collisions
+_whisper_lock = threading.Lock()
 
 # Lazy load expensive libraries
 _pyloudnorm = None
@@ -236,7 +241,7 @@ def measure_loudness(audio_path: str) -> Dict[str, Any]:
     duration = len(data_mono) / rate
     
     result = {
-        "integrated_lufs": round(float(integrated_lufs), 2),
+        "integrated_lufs": None if (np.isinf(integrated_lufs) or np.isnan(integrated_lufs)) else round(float(integrated_lufs), 2),
         "true_peak_db": round(float(true_peak_db), 2),
         "duration_seconds": round(duration, 2),
         "sample_rate": rate,
@@ -327,25 +332,35 @@ def compare_loudness(
         acceptance_loudness = measure_loudness(acceptance_audio)
         emission_loudness = measure_loudness(emission_audio)
         
-        # Calculate differences
-        lufs_diff = emission_loudness["integrated_lufs"] - acceptance_loudness["integrated_lufs"]
-        peak_diff = emission_loudness["true_peak_db"] - acceptance_loudness["true_peak_db"]
+        # Calculate differences safely (handle None values)
+        acc_lufs = acceptance_loudness.get("integrated_lufs")
+        emi_lufs = emission_loudness.get("integrated_lufs")
+        acc_peak = acceptance_loudness.get("true_peak_db")
+        emi_peak = emission_loudness.get("true_peak_db")
+
+        lufs_diff = None
+        if acc_lufs is not None and emi_lufs is not None:
+            lufs_diff = emi_lufs - acc_lufs
+
+        peak_diff = None
+        if acc_peak is not None and emi_peak is not None:
+            peak_diff = emi_peak - acc_peak
         
         # Determine if within broadcast tolerances
         # EBU R128: Target -23 LUFS ±1 LU
         # US: -24 LUFS ±2 LU
         lufs_tolerance = 1.0  # ±1 LU tolerance
-        is_lufs_match = abs(lufs_diff) <= lufs_tolerance
+        is_lufs_match = abs(lufs_diff) <= lufs_tolerance if lufs_diff is not None else False
         
         peak_tolerance = 1.0  # ±1 dB tolerance
-        is_peak_match = abs(peak_diff) <= peak_tolerance
+        is_peak_match = abs(peak_diff) <= peak_tolerance if peak_diff is not None else False
         
         result = {
             "acceptance": acceptance_loudness,
             "emission": emission_loudness,
             "comparison": {
-                "lufs_difference": round(lufs_diff, 2),
-                "peak_difference_db": round(peak_diff, 2),
+                "lufs_difference": None if (lufs_diff is None or np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2),
+                "peak_difference_db": round(peak_diff, 2) if peak_diff is not None else None,
                 "is_lufs_match": is_lufs_match,
                 "is_peak_match": is_peak_match,
                 "loudness_tolerance": lufs_tolerance,
@@ -446,7 +461,17 @@ def compare_audio_similarity(
         spec_emi = spec_emi[:, :min_t]
         
         # Spectral correlation
-        spectral_corr = float(np.corrcoef(spec_acc.flatten(), spec_emi.flatten())[0, 1])
+        flat_acc = spec_acc.flatten()
+        flat_emi = spec_emi.flatten()
+        
+        if np.var(flat_acc) < 1e-10 and np.var(flat_emi) < 1e-10:
+            # Both are silent/constant, perfect match
+            spectral_corr = 1.0
+        else:
+            spectral_corr = float(np.corrcoef(flat_acc, flat_emi)[0, 1])
+            if np.isnan(spectral_corr) or np.isinf(spectral_corr):
+                spectral_corr = 0.0
+        
         
         result = {
             "mfcc_similarity": round(overall_similarity, 4),
@@ -551,7 +576,7 @@ def separate_sources(
         
         if process.returncode != 0:
             logger.error(f"Demucs CLI failed: {process.stderr}")
-            raise RuntimeError(f"Demucs execution failed: {process.stderr}")
+            return {"error": f"Demucs execution failed: {process.stderr}"}
             
         logger.info("✅ Demucs CLI completed successfully")
         
@@ -572,7 +597,7 @@ def separate_sources(
             if possible_dirs:
                 result_dir = possible_dirs[0]
             else:
-                 raise FileNotFoundError(f"Could not find Demucs output in {Path(output_dir) / model_name}")
+                 return {"error": f"Could not find Demucs output in {Path(output_dir) / model_name}"}
         
         result = {
             "source_dir": str(output_dir),
@@ -1060,7 +1085,16 @@ def transcribe_audio(
         Dict with transcription text, segments with timestamps, and metadata
     """
     # 1. Get raw result from transcription engine
+    _whisper_lock.acquire()
+    lock_file = None
     try:
+        # Acquire system-wide process lock to prevent concurrent Metal GPU driver buffer collisions (e.g. across DEV and LIVE backends)
+        try:
+            lock_file = open('/tmp/mlx_whisper_gpu.lock', 'w')
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        except Exception as lock_err:
+            logger.warning(f"⚠️ Could not acquire system-wide file lock: {lock_err}. Proceeding with thread lock only.")
+
         # Prefer MLX for M-series Macs
         try:
             mlx_whisper = get_mlx_whisper()
@@ -1223,6 +1257,15 @@ def transcribe_audio(
     except Exception as e:
         logger.error(f"❌ Transcription failed (Engine/Processing): {e}")
         return {"error": str(e), "text": "", "segments": []}
+    finally:
+        # Release system-wide file lock
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as close_err:
+                logger.warning(f"⚠️ Error releasing file lock: {close_err}")
+        _whisper_lock.release()
 
 
 def normalize_text(text: str) -> str:

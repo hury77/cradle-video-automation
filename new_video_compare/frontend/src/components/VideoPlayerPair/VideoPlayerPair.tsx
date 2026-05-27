@@ -80,7 +80,8 @@ export const VideoPlayerPair: React.FC<VideoPlayerPairProps> = ({
         
         // Sync emission player if enabled
         if (syncedPlayback?.syncEnabled && emissionPlayerRef.current) {
-          emissionPlayerRef.current.play();
+          const p = emissionPlayerRef.current.play();
+          if (p !== undefined) p.catch((e:any) => e.name !== 'AbortError' && console.error(e));
         }
       });
 
@@ -147,7 +148,8 @@ export const VideoPlayerPair: React.FC<VideoPlayerPairProps> = ({
         
         // Sync acceptance player if enabled and emission is master
         if (syncedPlayback?.syncEnabled && syncedPlayback.masterPlayer === 'emission' && acceptancePlayerRef.current) {
-          acceptancePlayerRef.current.play();
+          const p = acceptancePlayerRef.current.play();
+          if (p !== undefined) p.catch((e:any) => e.name !== 'AbortError' && console.error(e));
         }
       });
 
@@ -209,7 +211,8 @@ export const VideoPlayerPair: React.FC<VideoPlayerPairProps> = ({
                 if (acceptanceState.playing) {
                   acceptancePlayerRef.current?.pause();
                 } else {
-                  acceptancePlayerRef.current?.play();
+                  const p = acceptancePlayerRef.current?.play();
+                  if (p !== undefined) p.catch((e:any) => e.name !== 'AbortError' && console.error(e));
                 }
               }}
               className="p-1 hover:bg-gray-700 rounded"
@@ -264,7 +267,8 @@ export const VideoPlayerPair: React.FC<VideoPlayerPairProps> = ({
                 if (emissionState.playing) {
                   emissionPlayerRef.current?.pause();
                 } else {
-                  emissionPlayerRef.current?.play();
+                  const p = emissionPlayerRef.current?.play();
+                  if (p !== undefined) p.catch((e:any) => e.name !== 'AbortError' && console.error(e));
                 }
               }}
               className="p-1 hover:bg-gray-700 rounded"
