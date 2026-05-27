@@ -805,21 +805,17 @@ class CradleScanner {
         throw new Error("No data rows found in assets table after waiting");
       }
 
-      // Wykryj indeks kolumny "client" z nagłówka tabeli
-      let clientColIndex = 4; // fallback
-      const headerRow = assetsTable.querySelector("thead tr, tr:first-child");
-      if (headerRow) {
-        const headerCells = headerRow.querySelectorAll("th, td");
-        for (let h = 0; h < headerCells.length; h++) {
-          const hText = headerCells[h].textContent.trim().toLowerCase();
-          if (hText.includes("client") || hText.includes("klient") || hText.includes("organisation") || hText.includes("organization") || hText.includes("brand")) {
-            clientColIndex = h;
-            console.log(`[CradleScanner] 🏢 Client column detected at index ${h} (header: "${headerCells[h].textContent.trim()}")`);
-            break;
-          }
-        }
+      // Kolumna "Client" w tabeli My Team Tasks — indeks 5 (potwierdzone screenshotem)
+      const CLIENT_COL = 5;
+
+      // Odczyt filtra klienta RAZ przed pętlą (nie w każdej iteracji — to powodowało opóźnienie)
+      const { cradle_client_filter: clientFilter = "" } = await new Promise(resolve =>
+        chrome.storage.local.get("cradle_client_filter", resolve)
+      );
+      const activeClientFilter = clientFilter.trim();
+      if (activeClientFilter) {
+        console.log(`[CradleScanner] 🏢 Client filter active: "${activeClientFilter}"`);
       }
-      console.log(`[CradleScanner] Using client column index: ${clientColIndex}`);
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -847,31 +843,20 @@ class CradleScanner {
         }
 
         if (state.includes("pending")) {
-          // Extract client name from Client column FIRST (before any other checks)
-          // Kolumna klienta — logujemy wszystkie komórki żeby debugować indeks
-          const allCellTexts = Array.from(cells).map((c, idx) => `[${idx}]="${c.textContent.trim()}"`).join(", ");
-          console.log(`[CradleScanner] Row ${i} cells: ${allCellTexts}`);
-          const clientName = cells.length > clientColIndex ? cells[clientColIndex].textContent.trim() || null : null;
-          console.log(`[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, clientName="${clientName}"`);
+          const clientName = cells.length > CLIENT_COL ? cells[CLIENT_COL].textContent.trim() || null : null;
+          console.log(`[CradleScanner] Row ${i}: ID=${cradleId}, client="${clientName}"`);
 
-          // --- Filtr klienta (opcjonalny) ---
-          // UWAGA: filtr czytamy z chrome.storage.local (wspólne z popupem).
-          // localStorage content scriptu jest izolowany od localStorage popupa (różne originy)!
-          const chromeStorageData = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
-          const clientFilter = (chromeStorageData.cradle_client_filter || "").trim();
-
-          if (clientFilter) {
+          // --- Filtr klienta ---
+          if (activeClientFilter) {
             if (!clientName) {
-              // Filtr jest ustawiony, ale nie możemy odczytać nazwy klienta z wiersza.
-              // Bezpieczne zachowanie: POMIJAMY — nie bierzemy assetu o nieznanym kliencie.
-              console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — filter "${clientFilter}" set but client name unknown (null). Skipping to be safe.`);
+              console.log(`[CradleScanner] ⏭️ Skip ${cradleId} — client unknown, filter "${activeClientFilter}" active`);
               continue;
             }
-            if (!clientName.toLowerCase().includes(clientFilter.toLowerCase())) {
-              console.log(`[CradleScanner] ⏭️ Skipping ${cradleId} — client "${clientName}" doesn't match filter "${clientFilter}"`);
+            if (!clientName.toLowerCase().includes(activeClientFilter.toLowerCase())) {
+              console.log(`[CradleScanner] ⏭️ Skip ${cradleId} — "${clientName}" ≠ "${activeClientFilter}"`);
               continue;
             }
-            console.log(`[CradleScanner] ✅ Client filter match: "${clientName}" matches "${clientFilter}"`);
+            console.log(`[CradleScanner] ✅ Match: "${clientName}" ⊃ "${activeClientFilter}"`);
           }
           // --- koniec filtru klienta ---
 
