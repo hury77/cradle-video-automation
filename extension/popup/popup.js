@@ -19,6 +19,9 @@ class PopupController {
     this.logDiv = document.getElementById("log");
     this.videoCompareBtn = document.getElementById("videoCompareBtn");
     this.useApiCheckbox = document.getElementById("useApiCheckbox");
+    this.clientFilterInput = document.getElementById("clientFilterInput");
+    this.clearFilterBtn    = document.getElementById("clearFilterBtn");
+    this.clientHistoryList = document.getElementById("clientHistory");
 
     // Load saved state
     const useApiState = localStorage.getItem("cradle_use_api") === "true";
@@ -28,6 +31,35 @@ class PopupController {
         localStorage.setItem("cradle_use_api", e.target.checked);
       });
     }
+
+    // --- Filtr klienta ---
+    if (this.clientFilterInput) {
+      chrome.storage.local.get(["cradle_client_filter", "cradle_client_history"], (result) => {
+        this.clientFilterInput.value = result.cradle_client_filter || "";
+        const history = result.cradle_client_history || [];
+        history.forEach(name => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          this.clientHistoryList.appendChild(opt);
+        });
+      });
+      this.clientFilterInput.addEventListener("input", (e) => {
+        const val = e.target.value.trim();
+        if (val) {
+          chrome.storage.local.set({ cradle_client_filter: val });
+        } else {
+          chrome.storage.local.remove("cradle_client_filter");
+        }
+      });
+    }
+    if (this.clearFilterBtn) {
+      this.clearFilterBtn.addEventListener("click", () => {
+        this.clientFilterInput.value = "";
+        chrome.storage.local.remove("cradle_client_filter");
+        this.log("🏢 Filtr klienta wyczyszczony");
+      });
+    }
+    // --- koniec filtru klienta ---
 
     // Bind event listeners
     this.startBtn.addEventListener("click", () => this.startAutomation());
@@ -82,13 +114,22 @@ class PopupController {
 
   async startAutomation() {
     try {
-      this.log("🚀 Starting automation...");
-      this.updateUI(true);
-
-      await this.sendCommandToContentScript("START_AUTOMATION");
-
-      // Monitor automation
-      this.monitorAutomation();
+      chrome.storage.local.get("cradle_client_filter", async (result) => {
+        const activeFilter = result.cradle_client_filter || "";
+        if (activeFilter) {
+          this.log(`🚀 Starting automation (filtr: "${activeFilter}")...`);
+        } else {
+          this.log("🚀 Starting automation...");
+        }
+        this.updateUI(true);
+        try {
+          await this.sendCommandToContentScript("START_AUTOMATION");
+          this.monitorAutomation();
+        } catch (error) {
+          this.log(`❌ Failed to start: ${error.message}`, "error");
+          this.updateUI(false);
+        }
+      });
     } catch (error) {
       this.log(`❌ Failed to start: ${error.message}`, "error");
       this.updateUI(false);

@@ -25,6 +25,18 @@
       <button id="statusBtn" class="btn btn-secondary">📊 Status</button>
     </div>
 
+    <div class="client-filter" style="margin-top:10px; display:flex; align-items:center; justify-content:center; gap:6px;">
+      <input
+        type="text"
+        id="clientFilterInput"
+        list="clientHistory"
+        placeholder="🏢 Filtr klienta (opcjonalny)"
+        style="flex:1; padding:5px 8px; border-radius:4px; border:1px solid #ccc; font-size:12px;"
+      />
+      <datalist id="clientHistory"></datalist>
+      <button id="clearFilterBtn" title="Wyczyść filtr" style="padding:4px 7px; border-radius:4px; border:1px solid #ccc; cursor:pointer; font-size:12px;">❌</button>
+    </div>
+
     <div id="status" class="status stopped">⏹️ Stopped</div>
     
     <div id="log" class="log"></div>
