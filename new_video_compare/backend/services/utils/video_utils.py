@@ -266,6 +266,8 @@ class VideoUtils:
         if duration_diff > min(meta1.duration, meta2.duration) * 0.5:  # >50% duration difference
             if 10.5 <= duration_diff <= 11.5:
                 compatibility["warnings"].append("ARPP/Clearcast slate detected (approx 11s difference). Bypassing duration block.")
+            elif 9.5 <= duration_diff <= 10.5:
+                compatibility["warnings"].append("Clearcast slate detected (approx 10s difference). Bypassing duration block.")
             else:
                 compatibility["errors"].append("Videos have drastically different durations")
                 compatibility["compatible"] = False
