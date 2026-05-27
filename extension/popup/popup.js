@@ -33,9 +33,14 @@ class PopupController {
     }
 
     // --- Filtr klienta ---
+    // WAŻNE: popup.js i cradle-scanner.js mają OSOBNE localStorage (różne originy).
+    // Jedynym wspólnym storage między popupem a content scriptem jest chrome.storage.local.
     if (this.clientFilterInput) {
+      // Wczytaj zapisany filtr z chrome.storage.local (wspólne dla popup + content script)
       chrome.storage.local.get(["cradle_client_filter", "cradle_client_history"], (result) => {
         this.clientFilterInput.value = result.cradle_client_filter || "";
+
+        // Wypełnij datalist historią klientów
         const history = result.cradle_client_history || [];
         history.forEach(name => {
           const opt = document.createElement("option");
@@ -43,6 +48,8 @@ class PopupController {
           this.clientHistoryList.appendChild(opt);
         });
       });
+
+      // Zapisuj na bieżąco przy każdej zmianie do chrome.storage.local
       this.clientFilterInput.addEventListener("input", (e) => {
         const val = e.target.value.trim();
         if (val) {
@@ -52,6 +59,7 @@ class PopupController {
         }
       });
     }
+
     if (this.clearFilterBtn) {
       this.clearFilterBtn.addEventListener("click", () => {
         this.clientFilterInput.value = "";
@@ -114,16 +122,19 @@ class PopupController {
 
   async startAutomation() {
     try {
+      // Odczyt z chrome.storage.local (wspólne z content scriptem)
       chrome.storage.local.get("cradle_client_filter", async (result) => {
         const activeFilter = result.cradle_client_filter || "";
         if (activeFilter) {
           this.log(`🚀 Starting automation (filtr: "${activeFilter}")...`);
         } else {
-          this.log("🚀 Starting automation...");
+          this.log("🚀 Starting automation (wszyscy klienci)...");
         }
         this.updateUI(true);
+
         try {
           await this.sendCommandToContentScript("START_AUTOMATION");
+          // Monitor automation
           this.monitorAutomation();
         } catch (error) {
           this.log(`❌ Failed to start: ${error.message}`, "error");

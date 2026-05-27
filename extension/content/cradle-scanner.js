@@ -288,6 +288,9 @@ class CradleScanner {
                          label: "Escape", 
                          color: "#9e9e9e", 
                          onClick: () => {
+                             // Escape przerywa filtrowanie po kliencie
+                             chrome.storage.local.remove("cradle_client_filter");
+                             console.log("[CradleScanner] 🏢 Client filter cleared on Escape");
                              this.stopAutomation();
                          } 
                      }
@@ -805,7 +808,7 @@ class CradleScanner {
       // Kolumna "Client" w tabeli My Team Tasks — indeks 5 (potwierdzone screenshotem)
       const CLIENT_COL = 5;
 
-      // Odczyt filtra klienta RAZ przed pętlą
+      // Odczyt filtra klienta RAZ przed pętlą (nie w każdej iteracji — to powodowało opóźnienie)
       const { cradle_client_filter: clientFilter = "" } = await new Promise(resolve =>
         chrome.storage.local.get("cradle_client_filter", resolve)
       );
@@ -857,7 +860,8 @@ class CradleScanner {
           }
           // --- koniec filtru klienta ---
 
-          // Oznacz jako przetworzony po przejściu przez filtr
+          // Oznacz jako przetworzony DOPIERO PO przejściu przez filtr klienta.
+          // (Oznaczanie przed filtrem powodowało że pominięte assety były blacklistowane na zawsze)
           const processedJobsStr = localStorage.getItem("cradle-processed-jobs") || "[]";
           const processedJobs = JSON.parse(processedJobsStr);
           if (processedJobs.includes(cradleId)) {
@@ -871,10 +875,17 @@ class CradleScanner {
 
           if (clientName) {
             localStorage.setItem("cradle-current-client", clientName);
-            console.log(`[CradleScanner] 🏢 Client detected: ${clientName}`);
+            // Zapisz do historii klientów (dla datalist w popupie) — przez chrome.storage.local
+            chrome.storage.local.get("cradle_client_history", (res) => {
+              const history = res.cradle_client_history || [];
+              if (!history.includes(clientName)) {
+                history.push(clientName);
+                chrome.storage.local.set({ cradle_client_history: history });
+              }
+            });
           }
 
-          console.log(`[CradleScanner] ✅ Found matching pending asset: ${cradleId}`);
+          console.log(`[CradleScanner] ✅ Found matching pending asset: ${cradleId} (client: ${clientName || "unknown"})`);
           console.log(`[CradleScanner] Opening URL: ${assetUrl}`);
 
           this.status = `Opening asset ${cradleId}`;
@@ -894,10 +905,24 @@ class CradleScanner {
       }
 
       this.status = "No pending assets found";
-      this.showNotification(
-        "❌ No pending assets available for processing",
-        "warning"
-      );
+      // Sprawdź aktywny filtr z chrome.storage.local
+      const storageResult = await new Promise(resolve => chrome.storage.local.get("cradle_client_filter", resolve));
+      const activeFilter = storageResult.cradle_client_filter || "";
+
+      if (activeFilter) {
+        // Brak assetów dla wybranego klienta — fallback do pierwszego od góry
+        console.log(`[CradleScanner] ℹ️ No assets for client "${activeFilter}", falling back to first available asset`);
+        this.showNotification(`ℹ️ Brak assetów dla "${activeFilter}" — biorę pierwszego z listy`, "info");
+
+        // Tymczasowo wyłącz filtr i szukaj ponownie
+        await new Promise(resolve => chrome.storage.local.remove("cradle_client_filter", resolve));
+        await this.findPendingAsset();
+        // Po zakończeniu przywróć filtr (jeśli asset nie znaleziony, zostanie na kolejny cykl)
+        chrome.storage.local.set({ cradle_client_filter: activeFilter });
+        return;
+      }
+
+      this.showNotification("❌ No pending assets available for processing", "warning");
       console.log(
         "[CradleScanner] No pending assets found - all are either processing or completed"
       );
