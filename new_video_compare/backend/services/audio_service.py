@@ -332,25 +332,35 @@ def compare_loudness(
         acceptance_loudness = measure_loudness(acceptance_audio)
         emission_loudness = measure_loudness(emission_audio)
         
-        # Calculate differences
-        lufs_diff = emission_loudness["integrated_lufs"] - acceptance_loudness["integrated_lufs"]
-        peak_diff = emission_loudness["true_peak_db"] - acceptance_loudness["true_peak_db"]
+        # Calculate differences safely (handle None values)
+        acc_lufs = acceptance_loudness.get("integrated_lufs")
+        emi_lufs = emission_loudness.get("integrated_lufs")
+        acc_peak = acceptance_loudness.get("true_peak_db")
+        emi_peak = emission_loudness.get("true_peak_db")
+
+        lufs_diff = None
+        if acc_lufs is not None and emi_lufs is not None:
+            lufs_diff = emi_lufs - acc_lufs
+
+        peak_diff = None
+        if acc_peak is not None and emi_peak is not None:
+            peak_diff = emi_peak - acc_peak
         
         # Determine if within broadcast tolerances
         # EBU R128: Target -23 LUFS ±1 LU
         # US: -24 LUFS ±2 LU
         lufs_tolerance = 1.0  # ±1 LU tolerance
-        is_lufs_match = abs(lufs_diff) <= lufs_tolerance
+        is_lufs_match = abs(lufs_diff) <= lufs_tolerance if lufs_diff is not None else False
         
         peak_tolerance = 1.0  # ±1 dB tolerance
-        is_peak_match = abs(peak_diff) <= peak_tolerance
+        is_peak_match = abs(peak_diff) <= peak_tolerance if peak_diff is not None else False
         
         result = {
             "acceptance": acceptance_loudness,
             "emission": emission_loudness,
             "comparison": {
-                "lufs_difference": None if (np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2),
-                "peak_difference_db": round(peak_diff, 2),
+                "lufs_difference": None if (lufs_diff is None or np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2),
+                "peak_difference_db": round(peak_diff, 2) if peak_diff is not None else None,
                 "is_lufs_match": is_lufs_match,
                 "is_peak_match": is_peak_match,
                 "loudness_tolerance": lufs_tolerance,
@@ -451,9 +461,17 @@ def compare_audio_similarity(
         spec_emi = spec_emi[:, :min_t]
         
         # Spectral correlation
-        spectral_corr = float(np.corrcoef(spec_acc.flatten(), spec_emi.flatten())[0, 1])
-        if np.isnan(spectral_corr) or np.isinf(spectral_corr):
-            spectral_corr = 0.0
+        flat_acc = spec_acc.flatten()
+        flat_emi = spec_emi.flatten()
+        
+        if np.var(flat_acc) < 1e-10 and np.var(flat_emi) < 1e-10:
+            # Both are silent/constant, perfect match
+            spectral_corr = 1.0
+        else:
+            spectral_corr = float(np.corrcoef(flat_acc, flat_emi)[0, 1])
+            if np.isnan(spectral_corr) or np.isinf(spectral_corr):
+                spectral_corr = 0.0
+        
         
         result = {
             "mfcc_similarity": round(overall_similarity, 4),
@@ -558,7 +576,7 @@ def separate_sources(
         
         if process.returncode != 0:
             logger.error(f"Demucs CLI failed: {process.stderr}")
-            raise RuntimeError(f"Demucs execution failed: {process.stderr}")
+            return {"error": f"Demucs execution failed: {process.stderr}"}
             
         logger.info("✅ Demucs CLI completed successfully")
         
@@ -579,7 +597,7 @@ def separate_sources(
             if possible_dirs:
                 result_dir = possible_dirs[0]
             else:
-                 raise FileNotFoundError(f"Could not find Demucs output in {Path(output_dir) / model_name}")
+                 return {"error": f"Could not find Demucs output in {Path(output_dir) / model_name}"}
         
         result = {
             "source_dir": str(output_dir),
