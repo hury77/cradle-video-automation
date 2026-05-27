@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-import math
 import numpy as np
 
 from .video_processor import VideoProcessor, ProcessingResult
@@ -367,8 +366,7 @@ class ComparisonService:
                         duration=audio_duration
                     )
                     audio_result["similarity"] = similarity_result
-                    raw_sim = similarity_result.get("overall_audio_similarity", 0.0)
-                    audio_result["similarity_score"] = 0.0 if (raw_sim is None or (isinstance(raw_sim, float) and (raw_sim != raw_sim or raw_sim in (float('inf'), float('-inf'))))) else raw_sim
+                    audio_result["similarity_score"] = similarity_result.get("overall_audio_similarity", 0.0)
                 except Exception as sim_err:
                     logger.warning(f"Audio similarity failed: {sim_err}")
                     audio_result["similarity"] = {"error": str(sim_err)}
@@ -674,7 +672,7 @@ class ComparisonService:
             metadata = audio_result.get("comparison_metadata", {})
             audio_db_result = AudioComparisonResult(
                 job_id=job.id,
-                similarity_score=float(audio_result.get("similarity_score") or 0.0) if not math.isnan(float(audio_result.get("similarity_score") or 0.0)) else 0.0,
+                similarity_score=audio_result.get("similarity_score", 0.0),
                 spectral_similarity=metadata.get("spectral_similarity"),
                 mfcc_similarity=metadata.get("mfcc_similarity"),
                 audio_analysis_data=audio_result,  # This is already clean_results["audio_result"]
