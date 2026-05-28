@@ -129,6 +129,15 @@ function App() {
     }
   };
 
+  // Check if we are running in standalone DualPlay mode
+  if (process.env.REACT_APP_STANDALONE_MODE === "true") {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <StandalonePlayer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Navigation Header */}
