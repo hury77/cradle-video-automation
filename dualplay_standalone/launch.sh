@@ -1,14 +1,17 @@
 #!/bin/bash
 
-# Ustalenie katalogu roboczego (folder Resources wewnątrz .app)
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR"
-
 export PATH="/opt/homebrew/bin:/usr/local/bin:$DIR:$PATH"
 exec > >(tee -a "/tmp/cradle_dualplay.log") 2>&1
 echo "Starting Cradle DualPlay at $(date)"
-# 1. Sprawdzenie i pobranie FFmpeg jeśli brakuje
+
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Cradle DualPlay"
+mkdir -p "$APP_SUPPORT_DIR"
+cd "$APP_SUPPORT_DIR"
+
+# 1. Pobranie FFmpeg jeśli brakuje w App Support
 if [ ! -f "ffmpeg" ]; then
+    echo "Downloading FFmpeg to App Support..."
     curl -L -s -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
     unzip -o -q ffmpeg.zip
     rm ffmpeg.zip
@@ -16,12 +19,14 @@ if [ ! -f "ffmpeg" ]; then
     xattr -cr ffmpeg 2>/dev/null || true
 fi
 
-# 2. Sprawdzenie i utworzenie wirtualnego środowiska Pythona
-if [ ! -d "backend/.venv" ]; then
-    python3 -m venv backend/.venv
+# 2. Utworzenie środowiska w App Support
+if [ ! -d ".venv" ]; then
+    echo "Creating virtualenv..."
+    python3 -m venv .venv
 fi
-backend/.venv/bin/pip install -q -r backend/requirements.txt
+echo "Installing requirements..."
+.venv/bin/pip install -q -r "$DIR/backend/requirements.txt"
 
 # 3. Uruchomienie serwera
-cd backend
-exec .venv/bin/python server.py
+echo "Starting server..."
+exec .venv/bin/python "$DIR/backend/server.py"

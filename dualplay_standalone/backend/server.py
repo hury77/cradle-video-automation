@@ -23,12 +23,14 @@ app.add_middleware(
 )
 
 BASE_DIR = Path(__file__).parent
-UPLOADS_DIR = BASE_DIR / "uploads"
+APP_SUPPORT_DIR = Path.home() / "Library/Application Support/Cradle DualPlay"
+UPLOADS_DIR = APP_SUPPORT_DIR / "uploads"
 PROXIES_DIR = UPLOADS_DIR / "proxies"
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
 
-UPLOADS_DIR.mkdir(exist_ok=True)
-PROXIES_DIR.mkdir(exist_ok=True)
+APP_SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+PROXIES_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory job store
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -45,8 +47,9 @@ async def transcode_video(file_id: str, input_path: Path):
     proxy_path = PROXIES_DIR / f"{file_id}.mp4"
     jobs[file_id]["status"] = "processing"
     
+    ffmpeg_path = APP_SUPPORT_DIR / "ffmpeg"
     cmd = [
-        "ffmpeg",
+        str(ffmpeg_path),
         "-nostdin",
         "-y",
         "-i", str(input_path),
@@ -61,7 +64,7 @@ async def transcode_video(file_id: str, input_path: Path):
     
     try:
         # Check if videotoolbox is available
-        check_vt = subprocess.run(["ffmpeg", "-h", "encoder=h264_videotoolbox"], capture_output=True, text=True)
+        check_vt = subprocess.run([str(ffmpeg_path), "-h", "encoder=h264_videotoolbox"], capture_output=True, text=True)
         if "Encoder h264_videotoolbox" not in check_vt.stdout:
             cmd[6] = "libx264"
             cmd[7] = "-preset"
