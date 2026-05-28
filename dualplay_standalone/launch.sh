@@ -9,7 +9,7 @@ exec > >(tee -a "/tmp/cradle_dualplay.log") 2>&1
 echo "Starting Cradle DualPlay at $(date)"
 # 1. Sprawdzenie i pobranie FFmpeg jeśli brakuje
 if [ ! -f "ffmpeg" ]; then
-    curl -L -s -o ffmpeg.zip "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-mac-64.zip"
+    curl -L -s -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
     unzip -o -q ffmpeg.zip
     rm ffmpeg.zip
     chmod +x ffmpeg
@@ -19,16 +19,9 @@ fi
 # 2. Sprawdzenie i utworzenie wirtualnego środowiska Pythona
 if [ ! -d "backend/.venv" ]; then
     python3 -m venv backend/.venv
-    source backend/.venv/bin/activate
-    pip install -q -r backend/requirements.txt
-else
-    source backend/.venv/bin/activate
 fi
+backend/.venv/bin/pip install -q -r backend/requirements.txt
 
 # 3. Uruchomienie serwera
 cd backend
-
-# Używamy 'exec', aby proces Pythona zastąpił proces bash.
-# Dzięki temu PID zwrócony do AppleScript to PID serwera, 
-# a jego zabicie (kill) poprawnie zwolni port 8002.
-exec python server.py
+exec .venv/bin/python server.py
