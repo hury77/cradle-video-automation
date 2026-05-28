@@ -4,8 +4,9 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
-export PATH="$DIR:$PATH"
-
+export PATH="/opt/homebrew/bin:/usr/local/bin:$DIR:$PATH"
+exec > >(tee -a "/tmp/cradle_dualplay.log") 2>&1
+echo "Starting Cradle DualPlay at $(date)"
 # 1. Sprawdzenie i pobranie FFmpeg jeśli brakuje
 if [ ! -f "ffmpeg" ]; then
     curl -L -s -o ffmpeg.zip "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-mac-64.zip"
