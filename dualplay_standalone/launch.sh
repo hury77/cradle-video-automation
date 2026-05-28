@@ -2,7 +2,7 @@
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$DIR:$PATH"
-exec > >(tee -a "/tmp/cradle_dualplay.log") 2>&1
+exec >> "/tmp/cradle_dualplay.log" 2>&1
 echo "Starting Cradle DualPlay at $(date)"
 
 APP_SUPPORT_DIR="$HOME/Library/Application Support/Cradle DualPlay"
