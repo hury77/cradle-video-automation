@@ -72,9 +72,9 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
             const accOffset = metadata.acceptanceOffset || 0;
             const emOffset = metadata.emissionOffset || 0;
             
-            if (accVideoRef.current) accVideoRef.current.currentTime = time + accOffset;
-            if (emVideoRef.current) emVideoRef.current.currentTime = time + emOffset;
-            if (contextVideoRef.current) contextVideoRef.current.currentTime = time + accOffset;
+            if (accVideoRef.current && accVideoRef.current.readyState >= 1) accVideoRef.current.currentTime = time + accOffset;
+            if (emVideoRef.current && emVideoRef.current.readyState >= 1) emVideoRef.current.currentTime = time + emOffset;
+            if (contextVideoRef.current && contextVideoRef.current.readyState >= 1) contextVideoRef.current.currentTime = time + accOffset;
         }
     }, [selectedIndex, isOpen, sortedDiffs, metadata]);
 
@@ -166,6 +166,14 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                             src={videoUrls.acceptance}
                             className="max-w-full max-h-full object-contain"
                             muted
+                            preload="auto"
+                            crossOrigin="anonymous"
+                            onLoadedMetadata={(e) => {
+                                const currentDiff = sortedDiffs[selectedIndex];
+                                if (currentDiff) {
+                                    e.currentTarget.currentTime = currentDiff.timestamp_seconds + (metadata.acceptanceOffset || 0);
+                                }
+                            }}
                         />
                         <div className="absolute bottom-4 left-4 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
                             {metadata.acceptanceName}
@@ -185,6 +193,14 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                             src={videoUrls.emission}
                             className="max-w-full max-h-full object-contain"
                             muted
+                            preload="auto"
+                            crossOrigin="anonymous"
+                            onLoadedMetadata={(e) => {
+                                const currentDiff = sortedDiffs[selectedIndex];
+                                if (currentDiff) {
+                                    e.currentTarget.currentTime = currentDiff.timestamp_seconds + (metadata.emissionOffset || 0);
+                                }
+                            }}
                         />
                          <div className="absolute bottom-4 left-4 text-xs font-mono text-white bg-black/50 px-2 py-1 rounded">
                             {metadata.emissionName}
@@ -224,6 +240,14 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                                 src={videoUrls.acceptance}
                                 className="max-w-full max-h-full object-contain filter grayscale-[50%] brightness-75" // Dimmed specifically for better contrast
                                 muted
+                                preload="auto"
+                                crossOrigin="anonymous"
+                                onLoadedMetadata={(e) => {
+                                    const currentDiff = sortedDiffs[selectedIndex];
+                                    if (currentDiff) {
+                                        e.currentTarget.currentTime = currentDiff.timestamp_seconds + (metadata.acceptanceOffset || 0);
+                                    }
+                                }}
                             />
                         </div>
 
