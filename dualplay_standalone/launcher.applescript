@@ -7,9 +7,6 @@ on run
 	try
 		-- Run the shell script in the background and capture its PID
 		set serverPID to do shell script "bash " & quoted form of launchScript & " > /dev/null 2>&1 & echo $!"
-		
-		-- Wait 2 seconds for server to start, then open browser
-		do shell script "sleep 2 && open 'http://127.0.0.1:8005'"
 	end try
 end run
 

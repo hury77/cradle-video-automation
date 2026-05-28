@@ -189,4 +189,13 @@ async def serve_spa(full_path: str = ""):
     return {"error": "Frontend build not found."}
 
 if __name__ == "__main__":
+    import threading
+    import webbrowser
+    import time
+    
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open("http://127.0.0.1:8005")
+        
+    threading.Thread(target=open_browser, daemon=True).start()
     uvicorn.run("server:app", host="127.0.0.1", port=8005, log_level="info")
