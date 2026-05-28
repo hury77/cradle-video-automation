@@ -186,4 +186,4 @@ async def serve_spa(full_path: str = ""):
     return {"error": "Frontend build not found."}
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="127.0.0.1", port=8002, log_level="info")
+    uvicorn.run("server:app", host="127.0.0.1", port=8005, log_level="info")
