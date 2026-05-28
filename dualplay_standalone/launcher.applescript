@@ -10,6 +10,10 @@ on run
 	end try
 end run
 
+on idle
+	return 5
+end idle
+
 on quit
 	if serverPID is not "" then
 		try
