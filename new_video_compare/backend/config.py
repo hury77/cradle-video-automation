@@ -142,12 +142,28 @@ class Settings(BaseSettings):
     
     @property
     def is_production(self) -> bool:
-        """Check if running in production environment"""
+        """Check if running in production environment (Port 8001 enforces LIVE)"""
+        import sys
+        if "--port" in sys.argv:
+            try:
+                idx = sys.argv.index("--port")
+                if sys.argv[idx + 1] == "8001":
+                    return True
+            except (ValueError, IndexError):
+                pass
         return self.environment.lower() == "production"
     
     @property
     def is_development(self) -> bool:
-        """Check if running in development environment"""
+        """Check if running in development environment (Port 8001 enforces LIVE)"""
+        import sys
+        if "--port" in sys.argv:
+            try:
+                idx = sys.argv.index("--port")
+                if sys.argv[idx + 1] == "8001":
+                    return False
+            except (ValueError, IndexError):
+                pass
         return self.environment.lower() == "development"
 
 # Create global settings instance
