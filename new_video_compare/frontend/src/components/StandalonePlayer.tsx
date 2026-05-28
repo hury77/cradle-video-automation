@@ -13,6 +13,7 @@ import {
   EyeIcon,
   EyeSlashIcon,
   CameraIcon,
+  EyeDropperIcon,
 } from "@heroicons/react/24/outline";
 
 interface VideoFile {
@@ -26,6 +27,14 @@ interface VideoFile {
 export const StandalonePlayer: React.FC = () => {
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
+
+  // Resolution States
+  const [accDimensions, setAccDimensions] = useState<{width: number, height: number} | null>(null);
+  const [emDimensions, setEmDimensions] = useState<{width: number, height: number} | null>(null);
+
+  // Eyedropper States
+  const [isEyedropperActive, setIsEyedropperActive] = useState(false);
+  const [hoverColor, setHoverColor] = useState<{ r: number, g: number, b: number, hex: string, x: number, y: number, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" } | null>(null);
 
   // Loading/Transcoding States for Backend MXF/MOV Path
   const [acceptanceLoading, setAcceptanceLoading] = useState(false);
@@ -443,6 +452,61 @@ export const StandalonePlayer: React.FC = () => {
     setEmissionError(null);
     setDuration(0);
     setCurrentTime(0);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (!isEyedropperActive || isPlaying || !videoRef.current) {
+      if (hoverColor) setHoverColor(null);
+      return;
+    }
+    
+    const video = videoRef.current;
+    if (video.readyState < 2) return;
+
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const containerRatio = rect.width / rect.height;
+
+    let renderedWidth, renderedHeight, offsetX = 0, offsetY = 0;
+    if (containerRatio > videoRatio) {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * videoRatio;
+      offsetX = (rect.width - renderedWidth) / 2;
+    } else {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / videoRatio;
+      offsetY = (rect.height - renderedHeight) / 2;
+    }
+
+    const mouseX = e.clientX - rect.left - offsetX;
+    const mouseY = e.clientY - rect.top - offsetY;
+
+    if (mouseX < 0 || mouseX > renderedWidth || mouseY < 0 || mouseY > renderedHeight) {
+      // Usunięto czyszczenie, by kolor nie znikał przy krawędziach / robieniu screena
+      return;
+    }
+
+    const sourceX = (mouseX / renderedWidth) * video.videoWidth;
+    const sourceY = (mouseY / renderedHeight) * video.videoHeight;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    try {
+      ctx.drawImage(video, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+      const pixel = ctx.getImageData(0, 0, 1, 1).data;
+      
+      const r = pixel[0], g = pixel[1], b = pixel[2];
+      const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      setHoverColor({ r, g, b, hex, x: e.clientX, y: e.clientY, sourceX, sourceY, sourceVideo });
+    } catch (err) {
+      setHoverColor(null);
+    }
   };
 
   const handleSeek = (time: number) => {
@@ -887,6 +951,59 @@ export const StandalonePlayer: React.FC = () => {
         ctx.fillText("Do sprawdzenia", canvas.width - 178, canvas.height - 14);
       }
 
+      // Eyedropper dynamic overlay matching cursor position
+      if (isEyedropperActive && hoverColor) {
+        const isAcc = hoverColor.sourceVideo === "acceptance";
+        const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : emiVideo.videoWidth);
+        const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : emiVideo.videoHeight);
+        
+        let drawX = hoverColor.sourceX * scaleX;
+        let drawY = hoverColor.sourceY * scaleY + LABEL_H;
+        if (!isAcc) drawX += SIDE_W;
+
+        // Offset the box slightly from the exact pixel
+        drawX += 20;
+        drawY += 20;
+
+        // Keep it inside the canvas
+        if (drawX + 160 > canvas.width) drawX -= 180;
+        if (drawY + 60 > canvas.height) drawY -= 80;
+
+        // Tooltip Background
+        ctx.fillStyle = "rgba(15,23,42,0.95)";
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(drawX, drawY, 150, 44, 8);
+        } else {
+          ctx.fillRect(drawX, drawY, 150, 44);
+        }
+        ctx.fill();
+        ctx.strokeStyle = "rgba(71,85,105,0.5)";
+        ctx.stroke();
+
+        // Color Swatch
+        ctx.fillStyle = hoverColor.hex;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(drawX + 8, drawY + 8, 28, 28, 4);
+        } else {
+          ctx.fillRect(drawX + 8, drawY + 8, 28, 28);
+        }
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.stroke();
+        
+        // Text
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 13px 'Courier New', monospace";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(hoverColor.hex, drawX + 44, drawY + 16);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "10px 'Courier New', monospace";
+        ctx.fillText(`RGB: ${hoverColor.r}, ${hoverColor.g}, ${hoverColor.b}`, drawX + 44, drawY + 32);
+      }
+
       canvas.toBlob((blob) => {
         if (!blob) return;
         const prefix = (acceptanceFile?.name ?? "screenshot")
@@ -914,7 +1031,7 @@ export const StandalonePlayer: React.FC = () => {
       setScreenshotSaving(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acceptanceFile, emissionFile, diffMode]);
+  }, [acceptanceFile, emissionFile, diffMode, isEyedropperActive, hoverColor]);
 
   // Sync individual volumes & master mute state
   useEffect(() => {
@@ -1025,6 +1142,23 @@ export const StandalonePlayer: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6 pb-20">
+      {/* Eyedropper Tooltip */}
+      {isEyedropperActive && hoverColor && (
+        <div 
+          className="fixed z-50 pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 overflow-hidden backdrop-blur-md"
+          style={{ left: hoverColor.x + 20, top: hoverColor.y + 20 }}
+        >
+          <div 
+            className="w-10 h-10 rounded-md border-2 border-white/20 shadow-inner mr-3"
+            style={{ backgroundColor: hoverColor.hex }}
+          ></div>
+          <div className="flex flex-col font-mono text-xs pr-2">
+            <span className="font-bold text-gray-100 text-sm mb-0.5 tracking-wider">{hoverColor.hex}</span>
+            <span className="text-gray-400">RGB: <span className="text-gray-200">{hoverColor.r}, {hoverColor.g}, {hoverColor.b}</span></span>
+          </div>
+        </div>
+      )}
+
       {/* Title Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -1165,10 +1299,14 @@ export const StandalonePlayer: React.FC = () => {
           {/* Header Panel */}
           <div className="px-6 py-4 border-b border-gray-100 bg-green-50/50 flex justify-between items-center">
             <div>
-              <h3 className="font-semibold text-green-800">Wideo Akceptacyjne (Acceptance)</h3>
+              <h3 className="font-semibold text-green-800">Acceptance</h3>
               {acceptanceFile && (
-                <p className="text-xs text-gray-500 truncate max-w-[300px] mt-0.5" title={acceptanceFile.name}>
-                  {acceptanceFile.name} • {formatFileSize(acceptanceFile.size)}
+                <p className="text-xs text-gray-500 flex items-center mt-0.5" title={acceptanceFile.name}>
+                  <span className="truncate max-w-[200px]">{acceptanceFile.name}</span>
+                  <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
+                    • {formatFileSize(acceptanceFile.size)}
+                    {accDimensions && ` • ${accDimensions.width}x${accDimensions.height}`}
+                  </span>
                 </p>
               )}
             </div>
@@ -1215,10 +1353,14 @@ export const StandalonePlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className="w-full h-full object-contain bg-black rounded-lg"
+                className={`w-full h-full object-contain bg-black rounded-lg ${isEyedropperActive && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onLoadedMetadata={(e) => {
+                  setAccDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
+                }}
+                onMouseMove={(e) => handleMouseMove(e, acceptanceVideoRef)}
                 onError={() => {
                   setAcceptanceError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
                 }}
@@ -1226,7 +1368,7 @@ export const StandalonePlayer: React.FC = () => {
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść Wideo Akceptacyjne</p>
+                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść wideo Acceptance</p>
                 <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
               </div>
             )}
@@ -1277,10 +1419,14 @@ export const StandalonePlayer: React.FC = () => {
           {/* Header Panel */}
           <div className="px-6 py-4 border-b border-gray-100 bg-red-50/50 flex justify-between items-center">
             <div>
-              <h3 className="font-semibold text-red-800">Wideo Emisyjne (Emission)</h3>
+              <h3 className="font-semibold text-red-800">Emission</h3>
               {emissionFile && (
-                <p className="text-xs text-gray-500 truncate max-w-[300px] mt-0.5" title={emissionFile.name}>
-                  {emissionFile.name} • {formatFileSize(emissionFile.size)}
+                <p className="text-xs text-gray-500 flex items-center mt-0.5" title={emissionFile.name}>
+                  <span className="truncate max-w-[200px]">{emissionFile.name}</span>
+                  <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
+                    • {formatFileSize(emissionFile.size)}
+                    {emDimensions && ` • ${emDimensions.width}x${emDimensions.height}`}
+                  </span>
                 </p>
               )}
             </div>
@@ -1327,10 +1473,14 @@ export const StandalonePlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className="w-full h-full object-contain bg-black rounded-lg"
+                className={`w-full h-full object-contain bg-black rounded-lg ${isEyedropperActive && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
+                onLoadedMetadata={(e) => {
+                  setEmDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
+                }}
+                onMouseMove={(e) => handleMouseMove(e, emissionVideoRef)}
                 onError={() => {
                   setEmissionError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
                 }}
@@ -1338,7 +1488,7 @@ export const StandalonePlayer: React.FC = () => {
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść Wideo Emisyjne</p>
+                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść wideo Emission</p>
                 <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
               </div>
             )}
@@ -1455,6 +1605,24 @@ export const StandalonePlayer: React.FC = () => {
               title="Zatrzymaj"
             >
               <StopIcon className="w-5 h-5" />
+            </button>
+
+            {/* Eyedropper Toggle */}
+            <div className="w-px h-6 bg-gray-300 mx-2"></div>
+            <button
+              onClick={() => {
+                setIsEyedropperActive(!isEyedropperActive);
+                if (isEyedropperActive) setHoverColor(null);
+              }}
+              disabled={!acceptanceFile && !emissionFile}
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+                isEyedropperActive 
+                  ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200" 
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+              title={isEyedropperActive ? "Wyłącz próbnik koloru (Kroplomierz)" : "Włącz próbnik koloru (Kroplomierz, aktywny na pauzie)"}
+            >
+              <EyeDropperIcon className="w-5 h-5" />
             </button>
 
             {/* Analyze current frame (only visible in diff mode) */}
