@@ -22,7 +22,7 @@
 		</data>
 		<key>Resources/frontend/asset-manifest.json</key>
 		<data>
-		x5mP3Vl4GSUTa3YfYjEnFq86y7M=
+		JSGBi7fs0bZ6UJ44zuPPbWuUP+A=
 		</data>
 		<key>Resources/frontend/favicon.ico</key>
 		<data>
@@ -30,7 +30,7 @@
 		</data>
 		<key>Resources/frontend/index.html</key>
 		<data>
-		FCEdNjcifMyG1x5xPOqu4lO4KyU=
+		0vo1r2ddoauytQ9b/NEnCqYp06Y=
 		</data>
 		<key>Resources/frontend/logo192.png</key>
 		<data>
@@ -48,13 +48,13 @@
 		<data>
 		BEzmj4PuhUNHX+oW9uOnPSihxtU=
 		</data>
-		<key>Resources/frontend/static/css/main.8304239b.css</key>
+		<key>Resources/frontend/static/css/main.cf0fc759.css</key>
 		<data>
-		8ZbLCYOoxGpFyKj+OeVB2gSsle8=
+		ES+FzREfM7xBg99ppO4AX6q2FEk=
 		</data>
-		<key>Resources/frontend/static/css/main.8304239b.css.map</key>
+		<key>Resources/frontend/static/css/main.cf0fc759.css.map</key>
 		<data>
-		JW/WJHDKDpg4w9s/oIk6VSnicc4=
+		hBJWZ7Rg0VMru+MbadwgGa11ex4=
 		</data>
 		<key>Resources/frontend/static/js/453.d7446e4a.chunk.js</key>
 		<data>
@@ -64,17 +64,17 @@
 		<data>
 		jPM787O16MzeJtxBfN4KtN1jInA=
 		</data>
-		<key>Resources/frontend/static/js/main.c86e1013.js</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js</key>
 		<data>
-		h6UpC+D3mIsZvYxi54BKkD1SW9Q=
+		fWoUAVFr3lSS9XJxroYDZNU8Gbo=
 		</data>
-		<key>Resources/frontend/static/js/main.c86e1013.js.LICENSE.txt</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js.LICENSE.txt</key>
 		<data>
 		NuJK8LxRSSi35iO3hLG3YkmJn/4=
 		</data>
-		<key>Resources/frontend/static/js/main.c86e1013.js.map</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js.map</key>
 		<data>
-		Vi4fUTrIqNjfDTVzSJZZmOHGCc8=
+		Ey1baOF9bIZtrQ2T9ExFGRrOks0=
 		</data>
 		<key>Resources/launch.sh</key>
 		<data>
@@ -115,7 +115,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			bUJlB+0B0bKQNgQbNffwTmErR9LDTj16QaKqdKfCLVc=
+			qI0JU0dUBxWopfIJhHgXU1TJ+a119gioz8rSP/CpmyA=
 			</data>
 		</dict>
 		<key>Resources/frontend/favicon.ico</key>
@@ -129,7 +129,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			cw43JWZeccDZSxYVEJmSArWjpOlfclGmYNSzIu27bn4=
+			ndzP1ga2slnF2eXCkxQ6MPMHUkXxjHtgEh+rBXvgnVc=
 			</data>
 		</dict>
 		<key>Resources/frontend/logo192.png</key>
@@ -160,18 +160,18 @@
 			kNJLw79pisHhc3OVAimMzKcq3x9WT6sF9IS4xI0crdI=
 			</data>
 		</dict>
-		<key>Resources/frontend/static/css/main.8304239b.css</key>
+		<key>Resources/frontend/static/css/main.cf0fc759.css</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			6hUCAZsltx31WE6rxHyVUaOu356OdBBqfhJJX4gfUss=
+			uHt58K2m4YrTYXQ13kbHTLdZaEqqCaDe5mOBUPiur4o=
 			</data>
 		</dict>
-		<key>Resources/frontend/static/css/main.8304239b.css.map</key>
+		<key>Resources/frontend/static/css/main.cf0fc759.css.map</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			JHGh5dXmevk4BPagnlxKF9YuEyfLDzjbcsSOOA4GRQI=
+			y8j09chrR2eNidY0lC4l4tdkoPOBf1PqPZkR5XAMHxU=
 			</data>
 		</dict>
 		<key>Resources/frontend/static/js/453.d7446e4a.chunk.js</key>
@@ -188,25 +188,25 @@
 			UE08VKfnnRkFmmQih9znrf3O57XORUjJ9JV8IV4APj4=
 			</data>
 		</dict>
-		<key>Resources/frontend/static/js/main.c86e1013.js</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			345bjnlFREijpli8yqZ+NVKXYoNUa8f2WeTWf74Dz5w=
+			n5cOxIfx/loNxeUHzGQmwg5xJwzmHDJs1FULAyAmfh4=
 			</data>
 		</dict>
-		<key>Resources/frontend/static/js/main.c86e1013.js.LICENSE.txt</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js.LICENSE.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			7L6ZrhYiFXncw4MqI6x6MyRxNZT4v5PmN8Sd2zFKvoY=
 			</data>
 		</dict>
-		<key>Resources/frontend/static/js/main.c86e1013.js.map</key>
+		<key>Resources/frontend/static/js/main.a4e3cdbb.js.map</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			5p8GaMQo9OjC03Ra59Q0ky+KXN3UWCXyaupAm9agSi0=
+			wvmVQx3EV1eR/Ijur5uFL24Nre5laECTHodk3z6R4Dc=
 			</data>
 		</dict>
 		<key>Resources/launch.sh</key>

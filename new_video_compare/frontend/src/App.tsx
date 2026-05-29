@@ -129,8 +129,12 @@ function App() {
     }
   };
 
-  // Check if we are running in standalone DualPlay mode
-  if (process.env.REACT_APP_STANDALONE_MODE === "true") {
+  // Dynamic runtime check for standalone desktop app mode
+  // The macOS wrapper starts the lightweight FastAPI server on port 8005
+  // This must be a runtime check because LIVE and Desktop share the same build/ folder!
+  const isDesktopMode = window.location.port === "8005";
+
+  if (isDesktopMode) {
     return (
       <div className="min-h-screen bg-slate-50">
         <StandalonePlayer />
