@@ -59,6 +59,10 @@ export const StandalonePlayer: React.FC = () => {
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
 
+  // Trim States
+  const [acceptanceTrim, setAcceptanceTrim] = useState(0);
+  const [emissionTrim, setEmissionTrim] = useState(0);
+
   // Loading/Transcoding States for Backend MXF/MOV Path
   const [acceptanceLoading, setAcceptanceLoading] = useState(false);
   const [emissionLoading, setEmissionLoading] = useState(false);
@@ -371,8 +375,8 @@ export const StandalonePlayer: React.FC = () => {
       videos.forEach((video) => video?.pause());
     } else {
       // Seek both to current timeline before playing to maintain strict sync
-      if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = currentTime;
-      if (emissionVideoRef.current) emissionVideoRef.current.currentTime = currentTime;
+      if (acceptanceVideoRef.current) acceptanceVideoRef.current.currentTime = currentTime + acceptanceTrim;
+      if (emissionVideoRef.current) emissionVideoRef.current.currentTime = currentTime + emissionTrim;
       // Attach .catch() DIRECTLY to the play promise to prevent React Error Overlay from intercepting it
       videos.forEach((video) => {
         if (video) {
@@ -475,6 +479,8 @@ export const StandalonePlayer: React.FC = () => {
     setEmissionError(null);
     setDuration(0);
     setCurrentTime(0);
+    setAcceptanceTrim(0);
+    setEmissionTrim(0);
   };
 
   const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -576,13 +582,15 @@ export const StandalonePlayer: React.FC = () => {
 
   const handleSeek = (time: number) => {
     if (acceptanceVideoRef.current) {
-      acceptanceVideoRef.current.currentTime = time;
+      acceptanceVideoRef.current.currentTime = time + acceptanceTrim;
     }
     if (emissionVideoRef.current) {
-      emissionVideoRef.current.currentTime = time;
+      emissionVideoRef.current.currentTime = time + emissionTrim;
     }
     setCurrentTime(time);
   };
+
+
 
   const handleStep = (frames: number) => {
     // Zakładamy 25 fps jako standard dla broadcast
@@ -605,11 +613,11 @@ export const StandalonePlayer: React.FC = () => {
   const teleportToTimestamp = useCallback((time: number) => {
     if (acceptanceVideoRef.current) {
       acceptanceVideoRef.current.pause();
-      acceptanceVideoRef.current.currentTime = time;
+      acceptanceVideoRef.current.currentTime = time + acceptanceTrim;
     }
     if (emissionVideoRef.current) {
       emissionVideoRef.current.pause();
-      emissionVideoRef.current.currentTime = time;
+      emissionVideoRef.current.currentTime = time + emissionTrim;
     }
     setIsPlaying(false);
     setCurrentTime(time);
@@ -1183,27 +1191,28 @@ export const StandalonePlayer: React.FC = () => {
     const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
 
     const handleLoadedMetadata = () => {
-      // Set duration based on the longest loaded video
-      const accDur = acceptanceVideoRef.current?.duration || 0;
-      const emiDur = emissionVideoRef.current?.duration || 0;
+      // Set duration based on the longest loaded video minus trim
+      const accDur = acceptanceVideoRef.current ? Math.max(0, acceptanceVideoRef.current.duration - acceptanceTrim) : 0;
+      const emiDur = emissionVideoRef.current ? Math.max(0, emissionVideoRef.current.duration - emissionTrim) : 0;
       setDuration(Math.max(accDur, emiDur));
     };
 
     const handleTimeUpdate = () => {
       // Use acceptance video as the sync master by default
       if (acceptanceVideoRef.current) {
-        const accTime = acceptanceVideoRef.current.currentTime;
-        setCurrentTime(accTime);
+        const timelineTime = Math.max(0, acceptanceVideoRef.current.currentTime - acceptanceTrim);
+        setCurrentTime(timelineTime);
 
         // Keep the second video in lock-step (threshold of 0.15 seconds)
         if (emissionVideoRef.current && isPlaying) {
-          if (Math.abs(emissionVideoRef.current.currentTime - accTime) > 0.15) {
-            emissionVideoRef.current.currentTime = accTime;
+          const expectedEmissionTime = timelineTime + emissionTrim;
+          if (Math.abs(emissionVideoRef.current.currentTime - expectedEmissionTime) > 0.15) {
+            emissionVideoRef.current.currentTime = expectedEmissionTime;
           }
         }
       } else if (emissionVideoRef.current) {
         // Fallback to emission video if acceptance is not loaded
-        setCurrentTime(emissionVideoRef.current.currentTime);
+        setCurrentTime(Math.max(0, emissionVideoRef.current.currentTime - emissionTrim));
       }
     };
 
@@ -1233,7 +1242,7 @@ export const StandalonePlayer: React.FC = () => {
         }
       });
     };
-  }, [acceptanceFile, emissionFile, isPlaying]);
+  }, [acceptanceFile, emissionFile, isPlaying, acceptanceTrim, emissionTrim]);
 
   // Clean up Object URLs and active polling timeouts when component unmounts
   useEffect(() => {
@@ -1306,7 +1315,7 @@ export const StandalonePlayer: React.FC = () => {
     if (activeRulerLine) linesToRender.push(activeRulerLine);
 
     return (
-      <svg className="absolute inset-0 w-full h-full pointer-events-none z-20">
+      <svg className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
         {linesToRender.filter(l => l.sourceVideo === sourceVideo).map((line, i) => {
           const start = mapToScreen(line.startX, line.startY);
           const end = mapToScreen(line.endX, line.endY);
@@ -1374,7 +1383,7 @@ export const StandalonePlayer: React.FC = () => {
       {/* Title Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Cradle DualPlay</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Sync Dual Player</h2>
           <p className="text-gray-500 text-sm">
             Przeciągnij i upuść pliki wideo, aby odtworzyć je obok siebie w pełnej synchronizacji. Obsługuje formaty MP4, MOV oraz MXF.
           </p>
@@ -1619,6 +1628,32 @@ export const StandalonePlayer: React.FC = () => {
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
             </span>
+            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
+              <label className="font-semibold text-gray-600 mr-1">Trim</label>
+              <button 
+                onClick={() => setAcceptanceTrim(t => Math.max(0, t - 0.04))}
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                disabled={!acceptanceFile}
+              >-</button>
+              <input
+                type="number"
+                min="0"
+                step="0.04"
+                value={Number(acceptanceTrim.toFixed(2))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  setAcceptanceTrim(Math.round(val / 0.04) * 0.04);
+                }}
+                disabled={!acceptanceFile}
+                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-40"
+              />
+              <button 
+                onClick={() => setAcceptanceTrim(t => t + 0.04)}
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                disabled={!acceptanceFile}
+              >+</button>
+              <span className="ml-1">s</span>
+            </div>
           </div>
         </div>
 
@@ -1743,6 +1778,32 @@ export const StandalonePlayer: React.FC = () => {
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
             </span>
+            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
+              <label className="font-semibold text-gray-600 mr-1">Trim</label>
+              <button 
+                onClick={() => setEmissionTrim(t => Math.max(0, t - 0.04))}
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                disabled={!emissionFile}
+              >-</button>
+              <input
+                type="number"
+                min="0"
+                step="0.04"
+                value={Number(emissionTrim.toFixed(2))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  setEmissionTrim(Math.round(val / 0.04) * 0.04);
+                }}
+                disabled={!emissionFile}
+                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-40"
+              />
+              <button 
+                onClick={() => setEmissionTrim(t => t + 0.04)}
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                disabled={!emissionFile}
+              >+</button>
+              <span className="ml-1">s</span>
+            </div>
           </div>
         </div>
       </div>
