@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Cradle Scanner [DEV]",
+  "name": "Cradle Scanner [LIVE]",
   "version": "1.0",
   "description": "Automated Cradle video processing",
   
@@ -29,7 +29,7 @@
   
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Cradle Scanner [DEV]"
+    "default_title": "Cradle Scanner [LIVE]"
   },
   
   "icons": {
