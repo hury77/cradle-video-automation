@@ -14,7 +14,24 @@ import {
   EyeSlashIcon,
   CameraIcon,
   EyeDropperIcon,
+  ArrowsRightLeftIcon,
 } from "@heroicons/react/24/outline";
+
+const RulerIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 4.5l-15 15m0 0l-3-3 15-15 3 3-15 15z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 7.5l1.5 1.5M13.5 10.5l1.5 1.5M10.5 13.5l1.5 1.5M7.5 16.5l1.5 1.5" />
+  </svg>
+);
+
+interface RulerLine {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  sourceVideo: "acceptance" | "emission";
+  color: string;
+}
 
 interface VideoFile {
   url: string;
@@ -35,6 +52,12 @@ export const StandalonePlayer: React.FC = () => {
   // Eyedropper States
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [hoverColor, setHoverColor] = useState<{ r: number, g: number, b: number, hex: string, x: number, y: number, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" } | null>(null);
+
+  // Ruler States
+  const [isRulerActive, setIsRulerActive] = useState(false);
+  const [rulerColor, setRulerColor] = useState("#3b82f6");
+  const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
+  const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
 
   // Loading/Transcoding States for Backend MXF/MOV Path
   const [acceptanceLoading, setAcceptanceLoading] = useState(false);
@@ -454,14 +477,9 @@ export const StandalonePlayer: React.FC = () => {
     setCurrentTime(0);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
-    if (!isEyedropperActive || isPlaying || !videoRef.current) {
-      if (hoverColor) setHoverColor(null);
-      return;
-    }
-    
+  const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     const video = videoRef.current;
-    if (video.readyState < 2) return;
+    if (!video || video.readyState < 2) return null;
 
     const rect = video.getBoundingClientRect();
     const videoRatio = video.videoWidth / video.videoHeight;
@@ -482,12 +500,52 @@ export const StandalonePlayer: React.FC = () => {
     const mouseY = e.clientY - rect.top - offsetY;
 
     if (mouseX < 0 || mouseX > renderedWidth || mouseY < 0 || mouseY > renderedHeight) {
-      // Usunięto czyszczenie, by kolor nie znikał przy krawędziach / robieniu screena
-      return;
+      return null;
     }
 
     const sourceX = (mouseX / renderedWidth) * video.videoWidth;
     const sourceY = (mouseY / renderedHeight) * video.videoHeight;
+
+    return { sourceX, sourceY, video, renderedWidth, renderedHeight, offsetX, offsetY, rect };
+  };
+
+  const handleVideoMouseDown = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (!isRulerActive || isPlaying) return;
+    const coords = getMouseSourceCoordinates(e, videoRef);
+    if (!coords) return;
+    const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+    
+    setActiveRulerLine({
+      startX: coords.sourceX,
+      startY: coords.sourceY,
+      endX: coords.sourceX,
+      endY: coords.sourceY,
+      sourceVideo,
+      color: rulerColor
+    });
+  };
+
+  const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (isRulerActive && activeRulerLine && !isPlaying) {
+      const coords = getMouseSourceCoordinates(e, videoRef);
+      if (coords) {
+        setActiveRulerLine({
+          ...activeRulerLine,
+          endX: coords.sourceX,
+          endY: coords.sourceY
+        });
+      }
+    }
+
+    if (!isEyedropperActive || isPlaying) {
+      if (hoverColor) setHoverColor(null);
+      return;
+    }
+    
+    const coords = getMouseSourceCoordinates(e, videoRef);
+    if (!coords) return;
+    
+    const { sourceX, sourceY, video } = coords;
 
     const canvas = document.createElement("canvas");
     canvas.width = 1;
@@ -506,6 +564,13 @@ export const StandalonePlayer: React.FC = () => {
       setHoverColor({ r, g, b, hex, x: e.clientX, y: e.clientY, sourceX, sourceY, sourceVideo });
     } catch (err) {
       setHoverColor(null);
+    }
+  };
+
+  const handleVideoMouseUp = () => {
+    if (isRulerActive && activeRulerLine) {
+      setRulerLines(prev => [...prev, activeRulerLine]);
+      setActiveRulerLine(null);
     }
   };
 
@@ -1004,6 +1069,73 @@ export const StandalonePlayer: React.FC = () => {
         ctx.fillText(`RGB: ${hoverColor.r}, ${hoverColor.g}, ${hoverColor.b}`, drawX + 44, drawY + 32);
       }
 
+      // Ruler overlay
+      if (isRulerActive) {
+        const linesToRender = [...rulerLines];
+        if (activeRulerLine) linesToRender.push(activeRulerLine);
+        
+        linesToRender.forEach((line) => {
+          const isAcc = line.sourceVideo === "acceptance";
+          const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : emiVideo.videoWidth);
+          const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : emiVideo.videoHeight);
+          
+          let drawStartX = line.startX * scaleX;
+          let drawStartY = line.startY * scaleY + LABEL_H;
+          let drawEndX = line.endX * scaleX;
+          let drawEndY = line.endY * scaleY + LABEL_H;
+          
+          if (!isAcc) {
+            drawStartX += SIDE_W;
+            drawEndX += SIDE_W;
+          }
+          
+          const dist = Math.round(Math.sqrt(Math.pow(line.endX - line.startX, 2) + Math.pow(line.endY - line.startY, 2)));
+          const midX = (drawStartX + drawEndX) / 2;
+          const midY = (drawStartY + drawEndY) / 2;
+          
+          ctx.beginPath();
+          ctx.moveTo(drawStartX, drawStartY);
+          ctx.lineTo(drawEndX, drawEndY);
+          ctx.strokeStyle = line.color;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 2]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          
+          const angle = Math.atan2(drawEndY - drawStartY, drawEndX - drawStartX);
+          const arrowLength = 8;
+          const arrowAngle = Math.PI / 6;
+
+          ctx.fillStyle = line.color;
+          
+          // Draw start arrow
+          ctx.beginPath();
+          ctx.moveTo(drawStartX, drawStartY);
+          ctx.lineTo(drawStartX + arrowLength * Math.cos(angle - arrowAngle), drawStartY + arrowLength * Math.sin(angle - arrowAngle));
+          ctx.lineTo(drawStartX + arrowLength * Math.cos(angle + arrowAngle), drawStartY + arrowLength * Math.sin(angle + arrowAngle));
+          ctx.closePath();
+          ctx.fill();
+
+          // Draw end arrow
+          ctx.beginPath();
+          ctx.moveTo(drawEndX, drawEndY);
+          ctx.lineTo(drawEndX - arrowLength * Math.cos(angle - arrowAngle), drawEndY - arrowLength * Math.sin(angle - arrowAngle));
+          ctx.lineTo(drawEndX - arrowLength * Math.cos(angle + arrowAngle), drawEndY - arrowLength * Math.sin(angle + arrowAngle));
+          ctx.closePath();
+          ctx.fill();
+          
+          if (dist > 0) {
+            ctx.fillStyle = line.color;
+            ctx.font = "bold 14px sans-serif";
+            ctx.textAlign = "center";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 3;
+            ctx.strokeText(`${dist} px`, midX, midY - 8);
+            ctx.fillText(`${dist} px`, midX, midY - 8);
+          }
+        });
+      }
+
       canvas.toBlob((blob) => {
         if (!blob) return;
         const prefix = (acceptanceFile?.name ?? "screenshot")
@@ -1031,7 +1163,7 @@ export const StandalonePlayer: React.FC = () => {
       setScreenshotSaving(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acceptanceFile, emissionFile, diffMode, isEyedropperActive, hoverColor]);
+  }, [acceptanceFile, emissionFile, diffMode, isEyedropperActive, hoverColor, isRulerActive, rulerLines, activeRulerLine]);
 
   // Sync individual volumes & master mute state
   useEffect(() => {
@@ -1138,6 +1270,86 @@ export const StandalonePlayer: React.FC = () => {
     const seconds = Math.floor(time % 60);
     const frames = Math.floor((time % 1) * fps);
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
+  };
+
+  const renderRulerOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (!isRulerActive) return null;
+    
+    const video = containerRef.current;
+    if (!video || video.readyState < 2) return null;
+    
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const containerRatio = rect.width / rect.height;
+
+    let renderedWidth: number, renderedHeight: number, offsetX = 0, offsetY = 0;
+    if (containerRatio > videoRatio) {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * videoRatio;
+      offsetX = (rect.width - renderedWidth) / 2;
+    } else {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / videoRatio;
+      offsetY = (rect.height - renderedHeight) / 2;
+    }
+
+    const mapToScreen = (sx: number, sy: number) => ({
+      x: (sx / video.videoWidth) * renderedWidth + offsetX,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY
+    });
+
+    const calculateDistance = (line: RulerLine) => {
+      return Math.round(Math.sqrt(Math.pow(line.endX - line.startX, 2) + Math.pow(line.endY - line.startY, 2)));
+    };
+
+    const linesToRender = [...rulerLines];
+    if (activeRulerLine) linesToRender.push(activeRulerLine);
+
+    return (
+      <svg className="absolute inset-0 w-full h-full pointer-events-none z-20">
+        {linesToRender.filter(l => l.sourceVideo === sourceVideo).map((line, i) => {
+          const start = mapToScreen(line.startX, line.startY);
+          const end = mapToScreen(line.endX, line.endY);
+          const dist = calculateDistance(line);
+          const midX = (start.x + end.x) / 2;
+          const midY = (start.y + end.y) / 2;
+          
+          const angle = Math.atan2(end.y - start.y, end.x - start.x);
+          const arrowLength = 8;
+          const arrowAngle = Math.PI / 6;
+
+          const p1 = {
+            x: start.x + arrowLength * Math.cos(angle - arrowAngle),
+            y: start.y + arrowLength * Math.sin(angle - arrowAngle)
+          };
+          const p2 = {
+            x: start.x + arrowLength * Math.cos(angle + arrowAngle),
+            y: start.y + arrowLength * Math.sin(angle + arrowAngle)
+          };
+          const p3 = {
+            x: end.x - arrowLength * Math.cos(angle - arrowAngle),
+            y: end.y - arrowLength * Math.sin(angle - arrowAngle)
+          };
+          const p4 = {
+            x: end.x - arrowLength * Math.cos(angle + arrowAngle),
+            y: end.y - arrowLength * Math.sin(angle + arrowAngle)
+          };
+
+          return (
+            <g key={i}>
+              <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={line.color} strokeWidth="2" strokeDasharray="4 2" />
+              <polygon points={`${start.x},${start.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={line.color} />
+              <polygon points={`${end.x},${end.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`} fill={line.color} />
+              {dist > 0 && (
+                <text x={midX} y={midY - 8} fill={line.color} fontSize="12" fontWeight="bold" textAnchor="middle" style={{ textShadow: "0px 1px 3px rgba(0,0,0,0.8), 0px 0px 2px rgba(0,0,0,1)" }}>
+                  {dist} px
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    );
   };
 
   return (
@@ -1353,14 +1565,17 @@ export const StandalonePlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${isEyedropperActive && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
                 onLoadedMetadata={(e) => {
                   setAccDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
                 }}
-                onMouseMove={(e) => handleMouseMove(e, acceptanceVideoRef)}
+                onMouseDown={(e) => handleVideoMouseDown(e, acceptanceVideoRef)}
+                onMouseMove={(e) => handleVideoMouseMove(e, acceptanceVideoRef)}
+                onMouseUp={handleVideoMouseUp}
+                onMouseLeave={handleVideoMouseUp}
                 onError={() => {
                   setAcceptanceError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
                 }}
@@ -1372,6 +1587,7 @@ export const StandalonePlayer: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
               </div>
             )}
+            {renderRulerOverlay("acceptance", acceptanceVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -1473,14 +1689,17 @@ export const StandalonePlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${isEyedropperActive && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
                 onLoadedMetadata={(e) => {
                   setEmDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
                 }}
-                onMouseMove={(e) => handleMouseMove(e, emissionVideoRef)}
+                onMouseDown={(e) => handleVideoMouseDown(e, emissionVideoRef)}
+                onMouseMove={(e) => handleVideoMouseMove(e, emissionVideoRef)}
+                onMouseUp={handleVideoMouseUp}
+                onMouseLeave={handleVideoMouseUp}
                 onError={() => {
                   setEmissionError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
                 }}
@@ -1492,6 +1711,7 @@ export const StandalonePlayer: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
               </div>
             )}
+            {renderRulerOverlay("emission", emissionVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -1624,6 +1844,37 @@ export const StandalonePlayer: React.FC = () => {
             >
               <EyeDropperIcon className="w-5 h-5" />
             </button>
+
+            {/* Ruler Toggle */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setIsRulerActive(!isRulerActive);
+                  if (isRulerActive) {
+                    setRulerLines([]);
+                    setActiveRulerLine(null);
+                  }
+                }}
+                disabled={!acceptanceFile && !emissionFile}
+                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+                  isRulerActive 
+                    ? "bg-blue-100 text-blue-700 hover:bg-blue-200" 
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+                title={isRulerActive ? "Wyłącz miarkę (Linijka)" : "Włącz miarkę pikseli (Linijka, aktywna na pauzie)"}
+              >
+                <RulerIcon className="w-5 h-5" />
+              </button>
+              {isRulerActive && (
+                <input
+                  type="color"
+                  value={rulerColor}
+                  onChange={(e) => setRulerColor(e.target.value)}
+                  className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
+                  title="Wybierz kolor miarki"
+                />
+              )}
+            </div>
 
             {/* Analyze current frame (only visible in diff mode) */}
             {diffMode && (
