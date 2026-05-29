@@ -5,12 +5,14 @@ Plik konfiguracyjny: [backend/config.py](./new_video_compare/backend/config.py) 
 System New Video Compare posiada cztery zdefiniowane poziomy czułości, które wpływają na progi akceptacji różnic w wideo, gęstość próbkowania (klatki na sekundę) oraz sposób przetwarzania dźwięku.
 
 ## 1. Poziom Niski (`low`)
-*   **Minimalny SSIM**: `0.85` (Podstawowe podobieństwo strukturalne)
-*   **Tolerancja pikseli**: `10%` (Dopuszczalna różnica w klatkach)
-*   **Częstotliwość analizy**: `1.0 klatka/s` (FPS)
-*   **Maksymalna liczba klatek**: `300` (Ok. 5 minut wideo przy 1.0 klatka/s)
-*   **Normalizacja jakości**: Nie
-*   **Zastosowanie**: Szybka weryfikacja techniczna przy dużej tolerancji na zmiany.
+*   **Minimalny SSIM**: `0.93` (Podstawowe podobieństwo strukturalne, zbliżone do trybu High)
+*   **Tolerancja pikseli**: `1.5%` (Dopuszczalna różnica w klatkach, niewielka tolerancja na kompresję)
+*   **Częstotliwość analizy**: `3.0 klatki/s` (FPS - zbalansowana precyzja czasowa)
+*   **Maksymalna liczba klatek**: `1800` (Ok. 10 minut wideo przy 3.0 klatki/s)
+*   **Normalizacja jakości**: Tak
+*   **Audio (Demucs)**: Tak (Separacja lektora włączona)
+*   **Audio (Whisper)**: Tak (Pełna transkrypcja włączona)
+*   **Zastosowanie**: Szybka weryfikacja techniczna przy nieznacznie podwyższonej tolerancji na zmiany kompresyjne względem High.
 
 ## 2. Poziom Średni (`medium`)
 *   *Poziom domyślny*

@@ -34,8 +34,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
   const [error, setError] = useState<string | null>(null);
   const [jobName, setJobName] = useState("");
   const [creatingJob, setCreatingJob] = useState(false);
-  const [sensitivityLevel, setSensitivityLevel] = useState<"low" | "medium" | "high">("medium");
-  const [comparisonType, setComparisonType] = useState<"video_only" | "audio_only" | "full">("full");
+  const [sensitivityLevel, setSensitivityLevel] = useState<"low" | "high">("high");
   // OCR removed — visual differences detected by SSIM+pixel diff comparison
 
   const acceptanceInputRef = useRef<HTMLInputElement>(null);
@@ -106,10 +105,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
   // Auto-fill Job Name from Acceptance File
   useEffect(() => {
     if (acceptanceFile && !jobName) {
-      // Take first 13 chars of filename (without extension if possible, or just raw string)
+      // Take first 7 chars of filename as Cradle ID
       const name = acceptanceFile.filename;
-      // Simple logic: first 13 chars.
-      setJobName(name.substring(0, 13));
+      setJobName(name.substring(0, 7));
     }
   }, [acceptanceFile, jobName]);
 
@@ -155,7 +153,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
       job_name: jobName || `Comparison ${new Date().toLocaleString()}`,
       acceptance_file_id: acceptanceFile.id,
       emission_file_id: emissionFile.id,
-      comparison_type: comparisonType,
+      comparison_type: "full",
       sensitivity_level: sensitivityLevel,
     };
 
@@ -194,10 +192,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
     setAcceptanceFile(null);
     setEmissionFile(null);
     setJobName("");
-    setJobName("");
-    setJobName("");
-    setSensitivityLevel("medium");
-    setComparisonType("full");
+    setSensitivityLevel("high");
     // OCR state cleanup removed
     setError(null);
   };
@@ -344,88 +339,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                 </button>
               </div>
 
-              {/* Job Name */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Job Name (optional)
-                </label>
-                <input
-                  type="text"
-                  value={jobName}
-                  onChange={(e) => setJobName(e.target.value)}
-                  placeholder="e.g., Client XYZ - TV Spot"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-
-
-              
-              {/* Comparison Mode */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Comparison Mode
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setComparisonType("video_only")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      comparisonType === "video_only"
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center mb-1">
-                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "video_only" ? "bg-blue-200 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
-                        <VideoCameraIcon className="w-4 h-4" />
-                      </span>
-                      <span className="font-medium text-gray-900">Video Only</span>
-                    </div>
-                    <p className="text-xs text-gray-500">Visuals only</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setComparisonType("audio_only")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      comparisonType === "audio_only"
-                        ? "border-purple-500 bg-purple-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center mb-1">
-                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "audio_only" ? "bg-purple-200 text-purple-700" : "bg-gray-100 text-gray-500"}`}>
-                        <SpeakerWaveIcon className="w-4 h-4" />
-                      </span>
-                      <span className="font-medium text-gray-900">Audio Only</span>
-                    </div>
-                    <p className="text-xs text-gray-500">Sound & Loudness</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setComparisonType("full")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      comparisonType === "full"
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center mb-1">
-                      <span className={`p-1 rounded-md mr-2 ${comparisonType === "full" ? "bg-indigo-200 text-indigo-700" : "bg-gray-100 text-gray-500"}`}>
-                        <Squares2X2Icon className="w-4 h-4" />
-                      </span>
-                      <span className="font-medium text-gray-900">Full Check</span>
-                    </div>
-                    <p className="text-xs text-gray-500">Video + Audio</p>
-                  </button>
-                </div>
-              </div>
-
               {/* Sensitivity Level */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Sensitivity Level
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
                     onClick={() => setSensitivityLevel("low")}
@@ -440,21 +359,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                       <span className="font-medium text-gray-900">Low</span>
                     </div>
                     <p className="text-xs text-gray-500">Quick check</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSensitivityLevel("medium")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
-                      sensitivityLevel === "medium"
-                        ? "border-yellow-500 bg-yellow-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center mb-1">
-                      <span className="w-2 h-2 rounded-full bg-yellow-500 mr-2"></span>
-                      <span className="font-medium text-gray-900">Medium</span>
-                    </div>
-                    <p className="text-xs text-gray-500">Recommended</p>
                   </button>
                   <button
                     type="button"

@@ -175,10 +175,12 @@ settings = Settings()
 # Thresholds for each sensitivity level (LOW/MEDIUM/HIGH)
 SENSITIVITY_THRESHOLDS = {
     "low": {
-        "ssim_min": 0.85,           # Minimum SSIM for "match"
-        "pixel_diff_tolerance": 0.10,  # 10% different pixels allowed
-        "normalize_quality": False,
-        "description": "Quick check, high tolerance"
+        "ssim_min": 0.93,           # Zwiększone z 0.85 (zbliżone do High 0.95)
+        "pixel_diff_tolerance": 0.015,  # Zmniejszone z 0.10 (1.5% tolerancji)
+        "normalize_quality": True,
+        "enable_source_separation": True,
+        "enable_whisper": True,
+        "description": "Strict check, slight compression tolerance"
     },
     "medium": {
         "ssim_min": 0.93,           # Increased from 0.92 to catch text differences better

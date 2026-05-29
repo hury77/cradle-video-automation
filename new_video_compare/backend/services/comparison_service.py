@@ -154,19 +154,19 @@ class ComparisonService:
             
             # Define sensitivity-based processing defaults
             fps_map = {
-                "low": 1.0,      # 1 frame/sec
+                "low": 3.0,      # Zwiększone z 1.0 dla lepszej precyzji czasowej
                 "medium": 2.0,   # 2 frames/sec
                 "high": 5.0,     # 5 frames/sec (Detailed check)
                 "automation": 5.0  # Same as HIGH
             }
             max_frames_map = {
-                "low": 300,
+                "low": 1800,     # Dopasowane do FPS 3.0 (~10 minut)
                 "medium": 900,
                 "high": 3000,
                 "automation": 3000  # Same as HIGH
             }
             threshold_map = {
-                "low": 0.95,
+                "low": 0.97,     # High ma 0.99, Low 0.97 dla mniejszej rygorystyczności Match Ratio
                 "medium": 0.98,
                 "high": 0.99,      # Extremely strict
                 "automation": 0.99  # Same as HIGH (User requirement)
