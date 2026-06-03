@@ -245,20 +245,9 @@ function App() {
                 </button>
               </div>
 
-              <button
-                onClick={() => setShowAutoPair(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 shadow-sm hover:shadow-md"
-              >
-                <PlusIcon className="w-4 h-4 mr-2" />
-                Auto-Pair
-              </button>
-
               <div className="flex items-center space-x-1 border-l border-gray-200 pl-4 ml-2">
                 <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
                   <BellIcon className="w-5 h-5" />
-                </button>
-                <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
-                  <UserIcon className="w-5 h-5" />
                 </button>
               </div>
             </div>
