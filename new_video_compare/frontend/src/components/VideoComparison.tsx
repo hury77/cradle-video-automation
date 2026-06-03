@@ -475,20 +475,59 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
     if (isPlaying) {
       videos.forEach((video) => video?.pause());
+      setIsPlaying(false);
     } else {
-      videos.forEach((video) => {
-        if (video) {
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch((err: any) => {
-              if (err?.name !== 'AbortError') console.error('Play error:', err);
-            });
-          }
-        }
-      });
-    }
+      let readyCount = 0;
+      const activeVideos: Array<{video: HTMLVideoElement, target: number}> = [];
 
-    setIsPlaying(!isPlaying);
+      if (acceptanceVideoRef.current) {
+         const target = currentTime + acceptanceOffset;
+         if (Math.abs(acceptanceVideoRef.current.currentTime - target) > 0.1) {
+            activeVideos.push({ video: acceptanceVideoRef.current, target });
+         } else {
+            readyCount++;
+         }
+      } else { readyCount++; }
+
+      if (emissionVideoRef.current) {
+         const target = currentTime + emissionOffset;
+         if (Math.abs(emissionVideoRef.current.currentTime - target) > 0.1) {
+            activeVideos.push({ video: emissionVideoRef.current, target });
+         } else {
+            readyCount++;
+         }
+      } else { readyCount++; }
+
+      const startPlaying = () => {
+        videos.forEach((video) => {
+          if (video) {
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.catch((err: any) => {
+                if (err?.name !== 'AbortError') console.error('Play error:', err);
+              });
+            }
+          }
+        });
+        setIsPlaying(true);
+      };
+
+      if (activeVideos.length > 0) {
+        activeVideos.forEach(({ video, target }) => {
+          const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            readyCount++;
+            if (readyCount === 2) {
+              startPlaying();
+            }
+          };
+          video.addEventListener('seeked', onSeeked);
+          video.currentTime = target;
+        });
+      } else {
+        startPlaying();
+      }
+    }
   };
 
   const handleSeek = (time: number) => {
