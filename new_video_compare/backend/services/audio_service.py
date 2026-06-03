@@ -1535,8 +1535,8 @@ def transcribe_single_file(
         # ── SILENCE CHECK: Skip if audio is too quiet (prevents prompt-based hallucinations) ──
         try:
             loudness_info = measure_loudness(audio_path)
-            lufs = loudness_info.get("integrated_lufs", -100)
-            if lufs < -60:
+            lufs = loudness_info.get("integrated_lufs")  # None when LUFS=-inf (absolute silence)
+            if lufs is None or lufs < -60:
                 logger.info(f"  [{label.upper()}] 🔇 Audio is silent ({lufs} LUFS). Skipping transcription to prevent hallucinations.")
                 return {
                     "transcript": {"text": "", "segments": [], "word_count": 0},
@@ -1742,6 +1742,51 @@ def compare_spoken_text(
             "voiceover": None,
         }
     
+    # ── NO-AUDIO GUARD: Skip STT when files lack audio streams ────────────────
+    # When audio_similarity = 0.0 due to missing streams (not quality differences),
+    # the Fast Path above won't catch it (0.0 < 0.98). Running Whisper on silent
+    # or absent audio causes hallucinations (e.g. initial_prompt echoed back as text).
+    acc_streams = get_audio_stream_count(Path(acceptance_path))
+    emi_streams = get_audio_stream_count(Path(emission_path))
+
+    if acc_streams == 0 or emi_streams == 0:
+        missing = []
+        if acc_streams == 0:
+            missing.append("acceptance")
+        if emi_streams == 0:
+            missing.append("emission")
+        missing_label = " and ".join(missing)
+
+        logger.info(
+            f"🔇 NO-AUDIO GUARD: No audio streams in {missing_label}. "
+            f"Skipping STT to prevent hallucinations."
+        )
+        return {
+            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
+            "transcript_emission": {"text": "", "segments": [], "word_count": 0},
+            "comparison": {
+                "text_similarity": 1.0,
+                "is_text_match": True,
+                "word_count_a": 0,
+                "word_count_b": 0,
+                "word_differences": [],
+                "segment_differences": [],
+                "total_differences": 0,
+                "acceptance_text": "",
+                "emission_text": "",
+                "timeline_data": {
+                    "acceptance_segments": [],
+                    "emission_segments": [],
+                },
+            },
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "skipped_reason": f"No audio streams in {missing_label}. STT skipped to prevent hallucinations.",
+            "pipeline_info": {"skipped": True},
+            "detected_language": language or "unknown",
+            "voiceover": None,
+        }
+
     logger.info("🎙️ Starting full spoken text comparison (audio similarity below threshold)...")
     
     # Process acceptance file

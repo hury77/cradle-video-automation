@@ -513,22 +513,37 @@ class AnalystService:
                 word_diffs = stt_data.get("word_differences_count", 0) if isinstance(stt_data, dict) else 0
 
                 # DOOH pattern: no LUFS data, audio_sim=0.0, text perfectly matches (both empty)
+                # OR asymmetric audio (one file has no audio streams) where we intentionally skip STT
+                stt_skipped_reason = self._last_metrics.get("stt_skipped_reason", "")
+                is_asymmetric_audio = stt_skipped_reason and "No audio streams in" in stt_skipped_reason
+
                 is_no_audio = (
-                    lufs_diff is None
-                    and not has_loudness_issue
-                    and audio_sim is not None and float(audio_sim) == 0.0
-                    and (text_sim is None or text_sim == 1.0)
-                    and word_diffs == 0
+                    (
+                        lufs_diff is None
+                        and not has_loudness_issue
+                        and audio_sim is not None and float(audio_sim) == 0.0
+                        and (text_sim is None or text_sim == 1.0)
+                        and word_diffs == 0
+                    )
+                    or is_asymmetric_audio
                 )
 
                 if is_no_audio and float(video_sim) >= 0.98:
                     analysis["verdict"] = "approve"
+                    
+                    reason_msg = "brak ścieżek dźwiękowych w obu plikach"
+                    if is_asymmetric_audio:
+                        if "acceptance" in stt_skipped_reason.lower():
+                            reason_msg = "brak ścieżki dźwiękowej w pliku acceptance (oczekiwane w digital)"
+                        else:
+                            reason_msg = "brak ścieżki dźwiękowej w pliku emisji (oczekiwane w digital)"
+                            
                     analysis["reasoning"] = (
                         f"Obraz: idealnie zgodny (similarity={video_sim:.4f}, 0 różnych klatek). "
-                        "Audio: brak ścieżek dźwiękowych w obu plikach (DOOH — poprawny stan). "
+                        f"Audio: {reason_msg} (DOOH — poprawny stan). "
                         "Brak różnic w treści. Końcowy werdykt: APPROVE."
                     )
-                    logger.info("🔧 Post-processing: DOOH detected (no audio in both files) — overriding to APPROVE.")
+                    logger.info(f"🔧 Post-processing: DOOH detected ({reason_msg}) — overriding to APPROVE.")
 
             # ── Deterministic Post-Processing for Minor Audio Differences ───
             # If everything else is perfect, allow audio similarity down to 0.85 as compression artifacts
