@@ -260,7 +260,7 @@ class VideoUtils:
         
         # Severe incompatibilities that prevent comparison
         if abs(meta1.width - meta2.width) > meta1.width * 0.5:  # >50% size difference
-            compatibility["errors"].append("Videos have drastically different resolutions")
+            compatibility["errors"].append(f"Videos have drastically different resolutions ({meta1.width}x{meta1.height} vs {meta2.width}x{meta2.height})")
             compatibility["compatible"] = False
         
         if duration_diff > min(meta1.duration, meta2.duration) * 0.5:  # >50% duration difference
@@ -269,7 +269,7 @@ class VideoUtils:
             elif 9.5 <= duration_diff <= 10.5:
                 compatibility["warnings"].append("Clearcast slate detected (approx 10s difference). Bypassing duration block.")
             else:
-                compatibility["errors"].append("Videos have drastically different durations")
+                compatibility["errors"].append(f"Videos have drastically different durations ({meta1.duration}s vs {meta2.duration}s)")
                 compatibility["compatible"] = False
         
         logger.info(f"✅ Compatibility check complete: {'Compatible' if compatibility['compatible'] else 'Incompatible'}")
