@@ -309,12 +309,23 @@ async def cleanup_old_jobs(days: int = 14, count: int = 50, db: Session = Depend
                         temp_file.unlink()
                 elif temp_file.is_dir():
                     # Instead of deleting entire folders which might contain .png masks, 
-                    # we iterate and delete only non-image files.
+                    # we iterate and delete only non-image files, EXCEPT for raw frame directories
+                    # which are safe to delete entirely.
                     for item in temp_file.rglob("*"):
-                        if item.is_file() and item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
-                            freed_space_bytes += item.stat().st_size
-                            item.unlink()
+                        if item.is_file():
+                            is_raw_frame = "acceptance_frames" in item.parts or "emission_frames" in item.parts
+                            if is_raw_frame or item.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+                                freed_space_bytes += item.stat().st_size
+                                item.unlink()
                     
+                    # Try to delete subdirectories first if they are empty (e.g. emptied raw frame dirs)
+                    for dir_item in sorted(temp_file.rglob("*"), key=lambda x: len(x.parts), reverse=True):
+                        if dir_item.is_dir():
+                            try:
+                                dir_item.rmdir()
+                            except OSError:
+                                pass
+                                
                     # Try to delete the directory if it's empty (this will naturally fail and keep the dir if protected images remain)
                     try:
                         temp_file.rmdir()
