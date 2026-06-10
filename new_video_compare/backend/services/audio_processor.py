@@ -61,7 +61,11 @@ class AudioProcessor:
         )
 
     def extract_and_load_audio(
-        self, video_path: str, output_path: Optional[str] = None
+        self, 
+        video_path: str, 
+        output_path: Optional[str] = None,
+        start_time: Optional[float] = None,
+        duration: Optional[float] = None,
     ) -> Tuple[np.ndarray, str]:
         """
         Extract and load audio from video file
@@ -69,6 +73,8 @@ class AudioProcessor:
         Args:
             video_path: Path to video file
             output_path: Optional output audio file path
+            start_time: Optional start offset in seconds
+            duration: Optional duration in seconds
 
         Returns:
             Tuple of (audio_data, audio_file_path)
@@ -81,7 +87,12 @@ class AudioProcessor:
 
             # Extract audio
             audio_path = self.audio_utils.extract_audio(
-                video_path, output_path, sample_rate=self.sample_rate, channels=2
+                video_path, 
+                output_path, 
+                sample_rate=self.sample_rate, 
+                channels=2,
+                start_time=start_time,
+                duration=duration,
             )
 
             # Load audio data
@@ -255,6 +266,9 @@ class AudioProcessor:
         sync_audio: bool = True,
         comparison_weights: Optional[Dict[str, float]] = None,
         keep_temp_files: bool = False,
+        start_time1: Optional[float] = None,
+        start_time2: Optional[float] = None,
+        duration: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Compare audio from two video files
@@ -265,6 +279,9 @@ class AudioProcessor:
             sync_audio: Whether to synchronize audio before comparison
             comparison_weights: Optional weights for comparison algorithms
             keep_temp_files: Whether to keep temporary audio files
+            start_time1: Optional start offset in seconds for video1
+            start_time2: Optional start offset in seconds for video2
+            duration: Optional duration to extract in seconds
 
         Returns:
             Dictionary with comparison results
@@ -278,11 +295,15 @@ class AudioProcessor:
 
             try:
                 # Extract and load first audio
-                audio_data1, audio_path1 = self.extract_and_load_audio(video_path1)
+                audio_data1, audio_path1 = self.extract_and_load_audio(
+                    video_path1, start_time=start_time1, duration=duration
+                )
                 temp_files.append(audio_path1)
 
                 # Extract and load second audio
-                audio_data2, audio_path2 = self.extract_and_load_audio(video_path2)
+                audio_data2, audio_path2 = self.extract_and_load_audio(
+                    video_path2, start_time=start_time2, duration=duration
+                )
                 temp_files.append(audio_path2)
 
                 # Get audio info

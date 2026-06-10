@@ -303,8 +303,8 @@ class ComparisonService:
                 
                 if dur_acc <= 0 or dur_emi <= 0:
                     try:
-                        acc_meta = self.video_processor.ffmpeg.probe_video(acceptance_path)
-                        emi_meta = self.video_processor.ffmpeg.probe_video(emission_path)
+                        acc_meta = self.video_processor.ffmpeg.get_video_metadata(acceptance_path)
+                        emi_meta = self.video_processor.ffmpeg.get_video_metadata(emission_path)
                         dur_acc = acc_meta.duration
                         dur_emi = emi_meta.duration
                     except Exception as probe_e:
@@ -378,6 +378,9 @@ class ComparisonService:
                         video_path1=acceptance_path,
                         video_path2=emission_path,
                         sync_audio=True,
+                        start_time1=start_time_acc,
+                        start_time2=start_time_emi,
+                        duration=audio_duration
                     )
                     audio_result["spectral"] = legacy_result
                 except Exception as audio_err:

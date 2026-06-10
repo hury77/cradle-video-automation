@@ -33,6 +33,8 @@ class AudioProcessor:
         output_path: Optional[str] = None,
         sample_rate: int = 44100,
         channels: int = 2,
+        start_time: Optional[float] = None,
+        duration: Optional[float] = None,
     ) -> str:
         """
         Extract audio from video file
@@ -42,6 +44,8 @@ class AudioProcessor:
             output_path: Optional output audio file path
             sample_rate: Audio sample rate (Hz)
             channels: Number of audio channels
+            start_time: Optional start offset in seconds
+            duration: Optional duration in seconds
 
         Returns:
             Path to extracted audio file
@@ -65,6 +69,14 @@ class AudioProcessor:
                 "ffmpeg",
                 "-nostdin",
                 "-y",  # Overwrite output
+            ]
+            
+            if start_time is not None:
+                cmd.extend(["-ss", str(start_time)])
+            if duration is not None:
+                cmd.extend(["-t", str(duration)])
+                
+            cmd.extend([
                 "-i",
                 video_path,
                 "-vn",  # No video
@@ -75,7 +87,7 @@ class AudioProcessor:
                 "-acodec",
                 "pcm_s16le",  # PCM 16-bit little-endian
                 output_path,
-            ]
+            ])
 
             # Execute FFmpeg command
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
