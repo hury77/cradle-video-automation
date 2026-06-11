@@ -15,10 +15,16 @@ Browser extension for automating Cradle video comparison workflow
 
 ## ⚡ Szybki Start (LIVE)
 
+**Terminal 1 (Backend):**
 ```bash
-cd ~/Documents/cradle-video-automation/new_video_compare/backend && source ../../.venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8001
+cd ~/Documents/cradle-video-automation/new_video_compare/backend && source $HOME/miniforge3/bin/activate && conda activate cradle-env && uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 ➡️ **LIVE dostępny pod: http://localhost:8001**
+
+**Terminal 2 (Desktop App - wymagane do pobierania plików):**
+```bash
+cd ~/Documents/cradle-video-automation/desktop-app && source $HOME/miniforge3/bin/activate && conda activate cradle-env && python src/main.py
+```
 
 ## 🚀 Installation
 
@@ -32,8 +38,9 @@ cd cradle-video-automation
 
 2. **Setup Virtual Environment:**
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+source $HOME/miniforge3/bin/activate
+conda create -n cradle-env python=3.11 nodejs=20 ffmpeg git -y
+conda activate cradle-env
 pip install -r new_video_compare/backend/requirements.txt
 pip install -r desktop-app/requirements.txt
 ```
@@ -47,15 +54,17 @@ System działa w dwóch trybach: **LIVE** (produkcja) i **DEV** (development).
 #### 1. Backend LIVE (FastAPI — serwuje frontend + API + uploads)
 ```bash
 cd ~/Documents/cradle-video-automation/new_video_compare/backend
-source ../../.venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8001
+source $HOME/miniforge3/bin/activate
+conda activate cradle-env
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 ➡️ http://localhost:8001 (frontend + API w jednym)
 
 #### 2. Desktop App (WebSocket + Obsługa Plików)
 ```bash
 cd ~/Documents/cradle-video-automation/desktop-app
-source ../.venv/bin/activate
+source $HOME/miniforge3/bin/activate
+conda activate cradle-env
 python src/main.py
 ```
 
@@ -66,7 +75,8 @@ python src/main.py
 #### 1. Backend DEV
 ```bash
 cd ~/Documents/cradle-video-automation/new_video_compare/backend
-source ../../.venv/bin/activate
+source $HOME/miniforge3/bin/activate
+conda activate cradle-env
 uvicorn main:app --host 0.0.0.0 --port 8002 --reload
 ```
 
@@ -80,7 +90,8 @@ PORT=3001 REACT_APP_API_URL=http://localhost:8002 REACT_APP_WS_URL=ws://localhos
 #### 3. Desktop App
 ```bash
 cd ~/Documents/cradle-video-automation/desktop-app
-source ../.venv/bin/activate
+source $HOME/miniforge3/bin/activate
+conda activate cradle-env
 python src/main.py
 ```
 
