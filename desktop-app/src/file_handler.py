@@ -399,7 +399,15 @@ class FileHandler:
             acceptance_name_full = file_info.get("acceptanceName")
             if acceptance_name_full:
                 from pathlib import Path
+                import re
                 acc_stem = Path(acceptance_name_full).stem
+                
+                # SOUL.md: Transparent logging
+                original_stem = acc_stem
+                acc_stem = re.sub(r'_[a-zA-Z0-9]{7}$', '', acc_stem)
+                if acc_stem != original_stem:
+                    self.logger.info(f"🧹 Cleaned Cradle hash from acceptance stem: '{original_stem}' -> '{acc_stem}'")
+
                 if len(acc_stem) > 4:  # Avoid too short generic names
                     self.logger.info(f"💡 Added fallback search patterns using acceptance stem: '{acc_stem}'")
                     search_patterns.extend([
@@ -410,6 +418,16 @@ class FileHandler:
                         f"{search_path}/**/{acc_stem}*",
                         f"{search_path}/**/*{acc_stem}*"
                     ])
+
+            # FINAL FALLBACK 2: Search by Template ID
+            template_id = file_info.get("templateId")
+            if template_id:
+                self.logger.info(f"💡 Added fallback search patterns using Template ID: '{template_id}'")
+                search_patterns.extend([
+                    f"{search_path}/*{template_id}*",
+                    f"{search_path}/*/*{template_id}*",
+                    f"{search_path}/**/*{template_id}*"
+                ])
 
             for pattern_base in search_patterns:
                 for ext in extensions:
