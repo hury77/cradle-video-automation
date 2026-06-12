@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 import asyncio
 import time
 import shutil
+import subprocess
+import urllib.request
+import urllib.error
 
 async def dev_cleanup_loop():
     from config import settings
@@ -94,9 +97,39 @@ async def dev_cleanup_loop():
         except Exception as err:
             logger.error(f"🧹 [CLEANER] Error in DEV periodic cleaner: {err}")
 
+def check_ollama_running():
+    try:
+        response = urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1)
+        return response.getcode() == 200
+    except Exception:
+        return False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Uruchomienie aplikacji - system WebSocket zainicjalizowany")
+    
+    # Start Ollama if not running
+    ollama_process = None
+    if not check_ollama_running():
+        logger.info("Ollama nie działa. Uruchamianie serwera Ollama w tle...")
+        ollama_path = os.path.expanduser("~/.local/bin/ollama")
+        if os.path.exists(ollama_path):
+            try:
+                ollama_process = subprocess.Popen(
+                    [ollama_path, "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                logger.info("Serwer Ollama uruchomiony.")
+                # Give it a moment to initialize
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Nie udało się uruchomić serwera Ollama: {e}")
+        else:
+            logger.warning(f"Brak pliku Ollama w {ollama_path}. Nie można uruchomić automatycznie.")
+    else:
+        logger.info("Serwer Ollama jest już uruchomiony.")
+
     # Start periodic background cleanup task
     cleanup_task = asyncio.create_task(dev_cleanup_loop())
     yield
@@ -106,6 +139,15 @@ async def lifespan(app: FastAPI):
         await cleanup_task
     except asyncio.CancelledError:
         pass
+        
+    if ollama_process:
+        logger.info("Zatrzymywanie serwera Ollama...")
+        ollama_process.terminate()
+        try:
+            ollama_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            ollama_process.kill()
+
     logger.info("Zamknięcie aplikacji - czyszczenie połączeń WebSocket")
 
 
