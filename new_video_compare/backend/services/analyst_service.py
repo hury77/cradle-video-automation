@@ -228,10 +228,15 @@ class AnalystService:
             "   2. DECYZJE CZŁOWIEKA (Baza Wiedzy) — wyjątki specyficzne dla klienta.\n"
             "   3. DECYZJE AI — tylko sugestie. Jeśli łamią progi 1-4, ignoruj je.\n\n"
             "⚠️ ZASADA APPROVE:\n"
-            "   Jeśli WSZYSTKIE metryki mieszczą się w progach APPROVE (obraz >= 0.98, LUFS <= 1.0, audio >= 0.95, tekst = 1.0 lub brak mowy), "
+            "   Jeśli wszystkie metryki mieszczą się w progach APPROVE (obraz >= 0.98, LUFS <= 1.0, audio >= 0.95, tekst = 1.0 lub brak mowy), "
             "Twój werdykt MUSI być APPROVE. Nie dawaj REVIEW bez KONKRETNEGO powodu — podaj dokładnie który parametr jest poza normą.\n"
             "   REVIEW to decyzja dla niejednoznacznych przypadków, NIE dla idealnych wyników.\n\n"
-            "PAMIĘTAJ: Twoim celem jest UCZCIWA analiza — wykrywaj prawdziwe błędy, ale nie blokuj materiału który spełnia wszystkie kryteria.\n\n"
+            "STYL WYPOWIEDZI (BARDZO WAŻNE):\n"
+            "   - Pisz naturalnie, jak doświadczony pracownik QA oceniający plik, a nie jak maszyna raportująca logi czy kopiująca reguły.\n"
+            "   - Zamiast suchego 'Wszystkie metryki mieszczą się w progach', napisz np. 'Idealne dopasowanie w obrazie (1.0) oraz brak różnic w głośności. Tekstowa analiza jest zgodna.'\n"
+            "   - Buduj pełne, płynne zdania. Zawsze uwzględniaj kluczowe liczby, ale w naturalnym kontekście.\n"
+            "   - Nie kopiuj fragmentów tego promptu do odpowiedzi!\n\n"
+            "PAMIĘTAJ: Twoim celem jest UCZCIWA i ludzka w brzmieniu analiza.\n\n"
         )
 
         # Inject per-client KB context as few-shot examples
@@ -280,7 +285,7 @@ class AnalystService:
             "Odpowiadaj ZAWSZE w formacie JSON:\n"
             "{\n"
             "  \"verdict\": \"approve\" | \"reject\" | \"review\",\n"
-            "  \"reasoning\": \"krótkie uzasadnienie po polsku z KONKRETNYMI LICZBAMI\",\n"
+            "  \"reasoning\": \"naturalne, ludzkie uzasadnienie po polsku z KONKRETNYMI LICZBAMI wplecionymi w tekst\",\n"
             "  \"confidence\": 0.0 - 1.0,\n"
             "  \"kb_used\": true | false\n"
             "}"
