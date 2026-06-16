@@ -826,10 +826,9 @@ class CradleScanner {
         const cradleId = cells[0].textContent.trim();
 
         const stateCell = cells[cells.length - 1];
-        const stateButton = stateCell.querySelector("button .mj-button-txt");
-        const state = stateButton
-          ? stateButton.textContent.trim().toLowerCase()
-          : "";
+        // Używamy textContent całej komórki, bo Cradle mogło ukryć stary przycisk Pending w DOM, 
+        // a querySelector brał zawsze pierwszy (ukryty) zamiast widocznego Processing.
+        const state = stateCell.textContent.trim().toLowerCase();
 
         console.log(
           `[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, State="${state}"`
@@ -1148,19 +1147,18 @@ class CradleScanner {
         '[class*="status"], [class*="state"], .mj-button-txt'
       );
 
+      let foundStatus = null;
       for (const element of statusElements) {
-        const text = element.textContent.trim();
-        if (
-          text &&
-          (text.toLowerCase().includes("pending") ||
-            text.toLowerCase().includes("processing") ||
-            text.toLowerCase().includes("completed"))
-        ) {
-          return text;
-        }
+        const text = element.textContent.trim().toLowerCase();
+        if (!text) continue;
+        
+        // Jeśli znajdziemy "processing", zwracamy natychmiast - to najwyższy priorytet (nawet jeśli gdzieś obok w DOM jest ukryte "pending")
+        if (text.includes("processing")) return text;
+        if (text.includes("completed")) foundStatus = text;
+        if (!foundStatus && text.includes("pending")) foundStatus = text;
       }
 
-      return null;
+      return foundStatus;
     } catch (error) {
       console.log("[CradleScanner] Error getting status:", error);
       return null;
