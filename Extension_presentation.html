@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cradle Extension - Technical Deep Dive</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --primary: #3b82f6;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #10b981;
+            --warning: #f59e0b;
+            --code-bg: #0b1120;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .slide {
+            width: 100%;
+            max-width: 900px;
+            min-height: 80vh;
+            margin: 40px 20px;
+            background: var(--surface);
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            padding: 50px;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 6px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            color: white;
+            font-weight: 800;
+        }
+
+        h2 {
+            font-size: 2rem;
+            color: var(--primary);
+            border-bottom: 1px solid var(--text-muted);
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        h3 {
+            font-size: 1.4rem;
+            color: var(--accent);
+        }
+
+        p, li {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 12px;
+        }
+
+        .highlight {
+            color: white;
+            font-weight: 600;
+        }
+
+        code {
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #38bdf8;
+            font-size: 0.95em;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid #334155;
+        }
+
+        pre code {
+            color: #e2e8f0;
+            background: none;
+            padding: 0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-right: 8px;
+            text-transform: uppercase;
+        }
+
+        .badge-desktop { background: var(--primary); color: white; }
+        .badge-chrome { background: var(--accent); color: #000; }
+        .badge-blob { background: var(--warning); color: #000; }
+
+        .flow-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .flow-step {
+            background: var(--code-bg);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .flow-step-title {
+            color: white;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Slide 1: Tytułowy -->
+    <div class="slide">
+        <h1>Cradle Video Automation</h1>
+        <p style="font-size: 1.5rem; color: var(--accent);">Web Extension - Architektura Pobierania Plików</p>
+        <p style="margin-top: 40px;">Prezentacja techniczna mechanizmów skanowania, parsowania DOM oraz wielowarstwowej strategii pobierania zasobów z platformy Cradle.</p>
+    </div>
+
+    <!-- Slide 2: Krok 1 - Odkrywanie -->
+    <div class="slide">
+        <h2>1. Discovery (Odkrywanie plików)</h2>
+        <p>Rozszerzenie działa jako <span class="highlight">Content Script</span> (`cradle-scanner.js`), który stale monitoruje strukturę DOM w poszukiwaniu zasobów.</p>
+        
+        <h3>Mechanika skanowania:</h3>
+        <ul>
+            <li>Skanowanie tabel w poszukiwaniu tagów <code>&lt;a href="..."&gt;</code>.</li>
+            <li><strong>Kategoryzacja:</strong> Skrypt analizuje strukturę strony i nagłówki tabel, aby bezbłędnie podzielić pliki na dwie grupy:
+                <ul>
+                    <li><span class="highlight">Acceptance (Wzorzec)</span></li>
+                    <li><span class="highlight">Emission (Plik końcowy/wyjściowy)</span></li>
+                </ul>
+            </li>
+            <li>Filtrowanie śmieci: Skrypt ignoruje rozszerzenia graficzne i dokumenty, skupiając się na formatach wideo (<code>.mp4, .mov, .mxf, .zip</code>).</li>
+        </ul>
+    </div>
+
+    <!-- Slide 3: Krok 2 - Problem nc-download -->
+    <div class="slide">
+        <h2>2. Rozwiązywanie problemu API (nc-download)</h2>
+        <p>Głównym wyzwaniem na platformie są linki typu API (Nextcloud download endpoint), które <strong>nie posiadają rozszerzenia pliku w adresie URL</strong>.</p>
+        
+        <pre><code>// Przykład problematycznego URL z Cradle:
+https://cradle.example.com/nc-download/1a2b3c4d5e6f</code></pre>
+
+        <h3>Strategia "Type Hinting":</h3>
+        <p>Ponieważ URL nie mówi, czy plik to wideo czy PDF, skrypt stosuje zaawansowaną heurystykę:</p>
+        <ul>
+            <li>Ekstrakcja nazwy pliku z wewnętrznych spanów (<code>&lt;span class="filename"&gt;video_v1.mp4&lt;/span&gt;</code>) otaczających link.</li>
+            <li>Mapowanie wyabstrahowanego rozszerzenia z powrotem na obiekt pobierania.</li>
+            <li>Jeśli skrypt zidentyfikuje, że link <code>nc-download</code> wskazuje pod spodem na grafikę, link ten jest pomijany.</li>
+        </ul>
+    </div>
+
+    <!-- Slide 4: Krok 3 - Strategie pobierania -->
+    <div class="slide">
+        <h2>3. Trójwarstwowa Architektura Pobierania</h2>
+        <p>Po wyodrębnieniu poprawnych adresów URL, system używa kaskadowej strategii pobierania plików na dysk użytkownika.</p>
+
+        <div class="flow-diagram">
+            <div class="flow-step">
+                <div class="flow-step-title"><span class="badge badge-desktop">Priorytet 1</span> Delegacja do Desktop App (WebSocket)</div>
+                <div>Rozszerzenie wysyła JSON <code>{action: "DOWNLOAD_FILES"}</code> przez WebSocket do lokalnej aplikacji Pythonowej. To rozwiązanie jest najstabilniejsze dla ogromnych plików (MXF > 10GB).</div>
+            </div>
+
+            <div class="flow-step">
+                <div class="flow-step-title"><span class="badge badge-chrome">Fallback 1</span> API chrome.downloads</div>
+                <div>Jeśli aplikacja desktopowa jest wyłączona, wiadomość <code>DOWNLOAD_FILE</code> trafia do <code>background.js</code>. Używane jest natywne API przeglądarki. Plus: pozwala zapisywać pliki w podfolderach. Minus: czasem blokowane przez CORS Cradle'a.</div>
+            </div>
+
+            <div class="flow-step">
+                <div class="flow-step-title"><span class="badge badge-blob">Fallback 2</span> Fetch API + RAM Blob</div>
+                <div>Metoda ostateczna (w <code>downloadViaFetch</code>). Plik jest pobierany przez <code>fetch()</code> w całości do pamięci RAM przeglądarki, po czym konwertowany na <code>Blob</code> i wymuszany do pobrania wirtualnym kliknięciem w tag <code>&lt;a&gt;</code>. Posiada limit wielkości pliku (~1.5GB).</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 5: Background.js -->
+    <div class="slide">
+        <h2>4. Rola Service Workera (background.js)</h2>
+        <p>W nowoczesnych rozszerzeniach Manifest V3, <code>background.js</code> pełni rolę efemerycznego Service Workera.</p>
+        
+        <pre><code>chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'DOWNLOAD_FILE') {
+    // API chrome.downloads dostępne tylko w background.js
+    chrome.downloads.download({
+      url: message.url,
+      filename: message.filename,
+      conflictAction: 'uniquify'
+    });
+  }
+  return true; // Asynchronous response
+});</code></pre>
+        <p>Background script służy tu za most delegujący akcje wymagające wyższych uprawnień przeglądarki, do których Content Script nie ma dostępu.</p>
+    </div>
+
+    <!-- Slide 5: Architektura i Workflow -->
+    <div class="slide">
+        <h2>5. Architektura i Workflow</h2>
+        <p>Proces przepływu danych od momentu załadowania strony do uruchomienia analizy końcowej.</p>
+        
+        <div class="flow-diagram">
+            <div class="flow-step">
+                <div class="flow-step-title">1. Content Script (Skaner)</div>
+                <div>Monitoruje zmiany na stronie → Wyodrębnia linki → Rozpoznaje typy plików (Acceptance / Emission)</div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-title">2. Router Pobierania</div>
+                <div>Rozszerzenie próbuje nawiązać połączenie WebSocket z lokalną aplikacją Desktopową.</div>
+            </div>
+            <div style="display: flex; gap: 20px; margin: 10px 0;">
+                <div class="flow-step" style="flex: 1; border-left-color: var(--accent);">
+                    <div class="flow-step-title">Ścieżka A: Desktop App</div>
+                    <div style="font-size: 0.95em;">Python przejmuje zadanie. Bezpiecznie pobiera wielkie pliki (>10GB) do wyznaczonego folderu roboczego.</div>
+                </div>
+                <div class="flow-step" style="flex: 1; border-left-color: var(--warning);">
+                    <div class="flow-step-title">Ścieżka B: Fallback (Przeglądarka)</div>
+                    <div style="font-size: 0.95em;">Background SW używa <code>chrome.downloads</code>, lub ładuje plik do RAM (Blob) i wymusza pobranie z pominięciem CORS.</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-title">3. New Video Compare (NVC)</div>
+                <div>Zaraz po potwierdzeniu pobrania obu plików (Akcept i Emisja), system przekazuje ścieżki do lokalnego API NVC. Tam rozpoczyna się analiza klatka-po-klatce (frame difference), walidacja LUFS oraz analiza STT (Whisper).</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 6: Prompt dla Claude -->
+    <div class="slide">
+        <h2>6. Tworzenie Struktury (Prompt dla Claude)</h2>
+        <p>Jeśli inny zespół chce odtworzyć ten system w swoim środowisku za pomocą LLM, ten prompt będzie idealnym punktem startowym do generacji bazy kodu:</p>
+        <pre><code style="white-space: pre-wrap;">Jesteś Senior inżynierem tworzącym rozszerzenia do Chrome (Manifest V3). 
+Zaprojektuj strukturę plików i napisz kod dla rozszerzenia "Smart Downloader". 
+
+Wymagania:
+1. Rozszerzenie musi posiadać Content Script, który parsuje tabele na stronie i szuka linków &lt;a href="..."&gt;.
+2. Musi kategoryzować pliki na dwie grupy na podstawie klas i tekstu (np. pliki Wzorcowe i Emisyjne). Zwróć uwagę, że niektóre adresy URL to endpointy API (np. /nc-download), które wymagają odgadnięcia rozszerzenia pliku z innych elementów w DOM.
+3. System preferencyjnie nawiązuje połączenie WebSocket z lokalnym serwerem na porcie 8765. Jeśli połączony, wysyła payload z linkami: {action: 'DOWNLOAD_FILES', files: [...]}.
+4. Fallback: Jeśli WebSocket zawiedzie, Content Script używa chrome.runtime.sendMessage do przekazania adresów do Background Service Workera.
+5. Background Worker odbiera wiadomość i uruchamia chrome.downloads.download() aby zapisać pliki w tle (z conflictAction: 'uniquify').
+6. Utwórz komplet: manifest.json, content_script.js, background.js. Kod musi być nowoczesny (ES6+, async/await) oraz odporny na błędy sieciowe (graceful degradation).</code></pre>
+    </div>
+
+    <div class="footer">
+        Wygenerowano dla zespołów inżynieryjnych. Architektura: Content Script -> WebSocket / Background SW.
+    </div>
+
+</body>
+</html>
