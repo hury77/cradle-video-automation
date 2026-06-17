@@ -266,21 +266,14 @@ class FileHandler:
                     "error": "No URL provided",
                 }
 
-            # Check if acceptance file with same name exists
-            acceptance_files = list(folder_path.glob(f"*{original_name}*"))
-            final_name = original_name
+            # Add _emis suffix unconditionally for all emission attachments
+            name_parts = original_name.rsplit(".", 1)
+            if len(name_parts) == 2:
+                final_name = f"{name_parts[0]}_emis.{name_parts[1]}"
+            else:
+                final_name = f"{original_name}_emis"
 
-            if acceptance_files:
-                # Add _emis suffix: file.mp4 → file_emis.mp4
-                name_parts = original_name.rsplit(".", 1)
-                if len(name_parts) == 2:
-                    final_name = f"{name_parts[0]}_emis.{name_parts[1]}"
-                else:
-                    final_name = f"{original_name}_emis"
-
-                self.logger.info(
-                    f"📝 Adding suffix to avoid conflict: {original_name} → {final_name}"
-                )
+            self.logger.info(f"📝 Adding _emis suffix: {original_name} → {final_name}")
 
             # Download with proper headers (for cookies)
             headers = {
@@ -860,7 +853,17 @@ class FileHandler:
 
                         if largest_video:
                             # Move video to main folder
-                            new_path = cradle_folder / largest_video.name
+                            new_name = largest_video.name
+                            if file_type == "emission":
+                                name_parts = new_name.rsplit(".", 1)
+                                if len(name_parts) == 2:
+                                    if not name_parts[0].endswith("_emis"):
+                                        new_name = f"{name_parts[0]}_emis.{name_parts[1]}"
+                                else:
+                                    if not new_name.endswith("_emis"):
+                                        new_name = f"{new_name}_emis"
+
+                            new_path = cradle_folder / new_name
                             shutil.move(str(largest_video), str(new_path))
                             self.logger.info(
                                 f"✅ Extracted video moved to: {new_path.name}"
