@@ -115,20 +115,32 @@ async def lifespan(app: FastAPI):
         ollama_path = os.path.expanduser("~/.local/bin/ollama")
         if os.path.exists(ollama_path):
             try:
+                # Uruchamiamy w nowej grupie procesów (preexec_fn=os.setpgrp), 
+                # aby CTRL+C (SIGINT) z terminala nie zabiło Ollamy natychmiast.
+                # Zostanie ona bezpiecznie zamknięta w bloku teardown po zakończeniu zadań.
                 ollama_process = subprocess.Popen(
                     [ollama_path, "serve"],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=os.setpgrp
                 )
-                logger.info("Serwer Ollama uruchomiony.")
-                # Give it a moment to initialize
-                await asyncio.sleep(2)
+                logger.info("Serwer Ollama uruchamiany...")
+                
+                # Polling: Czekaj aż Ollama w pełni wstanie (max 15 sekund)
+                for _ in range(15):
+                    if check_ollama_running():
+                        logger.info("✅ Serwer Ollama uruchomił się i jest gotowy.")
+                        break
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("Serwer Ollama uruchomiony, ale nie odpowiada po 15 sekundach.")
+                    
             except Exception as e:
                 logger.error(f"Nie udało się uruchomić serwera Ollama: {e}")
         else:
             logger.warning(f"Brak pliku Ollama w {ollama_path}. Nie można uruchomić automatycznie.")
     else:
-        logger.info("Serwer Ollama jest już uruchomiony.")
+        logger.info("✅ Serwer Ollama jest już uruchomiony.")
 
     # Start periodic background cleanup task
     cleanup_task = asyncio.create_task(dev_cleanup_loop())

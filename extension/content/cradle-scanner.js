@@ -441,11 +441,14 @@ class CradleScanner {
             }
         }
         
-        // Usuwamy flagę zabezpieczającą, bo jesteśmy na bieżąco w tym samym kontekście
-        localStorage.removeItem("cradle-auto-download-asset");
-        
         if (isProcessing) {
-           console.log("[CradleScanner] 🚀 Asset confirmed as Processing! Triggering downloads...");
+           console.log("[CradleScanner] 🚀 Asset confirmed as Processing! Waiting 3s to ensure page is stable (SPA reload)...");
+           await this.wait(3000);
+           
+           // Usuwamy flagę zabezpieczającą dopiero gdy strona ustabilizuje się i nie przeładuje
+           localStorage.removeItem("cradle-auto-download-asset");
+           
+           console.log("[CradleScanner] 🚀 Triggering downloads...");
            this.isAutoComparing = true;
            localStorage.setItem("cradle-auto-video-compare", "true");
            await this.downloadFiles();
