@@ -550,8 +550,21 @@ def separate_sources(
                 logger.info(f"✅ Found Demucs at: {cmd_exec}")
                 break
         
+        # Create a python wrapper to disable SSL verification before running Demucs CLI
+        # This is required because the corporate proxy intercepts torchhub downloads.
+        python_exec = sys.executable
+        ssl_bypass_script = (
+            "import ssl; "
+            "ssl._create_default_https_context = ssl._create_unverified_context; "
+            "import sys; "
+            "from demucs.separate import main; "
+            "sys.argv=['demucs'] + sys.argv[1:]; "
+            "sys.exit(main())"
+        )
+        
         cmd = [
-            cmd_exec,
+            python_exec,
+            "-c", ssl_bypass_script,
             "-n", "htdemucs",
             "-d", "mps",  # Metal Performance Shaders (Mac GPU)
             "-o", str(output_dir),
