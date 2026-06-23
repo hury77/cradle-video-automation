@@ -17,3 +17,6 @@ Nigdy nie deklaruj ukończenia zadania na podstawie samego "poprawnego wyglądu"
 
 ## 6. Weryfikacja Nienaruszalnych Reguł (Guardrails Check)
 Przed zatwierdzeniem jakiejkolwiek zmiany (zwłaszcza w obszarach takich jak czyszczenie, zapis plików czy routowanie), upewnij się, że modyfikacja nie łamie krytycznych reguł opisanych w `SOUL.md` (np. retencji plików graficznych, separacji środowisk na portach). Brak regresji musi zostać potwierdzony, a nie tylko założony.
+
+## 7. Bezwzględny obowiązek czytania dokumentacji i ZAKAZ "wygładzania"
+Zanim dotkniesz jakiejkolwiek funkcji lub usuniesz "przestarzały" kod w celu refaktoryzacji, masz BEZWZGLĘDNY OBOWIĄZEK przeczytać pliki `rules.md`, `soul.md` oraz wszystkie wpisy w folderze `knowledge`. ZAKAZ "REFAKTORYZACJI PRZY OKAZJI" (Boy Scout Rule). Jeśli naprawiasz błąd X, dotykaj TYLKO linii związanych z błędem X. Nigdy nie upraszczaj, nie czyść i nie usuwaj sąsiadującej logiki (np. fallbacków), chyba że zostało to wprost zlecone. Jeśli nie rozumiesz, po co dana linia tam jest - załóż, że obsługuje edge-case i zostaw ją w spokoju.
