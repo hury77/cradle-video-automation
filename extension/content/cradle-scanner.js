@@ -1233,19 +1233,31 @@ class CradleScanner {
     console.log("=== KONIEC WYNIKÓW SKANOWANIA ===");
 
     // Show completion message
-    if (!fileInfo.acceptanceFile && !fileInfo.emissionFile) {
-      console.log("Brak pliku akceptacji do pobrania");
-      this.showNotification("Nie znaleziono plików do pobrania", "warning");
-    } else if (!fileInfo.acceptanceFile) {
-      console.log("Brak pliku akceptacji do pobrania");
-      this.showNotification("Pobrano tylko plik emisji", "warning");
-    } else if (!fileInfo.emissionFile) {
-      console.log("Brak pliku emisji do pobrania");
-      this.showNotification("Pobrano tylko plik akceptacji", "warning");
+    const missingAcceptance = !fileInfo.acceptanceFile;
+    const missingEmission = !fileInfo.emissionFile;
+
+    if (missingAcceptance || missingEmission) {
+      let msg = "";
+      if (missingAcceptance && missingEmission) {
+        msg = "No valid video files (Acceptance or Emission) were found in the Asset comments.";
+      } else if (missingAcceptance) {
+        msg = "The Acceptance video file was not found in the Asset comments.";
+      } else if (missingEmission) {
+        msg = "The Emission video file was not found in the Asset comments.";
+      }
+      
+      console.error(`[CradleScanner] Brak plików do pobrania: Acc=${!missingAcceptance}, Emi=${!missingEmission}. Zatrzymuję automatyzację.`);
+      this.showInteractivePopup(
+        "❌ Files Missing", 
+        `${msg}<br><br>Please check if the files exist and are not image/document formats (e.g., PNG/PDF).<br><br>Automation has been paused.`, 
+        [{ label: "OK", color: "#d32f2f", onClick: () => {
+             this.stopAutomation();
+        } }]
+      );
+      return; // Stop execution to prevent triggering Video Compare without files
     } else {
       this.showNotification("Pobrano oba pliki pomyślnie", "success");
     }
-    // Wyślij info o pobranych plikach do Desktop App
 
     // Wyślij info o pobranych plikach do Desktop App
     console.log("[CradleScanner] 📤 Sending files info to Desktop App...");
