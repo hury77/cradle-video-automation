@@ -1664,17 +1664,17 @@ class CradleScanner {
                    continue;
                }
 
-               // If URL has no recognisable video extension, try the link's own text as a fallback
+               // If URL has no recognisable video extension, try the parent element's text as a fallback
                if (!VALID_VIDEO_EXTS.includes(urlExt)) {
-                   const linkText = link.textContent?.trim() || "";
+                   const parentText = link.parentElement?.textContent?.trim() || "";
                    // Take first word that looks like a filename with a known video extension
-                   const candidate = linkText.split(/\s+/).find(w => {
+                   const candidate = parentText.split(/\s+/).find(w => {
                        const e = w.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
                        return VALID_VIDEO_EXTS.includes(e);
                    });
                    if (candidate) {
                        filename = candidate;
-                       console.log(`[CradleScanner] 🔄 Resolved emission filename from link text: ${filename}`);
+                       console.log(`[CradleScanner] 🔄 Resolved emission filename from parent text: ${filename}`);
                    }
                }
 
@@ -1766,16 +1766,16 @@ class CradleScanner {
                  continue;
              }
 
-             // If URL has no recognisable video extension, try link's own text as fallback
+             // If URL has no recognisable video extension, try the parent element's text as fallback
              if (!VALID_VIDEO_EXTS.includes(urlExt)) {
-                 const linkText = link.textContent?.trim() || "";
-                 const candidate = linkText.split(/\s+/).find(w => {
+                 const parentText = link.parentElement?.textContent?.trim() || "";
+                 const candidate = parentText.split(/\s+/).find(w => {
                      const e = w.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
                      return VALID_VIDEO_EXTS.includes(e);
                  });
                  if (candidate) {
                      filename = candidate;
-                     console.log(`[CradleScanner] 🔄 Resolved acceptance filename from link text: ${filename}`);
+                     console.log(`[CradleScanner] 🔄 Resolved acceptance filename from parent text: ${filename}`);
                  }
              }
 
