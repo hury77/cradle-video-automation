@@ -603,27 +603,53 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     const sortedA = [...segmentsA].sort((a: any, b: any) => a.start - b.start);
     const sortedB = [...segmentsB].sort((a: any, b: any) => a.start - b.start);
 
-    // Sequential pairing: segment N from acceptance ↔ segment N from emission.
-    // This works because identical VO produces the same segments in the same order,
-    // even when Whisper assigns different timestamps due to different audio processing.
+    // Distribute emission text according to acceptance segments to avoid visual "missing" gaps
+    // when Whisper chunks the same audio differently.
+    
+    // Reconstruct full emission text words
+    const allEmiWords: string[] = [];
+    sortedB.forEach((seg: any) => {
+       const words = seg.text.trim().split(/\s+/);
+       words.forEach((w: string) => {
+           if (w.length > 0) allEmiWords.push(w);
+       });
+    });
+    
     const events: Array<{ timestamp: number; acceptance?: string; emission?: string }> = [];
-    const maxLen = Math.max(sortedA.length, sortedB.length);
-
-    for (let i = 0; i < maxLen; i++) {
-        const segA = i < sortedA.length ? sortedA[i] : null;
-        const segB = i < sortedB.length ? sortedB[i] : null;
-
-        // Use the earlier timestamp for display
-        const timestamp = segA && segB
-            ? Math.min(segA.start, segB.start)
-            : segA ? segA.start : segB!.start;
-
-        events.push({
-            timestamp,
-            acceptance: segA?.text,
-            emission: segB?.text,
+    
+    // If there are no acceptance segments but there are emission segments
+    if (sortedA.length === 0 && sortedB.length > 0) {
+        sortedB.forEach((seg: any) => {
+            events.push({ timestamp: seg.start, emission: seg.text });
         });
+        return events;
     }
+
+    let emiWordIdx = 0;
+    
+    sortedA.forEach((segA: any, index: number) => {
+        const accWords = segA.text.trim().split(/\s+/).filter((w: string) => w.length > 0);
+        let takeCount = accWords.length;
+        
+        // For the last segment, take all remaining emission words to not lose any text
+        if (index === sortedA.length - 1) {
+            takeCount = allEmiWords.length - emiWordIdx;
+        }
+        
+        const segEmiWords = [];
+        for (let i = 0; i < takeCount; i++) {
+            if (emiWordIdx < allEmiWords.length) {
+                segEmiWords.push(allEmiWords[emiWordIdx]);
+                emiWordIdx++;
+            }
+        }
+        
+        events.push({
+            timestamp: segA.start,
+            acceptance: segA.text,
+            emission: segEmiWords.length > 0 ? segEmiWords.join(" ") : "-"
+        });
+    });
 
     return events;
   }, [results]);
