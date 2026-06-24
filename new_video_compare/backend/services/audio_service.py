@@ -1462,7 +1462,11 @@ def compare_transcripts(
                 "text_b": seg_b["text"],
             })
     
-    
+    # Clear segment differences if there are no actual word differences,
+    # to avoid false markers in the UI caused purely by Whisper's arbitrary chunking.
+    if len(differences) == 0:
+        segment_diffs = []
+        
     result = {
         "text_similarity": round(float(similarity), 4),
         "is_text_match": len(differences) == 0,  # Strict: Any word difference = no match
