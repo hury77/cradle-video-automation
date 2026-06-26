@@ -1640,13 +1640,36 @@ class CradleScanner {
                        cell.querySelector("a i.fa-file")?.parentElement;
           
           if (link && link.href) {
-               // Skip nc-download links (they are API endpoints, not direct files)
-               if (link.href.includes("nc-download")) {
-                   console.log(`[CradleScanner] ⛔ Skipping nc-download in emission row ${rowIndex}: ${link.href}`);
+               const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
+
+               // ── nc-download links have NO extension in the URL → handle specially ──
+               if (fullUrl.includes("nc-download")) {
+                   const hintSources = [
+                       link.getAttribute("title") || "",
+                       link.textContent?.trim() || "",
+                       cell.textContent?.trim() || ""
+                   ].join(" ");
+                   const hintFile = hintSources.split(/\s+/).find(w => w.includes(".") && w.length > 3);
+                   if (hintFile) {
+                       const hintExt = hintFile.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+                       const VALID_VIDEO_EXTS  = [".mp4", ".mov", ".mxf", ".zip", ".avi", ".mkv", ".prores"];
+                       const INVALID_MEDIA_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+                       if (INVALID_MEDIA_EXTS.includes(hintExt)) {
+                           console.log(`[CradleScanner] 🚫 Skipping nc-download emission (image hint ${hintExt}): ${hintFile}`);
+                           continue;
+                       }
+                       if (!VALID_VIDEO_EXTS.includes(hintExt)) {
+                           console.log(`[CradleScanner] ⛔ Skipping nc-download emission (unknown ext hint): ${hintFile}`);
+                           continue;
+                       }
+                       console.log(`[CradleScanner] 🔄 nc-download emission: resolved filename from hint: ${hintFile}`);
+                       fileInfo.emissionFile = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
+                       console.log(`[CradleScanner] ✅ Found Emission (nc-download): ${hintFile}`);
+                       return;
+                   }
+                   console.log(`[CradleScanner] ⛔ Skipping nc-download emission (no type hint): ${fullUrl}`);
                    continue;
                }
-               
-               const fullUrl = link.href.startsWith("http") ? link.href : `https://cradle.egplusww.pl${link.href}`;
 
                // ── Filename extraction (URL is authoritative — do NOT blindly override with textContent) ──
                const cleanUrl = fullUrl.endsWith("/") ? fullUrl.slice(0, -1) : fullUrl;
