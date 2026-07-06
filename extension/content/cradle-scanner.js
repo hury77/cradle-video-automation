@@ -809,7 +809,9 @@ class CradleScanner {
       }
 
       // Kolumna "Client" w tabeli My Team Tasks — indeks 5 (potwierdzone screenshotem)
-      const CLIENT_COL = 5;
+      // Zrzut ekranu udowadnia, że kolumna 'Client' ma indeks 4, a nie 5.
+      // (0=Cradle.ID, 1=M/L, 2=Ext.StudioNr, 3=Ext.JobID, 4=Client, 5=Campaign)
+      const CLIENT_COL = 4;
 
       // Odczyt filtra klienta RAZ przed pętlą (nie w każdej iteracji — to powodowało opóźnienie)
       const { cradle_client_filter: clientFilter = "" } = await new Promise(resolve =>
@@ -829,9 +831,9 @@ class CradleScanner {
         const cradleId = cells[0].textContent.trim();
 
         const stateCell = cells[cells.length - 1];
-        // Używamy textContent całej komórki, bo Cradle mogło ukryć stary przycisk Pending w DOM, 
-        // a querySelector brał zawsze pierwszy (ukryty) zamiast widocznego Processing.
-        const state = stateCell.textContent.trim().toLowerCase();
+        // Używamy innerText, aby ignorować ukryte przyciski w DOM (np. display: none).
+        // textContent zczytywał również ukryty przycisk 'Processing', co powodowało błędne pomijanie assetów.
+        const state = stateCell.innerText.trim().toLowerCase();
 
         console.log(
           `[CradleScanner] Row ${i}: Cradle.ID=${cradleId}, State="${state}"`
