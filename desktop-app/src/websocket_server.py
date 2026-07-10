@@ -70,6 +70,18 @@ class WebSocketServer:
                 logger.info("🎯 FILES_DETECTED received - starting download process...")
                 await self.handle_files_detected(websocket, data)
 
+            elif action == "EXTENSION_ERROR":
+                error_msg = data.get("error", "Unknown extension error")
+                cradle_id = data.get("cradleId")
+                logger.error(f"❌ [Extension] Error for {cradle_id}: {error_msg}")
+                asyncio.create_task(self.api_client.log_system_event(
+                    component="extension",
+                    action="EXTENSION_ERROR",
+                    message=error_msg,
+                    is_error=True,
+                    cradle_id=cradle_id
+                ))
+
             elif action == "VIDEO_COMPARE_REQUEST":
                 logger.info(
                     "🎬 VIDEO_COMPARE_REQUEST received - starting Video Compare..."
@@ -336,7 +348,7 @@ class WebSocketServer:
 
             else:
                 logger.error(f"❌ Folder does not exist: {base_path}")
-                await self.send_error(websocket, f"Folder not found: {cradle_id}")
+                await self.send_error(websocket, f"Folder not found: {cradle_id}", cradle_id=cradle_id)
                 return
 
             # ✅ SPRAWDŹ CZY ZNALEZIONO OBA PLIKI
@@ -349,7 +361,7 @@ class WebSocketServer:
 
                 error_msg = f"Missing files in {cradle_id} folder. Missing: {', '.join(missing_files)}. Found video files: {[f.name for f in video_files] if 'video_files' in locals() else 'No video files'}"
                 logger.error(f"❌ {error_msg}")
-                await self.send_error(websocket, error_msg)
+                await self.send_error(websocket, error_msg, cradle_id=cradle_id)
                 return
 
             logger.info(f"🎬 Starting Video Compare automation for {cradle_id}")
@@ -378,7 +390,7 @@ class WebSocketServer:
 
         except Exception as e:
             logger.error(f"❌ Video Compare request failed: {str(e)}")
-            await self.send_error(websocket, f"Video Compare error: {str(e)}")
+            await self.send_error(websocket, f"Video Compare error: {str(e)}", cradle_id=cradle_id)
 
     async def handle_video_compare_upload_request(self, websocket, data):
         """Handle hybrid Video Compare upload request from extension"""
@@ -462,14 +474,14 @@ class WebSocketServer:
             logger.info(f"🔍 [API] Looking for files in: {base_path}")
             
             if not base_path.exists():
-                await self.send_error(websocket, f"Folder not found: {cradle_id}")
+                await self.send_error(websocket, f"Folder not found: {cradle_id}", cradle_id=cradle_id)
                 return
 
             # ✅ RETRY LOOP: Wait for files to appear
             video_files = await self._find_video_files_with_retry(base_path, cradle_id, prefix="[API]")
             
             if len(video_files) < 2:
-                await self.send_error(websocket, f"Need 2 video files, found {len(video_files)}")
+                await self.send_error(websocket, f"Need 2 video files, found {len(video_files)}", cradle_id=cradle_id)
                 return
 
             # Identify files
@@ -478,7 +490,7 @@ class WebSocketServer:
             )
             
             if not acceptance_path or not emission_path:
-                await self.send_error(websocket, "Could not identify acceptance and emission files")
+                await self.send_error(websocket, "Could not identify acceptance and emission files", cradle_id=cradle_id)
                 return
 
             # ────────── DUPLICATE CHECK ──────────
@@ -612,7 +624,7 @@ class WebSocketServer:
 
         except Exception as e:
             logger.error(f"❌ [API] Error: {str(e)}")
-            await self.send_error(websocket, f"API Error: {str(e)}")
+            await self.send_error(websocket, f"API Error: {str(e)}", cradle_id=cradle_id)
 
     async def _find_video_files_with_retry(self, base_path, cradle_id, prefix="", max_retries=150):
         """

@@ -955,6 +955,30 @@ def get_whisper():
     return _whisper
 
 
+def _strip_consecutive_repetitions(text: str) -> str:
+    """
+    Strips consecutive word repetitions to prevent loop hallucinations from triggering detectors.
+    Allows up to 2 consecutive repetitions (e.g. 'AEG AEG' is kept, 3+ is stripped).
+    """
+    words = text.split()
+    if not words:
+        return ""
+    cleaned_words = []
+    last_word_clean = None
+    consecutive_count = 0
+    for w in words:
+        w_clean = w.lower().strip('.!?,:;"\'()[]{}*~`-_=+')
+        if last_word_clean and w_clean == last_word_clean:
+            consecutive_count += 1
+            if consecutive_count < 2:  # Allow up to 2 consecutive repetitions
+                cleaned_words.append(w)
+        else:
+            last_word_clean = w_clean
+            consecutive_count = 0
+            cleaned_words.append(w)
+    return " ".join(cleaned_words)
+
+
 def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> str:
     """
     Detects Whisper loop hallucinations: repetitive n-gram patterns and Unicode garbage.
@@ -1158,9 +1182,14 @@ def transcribe_audio(
                 
                 # Determine device
                 device = "mps" if torch.backends.mps.is_available() else "cpu"
-                logger.info(f"🤖 Loading standard Whisper on {device}: {target_model}")
                 
-                model = whisper.load_model(target_model, device=device)
+                # Retrieve model keys outside try block fallback
+                config_model_fallback = os.getenv("WHISPER_MODEL_SIZE", "small")
+                target_model_key_fallback = config_model_fallback if model_name == "base" else model_name
+                
+                logger.info(f"🤖 Loading standard Whisper on {device}: {target_model_key_fallback}")
+                
+                model = whisper.load_model(target_model_key_fallback, device=device)
                 
                 options = {
                     "fp16": device == "mps", # FP16 supported on MPS
@@ -1191,9 +1220,11 @@ def transcribe_audio(
         except Exception as db_e:
             logger.error(f"Failed to fetch hallucinations from DB: {db_e}")
             
+        import re
         filtered_text = []
         for seg in result.get("segments", []):
             text = seg["text"].strip()
+            text = _strip_consecutive_repetitions(text)
             text_lower = text.lower()
             text_clean = text_lower.strip('.!?, ')
             
@@ -1219,6 +1250,17 @@ def transcribe_audio(
             
             if is_hallucination:
                 logger.warning(f"⚠️ Filtered hallucination (DB): '{text}'")
+                continue
+
+            # CJK character filter for non-CJK languages (anti-hallucination)
+            has_cjk = re.search(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uff00-\uffef]', text)
+            if has_cjk and language not in ('ja', 'zh', 'ko'):
+                logger.warning(f"⚠️ Filtered CJK script hallucination: '{text}'")
+                continue
+                
+            # Segment-level loop hallucination filter
+            if not _detect_and_strip_loop_hallucination(text):
+                logger.warning(f"⚠️ Filtered loop/hallucination segment: '{text}'")
                 continue
                 
             # Filter out low-confidence segments
@@ -1610,14 +1652,14 @@ def transcribe_single_file(
                             
                             logger.info(f"  [{label.upper()}] 📊 Music Proportion: {music_proportion:.1%}")
                             
-                            # GATE: Only filter if Music is dominant (> 40%)
-                            if music_proportion > 0.4:
+                            # GATE: Only filter if Music is dominant (> 55%)
+                            if music_proportion > 0.55:
                                 filtered_vocals = str(Path(sep_dir) / "vocals_filtered.wav")
                                 if filter_song_vocals(vocals_path, other_stems, filtered_vocals):
                                     vocals_path = filtered_vocals
-                                    logger.info(f"  [{label.upper()}] 🕵️‍♂️ Applied Song Filter (Music > 40%)")
+                                    logger.info(f"  [{label.upper()}] 🕵️‍♂️ Applied Song Filter (Music > 55%)")
                             else:
-                                logger.info(f"  [{label.upper()}] 🛡️ Skipped Song Filter (Music < 40%, likely VO)")
+                                logger.info(f"  [{label.upper()}] 🛡️ Skipped Song Filter (Music < 55%, likely VO)")
 
                     else:
                         logger.warning(f"  [{label.upper()}] Vocals file missing or empty. Using mixed audio.")
@@ -1637,17 +1679,18 @@ def transcribe_single_file(
         
         # ── RETRY FALLBACK: If vocals yielded empty text, try original mixed audio ──
         # Only fallback if it's NOT a music-dominant track.
-        # If it is music-dominant (>40% music), an empty transcript is expected (just music) and falling back would cause hallucinations.
+        # If it is music-dominant (>55% music), an empty transcript is expected (just music) and falling back would cause hallucinations.
         music_prop = sep_result.get("summary", {}).get("music_proportion", 0) if sep_result else 0
-        is_music_dominant = music_prop > 0.4
+        is_music_dominant = music_prop > 0.55
         
-        if is_using_vocals and not transcript.get("text") and not transcript.get("error"):
+        word_count = transcript.get("word_count", 0)
+        if is_using_vocals and (not transcript.get("text") or word_count < 3) and not transcript.get("error"):
             if not is_music_dominant:
-                logger.warning(f"  [{label.upper()}] ⚠️ Empty transcript from vocals (possible hallucination or artifacts). Retrying with MIXED audio...")
+                logger.warning(f"  [{label.upper()}] ⚠️ Empty or short transcript ({word_count} words) from vocals. Retrying with MIXED audio...")
                 transcript = transcribe_audio(audio_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
                 is_using_vocals = False # Mark that we ended up using mixed
             else:
-                logger.info(f"  [{label.upper()}] 🛑 Empty transcript from vocals, but track is music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
+                logger.info(f"  [{label.upper()}] 🛑 Empty or short transcript ({word_count} words) from vocals, but track is music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
         
         if transcript.get("error"):
             logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")

@@ -888,3 +888,17 @@ class FileHandler:
         except Exception as e:
             self.logger.error(f"❌ Post-processing failed: {str(e)}")
             return result
+
+    async def send_error(self, websocket, error_message, cradle_id=None):
+        """Wyślij komunikat o błędzie do rozszerzenia browsera i zapisz w logu"""
+        import json
+        import time
+        message = {
+            "action": "ERROR",
+            "error": error_message,
+            "timestamp": int(time.time() * 1000),
+        }
+        if cradle_id:
+            message["cradle_id"] = cradle_id
+        await websocket.send(json.dumps(message))
+        self.logger.error(f"📤 Sent error to extension: {error_message}")

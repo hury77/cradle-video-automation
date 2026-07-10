@@ -31,6 +31,10 @@ function App() {
     "connected" | "disconnected" | "checking"
   >("checking");
 
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
+  const [recentErrors, setRecentErrors] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState<boolean>(false);
+
   // Handle initial URL and browser navigation
   useEffect(() => {
     const handleLocationChange = async () => {
@@ -116,6 +120,60 @@ function App() {
       setWsStatus("disconnected");
     }
   };
+
+  const fetchRecentErrors = async () => {
+    try {
+      const response = await compareApi.getAutomationLogs(0, 10, undefined, true);
+      if (response && response.results) {
+        setRecentErrors(response.results);
+        
+        // Oblicz liczbę nieprzeczytanych powiadomień
+        const lastReadIdStr = localStorage.getItem("cradle_last_read_error_id");
+        const lastReadId = lastReadIdStr ? parseInt(lastReadIdStr, 10) : 0;
+        
+        const newUnread = response.results.filter((log: any) => log.id > lastReadId).length;
+        setUnreadNotifications(newUnread);
+      }
+    } catch (error) {
+      console.error("Failed to fetch recent errors for notifications:", error);
+    }
+  };
+
+  useEffect(() => {
+    // Pierwsze pobranie
+    fetchRecentErrors();
+    
+    // Odpytywanie co 15 sekund
+    const interval = setInterval(fetchRecentErrors, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleToggleNotifications = () => {
+    setShowNotifications(prev => {
+      const nextState = !prev;
+      if (nextState && recentErrors.length > 0) {
+        // Oznacz wszystkie jako przeczytane
+        const maxId = Math.max(...recentErrors.map(log => log.id));
+        localStorage.setItem("cradle_last_read_error_id", maxId.toString());
+        setUnreadNotifications(0);
+      }
+      return nextState;
+    });
+  };
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".notifications-container")) {
+        setShowNotifications(false);
+      }
+    };
+    
+    document.addEventListener("click", handleOutsideClick);
+    return () => document.removeEventListener("click", handleOutsideClick);
+  }, [showNotifications]);
 
   const getStatusDot = (status: string) => {
     switch (status) {
@@ -245,10 +303,68 @@ function App() {
                 </button>
               </div>
 
-              <div className="flex items-center space-x-1 border-l border-gray-200 pl-4 ml-2">
-                <button className="p-2 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg transition-colors">
+              <div className="flex items-center space-x-1 border-l border-gray-200 pl-4 ml-2 relative notifications-container">
+                <button 
+                  onClick={handleToggleNotifications}
+                  className={`p-2 focus:outline-none rounded-lg transition-colors relative ${
+                    showNotifications ? 'bg-gray-100 text-gray-600' : 'text-gray-400 hover:text-gray-500'
+                  }`}
+                  title="Powiadomienia systemowe"
+                >
                   <BellIcon className="w-5 h-5" />
+                  {unreadNotifications > 0 && (
+                    <span className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white animate-pulse">
+                      {unreadNotifications}
+                    </span>
+                  )}
                 </button>
+
+                {showNotifications && (
+                  <div className="absolute right-0 top-full mt-2 w-80 rounded-lg bg-white shadow-xl ring-1 ring-black ring-opacity-5 z-50 overflow-hidden divide-y divide-gray-100">
+                    <div className="p-3 bg-gray-50 flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Błędy Systemowe
+                      </span>
+                      {recentErrors.length > 0 && (
+                        <button 
+                          onClick={() => { setSelectedJob(null); setDashboardView("logs"); setShowNotifications(false); }}
+                          className="text-xs text-blue-600 hover:text-blue-500 font-medium"
+                        >
+                          Zobacz logi
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+                      {recentErrors.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-gray-500">
+                          Brak zgłoszonych błędów systemowych.
+                        </div>
+                      ) : (
+                        recentErrors.slice(0, 5).map((log) => (
+                          <div 
+                            key={log.id} 
+                            className="p-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-start justify-between space-x-2">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-800">
+                                {log.component === "desktop_app" ? "Desktop App" : log.component === "extension" ? "Rozszerzenie" : "Backend"}
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs font-semibold text-gray-900">
+                              {log.cradle_id ? `Cradle ID: ${log.cradle_id}` : "Błąd Systemu"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-gray-600" title={log.message}>
+                              {log.message.length > 120 ? log.message.substring(0, 120) + "..." : log.message}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

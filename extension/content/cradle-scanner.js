@@ -1249,6 +1249,13 @@ class CradleScanner {
       }
       
       console.error(`[CradleScanner] Brak plików do pobrania: Acc=${!missingAcceptance}, Emi=${!missingEmission}. Zatrzymuję automatyzację.`);
+      
+      desktopConnection.sendMessage({
+        action: "EXTENSION_ERROR",
+        error: msg,
+        cradleId: cradleId
+      });
+
       this.showInteractivePopup(
         "❌ Files Missing", 
         `${msg}<br><br>Please check if the files exist and are not image/document formats (e.g., PNG/PDF).<br><br>Automation has been paused.`, 
