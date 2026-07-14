@@ -66,6 +66,7 @@ class ComparisonType(enum.Enum):
     AUDIO_ONLY = "audio_only"
     FULL = "full"  # Both video and audio
     AUTOMATION = "automation"  # Sequential: Video HIGH → gc → Full Audio (Demucs+Whisper) → 1 job
+    VO_TRANSCRIPT = "vo_transcript"  # Automation but forces Demucs+Whisper
 
 
 class SensitivityLevel(enum.Enum):

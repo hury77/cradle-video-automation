@@ -1122,15 +1122,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <span className="text-sm text-gray-500">Re-analyze:</span>
                 
                 {/* Manual Levels */}
-                {(["low", "medium", "high", "automation"] as const).map((level) => {
+                {(["high", "automation", "vo_transcript"] as const).map((level) => {
                   const levelStr = level as string;
-                  const isCurrent = (job.sensitivity_level || "medium") === levelStr && 
-                                   (levelStr === "automation" ? job.comparison_type === "automation" : job.comparison_type !== "automation");
+                  const isCurrent = ((job.sensitivity_level as string) || "medium") === levelStr && 
+                                   (levelStr === "automation" ? job.comparison_type === "automation" : levelStr === "vo_transcript" ? job.comparison_type === "vo_transcript" : job.comparison_type !== "automation" && job.comparison_type !== "vo_transcript");
                   
                   return (
                     <button
                       key={levelStr}
-                      disabled={reanalyzing || (isCurrent && levelStr !== "automation")}
+                      disabled={reanalyzing || (isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript")}
                       onClick={async () => {
                         setReanalyzing(true);
                         try {
@@ -1141,8 +1141,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           }
 
                           const formData = new FormData();
-                          formData.append("sensitivity_level", levelStr);
-                          formData.append("comparison_type", levelStr === "automation" ? "automation" : "full");
+                          formData.append("sensitivity_level", levelStr === "vo_transcript" ? "automation" : levelStr);
+                          formData.append("comparison_type", levelStr === "automation" ? "automation" : levelStr === "vo_transcript" ? "vo_transcript" : "full");
                           
                           const response = await fetch(
                             `/api/v1/compare/${job.id}/reanalyze`,
@@ -1170,53 +1170,20 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         }
                       }}
                       className={`px-3 py-1.5 text-sm rounded-lg transition-colors font-bold ${
-                        levelStr === "low" ? "bg-green-100 text-green-700 hover:bg-green-200" :
-                        levelStr === "medium" ? "bg-amber-100 text-amber-700 hover:bg-amber-200" :
                         levelStr === "high" ? "bg-red-100 text-red-700 hover:bg-red-200" :
+                        levelStr === "vo_transcript" ? "bg-purple-600 text-white hover:bg-purple-700 shadow-sm ring-1 ring-purple-800" :
                         "bg-blue-600 text-white hover:bg-blue-700 shadow-sm ring-1 ring-blue-800"
-                      } ${isCurrent && levelStr !== "automation" ? "ring-2 ring-offset-1 ring-blue-500" : ""} ${
-                        reanalyzing || (isCurrent && levelStr !== "automation") ? "opacity-50 cursor-not-allowed" : ""
+                      } ${isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript" ? "ring-2 ring-offset-1 ring-blue-500" : ""} ${
+                        reanalyzing || (isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript") ? "opacity-50 cursor-not-allowed" : ""
                       }`}
                     >
-                      {levelStr === "automation" ? "🤖 Run Auto-Compare" : levelStr.charAt(0).toUpperCase() + levelStr.slice(1)}
+                      {levelStr === "automation" ? "🤖 Run Auto-Compare" : levelStr === "vo_transcript" ? "🎙️ Run VO Transcript" : levelStr.charAt(0).toUpperCase() + levelStr.slice(1)}
                       {isCurrent && " ✓"}
                     </button>
                   );
                 })}
                 
-                {/* Audio Only Button */}
-                <button
-                    disabled={reanalyzing || job.comparison_type === "audio_only"}
-                    onClick={async () => {
-                    setReanalyzing(true);
-                    try {
-                        const formData = new FormData();
-                        formData.append("sensitivity_level", job.sensitivity_level || "medium");
-                        formData.append("comparison_type", "audio_only");
-                        
-                        const response = await fetch(
-                        `/api/v1/compare/${job.id}/reanalyze`,
-                        { method: "POST", body: formData }
-                        );
-                        if (response.ok) {
-                        window.location.reload();
-                        } else {
-                        const errText = await response.text();
-                        alert("Failed: " + errText);
-                        }
-                    } catch (err) {
-                        console.error(err);
-                    } finally {
-                        setReanalyzing(false);
-                    }
-                    }}
-                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors bg-purple-100 text-purple-700 hover:bg-purple-200 ${
-                    job.comparison_type === "audio_only" ? "ring-2 ring-offset-1 ring-blue-500 font-bold opacity-50 cursor-not-allowed" : ""
-                    } ${reanalyzing ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                    Audio Only
-                    {job.comparison_type === "audio_only" && " ✓"}
-                </button>
+
               </div>
             </div>
 

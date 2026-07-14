@@ -50,6 +50,7 @@ class ComparisonTypeEnum(str, Enum):
     AUDIO_ONLY = "audio_only"
     FULL = "full"
     AUTOMATION = "automation"
+    VO_TRANSCRIPT = "vo_transcript"
 
 
 class SensitivityLevel(str, Enum):

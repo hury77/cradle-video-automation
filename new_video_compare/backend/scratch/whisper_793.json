@@ -1,0 +1,175 @@
+{
+  "text_similarity": 0.3077,
+  "is_text_match": false,
+  "comparison": {
+    "text_similarity": 0.3077,
+    "is_text_match": false,
+    "word_count_a": 49,
+    "word_count_b": 16,
+    "word_differences": [
+      {
+        "type": "replace",
+        "acceptance": "spoticar localization and vo for the 2 new videos nessun compromesso anche se auto usate con spoticar scegli tra più",
+        "emission": "sottotitoli e revisione a cura",
+        "position": 9
+      },
+      {
+        "type": "replace",
+        "acceptance": "15000 auto su cui contare grazie ai nostri controlli a 360 gradi spotticar lusato di cui ti puoi fidare",
+        "emission": "qtss",
+        "position": 30
+      }
+    ],
+    "segment_differences": [
+      {
+        "segment_idx": 0,
+        "time_a": "5.3s",
+        "time_b": "(missing)",
+        "text_a": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS",
+        "text_b": ""
+      },
+      {
+        "segment_idx": 1,
+        "time_a": "17.5s",
+        "time_b": "(missing)",
+        "text_a": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS",
+        "text_b": ""
+      },
+      {
+        "segment_idx": 2,
+        "time_a": "18.1s",
+        "time_b": "(missing)",
+        "text_a": "Nessun compromesso, anche se auto usate.",
+        "text_b": ""
+      },
+      {
+        "segment_idx": 3,
+        "time_a": "21.1s",
+        "time_b": "(missing)",
+        "text_a": "Con SPOTICAR scegli tra più di 15.000 auto su cui contare,",
+        "text_b": ""
+      },
+      {
+        "segment_idx": 4,
+        "time_a": "24.6s",
+        "time_b": "(missing)",
+        "text_a": "grazie ai nostri controlli a 360 gradi.",
+        "text_b": ""
+      },
+      {
+        "segment_idx": 5,
+        "time_a": "27.2s",
+        "time_b": "29.0s",
+        "text_a": "Spotticar, l'usato di cui ti puoi fidare.",
+        "text_b": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+      },
+      {
+        "segment_idx": 6,
+        "time_a": "(missing)",
+        "time_b": "30.0s",
+        "text_a": "",
+        "text_b": "Sottotitoli e revisione a cura di QTSS"
+      }
+    ],
+    "total_differences": 2,
+    "acceptance_text": "spoticar localization and vo for the 2 new videos spoticar localization and vo for the 2 new videos nessun compromesso anche se auto usate con spoticar scegli tra più di 15000 auto su cui contare grazie ai nostri controlli a 360 gradi spotticar lusato di cui ti puoi fidare",
+    "emission_text": "spoticar localization and vo for the 2 new videos sottotitoli e revisione a cura di qtss",
+    "timeline_data": {
+      "acceptance_segments": [
+        {
+          "start": 5.34,
+          "end": 15.74,
+          "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+        },
+        {
+          "start": 17.5,
+          "end": 18.06,
+          "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+        },
+        {
+          "start": 18.06,
+          "end": 20.92,
+          "text": "Nessun compromesso, anche se auto usate."
+        },
+        {
+          "start": 21.12,
+          "end": 24.48,
+          "text": "Con SPOTICAR scegli tra più di 15.000 auto su cui contare,"
+        },
+        {
+          "start": 24.62,
+          "end": 27.2,
+          "text": "grazie ai nostri controlli a 360 gradi."
+        },
+        {
+          "start": 27.2,
+          "end": 29.78,
+          "text": "Spotticar, l'usato di cui ti puoi fidare."
+        }
+      ],
+      "emission_segments": [
+        {
+          "start": 29.02,
+          "end": 29.98,
+          "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+        },
+        {
+          "start": 30.0,
+          "end": 31.98,
+          "text": "Sottotitoli e revisione a cura di QTSS"
+        }
+      ]
+    }
+  },
+  "acceptance_text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS Nessun compromesso, anche se auto usate. Con SPOTICAR scegli tra più di 15.000 auto su cui contare, grazie ai nostri controlli a 360 gradi. Spotticar, l'usato di cui ti puoi fidare.",
+  "emission_text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS Sottotitoli e revisione a cura di QTSS",
+  "detected_language": "it",
+  "timeline_data": {
+    "acceptance_segments": [
+      {
+        "start": 5.34,
+        "end": 15.74,
+        "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+      },
+      {
+        "start": 17.5,
+        "end": 18.06,
+        "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+      },
+      {
+        "start": 18.06,
+        "end": 20.92,
+        "text": "Nessun compromesso, anche se auto usate."
+      },
+      {
+        "start": 21.12,
+        "end": 24.48,
+        "text": "Con SPOTICAR scegli tra più di 15.000 auto su cui contare,"
+      },
+      {
+        "start": 24.62,
+        "end": 27.2,
+        "text": "grazie ai nostri controlli a 360 gradi."
+      },
+      {
+        "start": 27.2,
+        "end": 29.78,
+        "text": "Spotticar, l'usato di cui ti puoi fidare."
+      }
+    ],
+    "emission_segments": [
+      {
+        "start": 29.02,
+        "end": 29.98,
+        "text": "SPOTICAR, LOCALIZATION AND VO FOR THE 2 NEW VIDEOS"
+      },
+      {
+        "start": 30.0,
+        "end": 31.98,
+        "text": "Sottotitoli e revisione a cura di QTSS"
+      }
+    ]
+  },
+  "skipped": false,
+  "skipped_reason": null
+}

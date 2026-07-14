@@ -235,7 +235,7 @@ async def serve_spa(full_path: str = ""):
     if frontend_build_dir.exists():
         index_path = frontend_build_dir / "index.html"
         if index_path.exists():
-            return FileResponse(index_path)
+            return FileResponse(index_path, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
             
     return {"error": "Frontend build not found. Please run 'npm run build' in frontend directory."}
 

@@ -212,7 +212,7 @@ class ComparisonService:
             logger.info(f"🔎 Checking Comparison Type: {job.comparison_type} (Type: {type(job.comparison_type)})")
             
             # 1. Video Comparison
-            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY, ComparisonType.AUTOMATION]):
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.VIDEO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT]):
                 logger.info("🎬 Starting video comparison logic...")
                 job.progress = 10.0
                 db.commit()
@@ -266,7 +266,7 @@ class ComparisonService:
                 logger.warning(f"⚠️ Skipping video comparison (Type mismatch: {job.comparison_type})")
 
             # 2. Audio Comparison
-            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]):
+            if check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT]):
                 logger.info("🔊 Starting audio comparison...")
                 job.progress = 65.0
                 db.commit()
@@ -396,10 +396,10 @@ class ComparisonService:
                 # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
                 # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
                 should_run_stt = check_comp_type(
-                    job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION]
+                    job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT]
                 )
                 if should_run_stt:
-                    mode_label = "AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper()
+                    mode_label = "VO_TRANSCRIPT" if check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT) else ("AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper())
                     logger.info(f"🎧 {mode_label} Mode: Running enhanced analysis (Demucs + Whisper)...")
                     
                     import gc
@@ -412,6 +412,7 @@ class ComparisonService:
                         
                         # Fix: Force STT if loudness differences were detected, even if spectral similarity is high
                         loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
+                        force_stt = loudness_match_issue or check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT)
                         
                         stt_result = compare_spoken_text(
                             acceptance_path,
@@ -419,7 +420,7 @@ class ComparisonService:
                             use_separated_vocals=True,
                             filter_song=should_filter_song,
                             audio_similarity_score=audio_result.get("similarity_score"),
-                            force_stt=loudness_match_issue,
+                            force_stt=force_stt,
                             initial_prompt=job.client_name,
                             start_time_acc=start_time_acc,
                             start_time_emi=start_time_emi,

@@ -1,0 +1,24 @@
+{
+  "acceptance": {
+    "integrated_lufs": -16.4,
+    "true_peak_db": 0.0,
+    "duration_seconds": 32.02,
+    "sample_rate": 44100,
+    "loudness_range_lu": 15.98
+  },
+  "emission": {
+    "integrated_lufs": -9.68,
+    "true_peak_db": 0.0,
+    "duration_seconds": 32.02,
+    "sample_rate": 44100,
+    "loudness_range_lu": 7.69
+  },
+  "comparison": {
+    "lufs_difference": 6.72,
+    "peak_difference_db": 0.0,
+    "is_lufs_match": false,
+    "is_peak_match": true,
+    "loudness_tolerance": 1.0
+  },
+  "has_loudness_differences": true
+}
