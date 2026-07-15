@@ -1159,8 +1159,8 @@ def transcribe_audio(
                 # repetitive gibberish (e.g. Welsh-like text) on music-only audio.
                 "condition_on_previous_text": False,
                 # Segments with no-speech probability above this are discarded by the model.
-                # Lowered to 0.45 so Whisper aggressively ignores Demucs background artifacts.
-                "no_speech_threshold": 0.45,
+                # Default is 0.6. Previously lowered to 0.45 but caused false negatives (discarded real VO).
+                "no_speech_threshold": 0.6,
             }
             if language:
                 options["language"] = language
@@ -1684,7 +1684,7 @@ def transcribe_single_file(
         is_music_dominant = music_prop > 0.55
         
         word_count = transcript.get("word_count", 0)
-        if is_using_vocals and (not transcript.get("text") or word_count < 3) and not transcript.get("error"):
+        if is_using_vocals and (not transcript.get("text") or word_count < 10) and not transcript.get("error"):
             if not is_music_dominant:
                 logger.warning(f"  [{label.upper()}] ⚠️ Empty or short transcript ({word_count} words) from vocals. Retrying with MIXED audio...")
                 transcript = transcribe_audio(audio_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
