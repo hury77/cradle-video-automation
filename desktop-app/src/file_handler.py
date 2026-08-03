@@ -397,27 +397,39 @@ class FileHandler:
             
             # FINAL FALLBACK: Search by Acceptance File name (stem)
             acceptance_name_full = file_info.get("acceptanceName")
+            original_stem = None
             if acceptance_name_full:
                 from pathlib import Path
                 import re
                 acc_stem = Path(acceptance_name_full).stem
-                
-                # SOUL.md: Transparent logging
                 original_stem = acc_stem
-                acc_stem = re.sub(r'_[a-zA-Z0-9]{7}$', '', acc_stem)
-                if acc_stem != original_stem:
-                    self.logger.info(f"🧹 Cleaned Cradle hash from acceptance stem: '{original_stem}' -> '{acc_stem}'")
 
-                if len(acc_stem) > 4:  # Avoid too short generic names
-                    self.logger.info(f"💡 Added fallback search patterns using acceptance stem: '{acc_stem}'")
+                # 1. Search FIRST using exact original_stem (unstripped, e.g. AEG_ProductVideo_..._01PJRYl*)
+                if len(original_stem) > 4:
+                    self.logger.info(f"💡 Added exact original stem search patterns: '{original_stem}'")
                     search_patterns.extend([
-                        f"{search_path}/{acc_stem}*",
-                        f"{search_path}/*{acc_stem}*",
-                        f"{search_path}/*/{acc_stem}*",
-                        f"{search_path}/*/*{acc_stem}*",
-                        f"{search_path}/**/{acc_stem}*",
-                        f"{search_path}/**/*{acc_stem}*"
+                        f"{search_path}/{original_stem}*",
+                        f"{search_path}/*{original_stem}*",
+                        f"{search_path}/*/{original_stem}*",
+                        f"{search_path}/*/*{original_stem}*",
+                        f"{search_path}/**/{original_stem}*",
+                        f"{search_path}/**/*{original_stem}*"
                     ])
+
+                # 2. Search SECOND using cleaned stem (without 7-char Cradle hash)
+                cleaned_stem = re.sub(r'_[a-zA-Z0-9]{7}$', '', acc_stem)
+                if cleaned_stem != original_stem:
+                    self.logger.info(f"🧹 Cleaned Cradle hash from acceptance stem: '{original_stem}' -> '{cleaned_stem}'")
+                    if len(cleaned_stem) > 4:  # Avoid too short generic names
+                        self.logger.info(f"💡 Added fallback search patterns using cleaned acceptance stem: '{cleaned_stem}'")
+                        search_patterns.extend([
+                            f"{search_path}/{cleaned_stem}*",
+                            f"{search_path}/*{cleaned_stem}*",
+                            f"{search_path}/*/{cleaned_stem}*",
+                            f"{search_path}/*/*{cleaned_stem}*",
+                            f"{search_path}/**/{cleaned_stem}*",
+                            f"{search_path}/**/*{cleaned_stem}*"
+                        ])
 
             # FINAL FALLBACK 2: Search by Template ID
             template_id = file_info.get("templateId")
@@ -455,11 +467,55 @@ class FileHandler:
                 if found_files:
                     break
 
-            # Remove duplicates and sort
-            found_files = sorted(list(set(found_files)))
+            # Remove duplicates
+            found_files = list(set(found_files))
 
             if found_files:
-                # Use first file (usually the main version)
+                import re
+
+                def score_candidate(file_path_str):
+                    f_name = os.path.basename(file_path_str)
+                    f_stem = Path(f_name).stem
+                    score = 0
+
+                    # 1. Exact match with original stem or substring
+                    if original_stem:
+                        if original_stem == f_stem or original_stem in f_name:
+                            score += 100
+                        # Match hash/suffix (e.g. _01PJRYl)
+                        match_hash = re.search(r'_[a-zA-Z0-9]{7}$', original_stem)
+                        if match_hash and match_hash.group(0) in f_name:
+                            score += 50
+
+                    # 2. Penalty for variant words not present in original_stem
+                    variant_keywords = ["-Animal", "-Teaser", "-Short", "-Cutdown", "-15s", "-30s", "-60s", "-SDA", "-WB"]
+                    if original_stem:
+                        for var in variant_keywords:
+                            if var.lower() in f_name.lower() and var.lower() not in original_stem.lower():
+                                score -= 50
+
+                    # 3. Format quality (prefer .mov/.mxf over .mp4)
+                    ext = Path(f_name).suffix.lower()
+                    format_quality = {".mov": 3, ".mxf": 3, ".prores": 2, ".mp4": 1, ".avi": 1, ".mkv": 1}
+                    score += format_quality.get(ext, 0)
+
+                    # 4. Modification date (mtime)
+                    try:
+                        mtime = os.path.getmtime(file_path_str)
+                    except Exception:
+                        mtime = 0
+
+                    return (score, mtime)
+
+                # Sort by score descending, then mtime descending
+                found_files = sorted(found_files, key=score_candidate, reverse=True)
+
+                if len(found_files) > 1:
+                    self.logger.info(f"📊 Ranked {len(found_files)} candidate file(s):")
+                    for cand in found_files[:5]:
+                        c_score, c_mtime = score_candidate(cand)
+                        self.logger.info(f"   Score {c_score} (mtime {c_mtime}): {os.path.basename(cand)}")
+
                 source_file = found_files[0]
                 filename = os.path.basename(source_file)
                 destination = cradle_folder / filename
