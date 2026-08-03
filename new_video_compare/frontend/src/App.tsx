@@ -5,17 +5,12 @@ import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
 import KnowledgeBase from "./components/KnowledgeBase";
 import AutomationLogs from "./components/AutomationLogs";
-import { StandalonePlayer } from "./components/StandalonePlayer";
 import { ComparisonJob } from "./types";
 import {
-  Cog6ToothIcon,
   BellIcon,
-  UserIcon,
-  PlusIcon,
   ChartBarIcon,
   ListBulletIcon,
   BookOpenIcon,
-  PlayIcon
 } from "@heroicons/react/24/outline";
 
 import { compareApi } from "./services/api";
@@ -23,7 +18,7 @@ import { compareApi } from "./services/api";
 function App() {
   const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
   const [showAutoPair, setShowAutoPair] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs" | "player">("list");
+  const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs">("list");
   const [backendStatus, setBackendStatus] = useState<
     "connected" | "disconnected" | "checking"
   >("checking");
@@ -187,18 +182,6 @@ function App() {
     }
   };
 
-  // Dynamic runtime check for standalone desktop app mode
-  // The macOS wrapper starts the lightweight FastAPI server on port 8005
-  // This must be a runtime check because LIVE and Desktop share the same build/ folder!
-  const isDesktopMode = window.location.port === "8005";
-
-  if (isDesktopMode) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <StandalonePlayer />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -294,13 +277,7 @@ function App() {
                   <ListBulletIcon className="w-5 h-5 mr-1" />
                   Logs
                 </button>
-                <button
-                  onClick={() => { setSelectedJob(null); setDashboardView("player"); }}
-                  className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${dashboardView === "player" ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-                >
-                  <PlayIcon className="w-5 h-5 mr-1" />
-                  Player
-                </button>
+
               </div>
 
               <div className="flex items-center space-x-1 border-l border-gray-200 pl-4 ml-2 relative notifications-container">
@@ -418,8 +395,6 @@ function App() {
           <KnowledgeBase onSelectJob={handleSelectJob} />
         ) : dashboardView === "logs" ? (
           <AutomationLogs />
-        ) : dashboardView === "player" ? (
-          <StandalonePlayer />
         ) : (
           <Dashboard onSelectJob={handleSelectJob} viewMode={dashboardView as "list" | "stats"} />
         )}
