@@ -1535,7 +1535,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                         <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider w-1/2 text-[10px]">
                                           Acceptance
                                         </th>
-                                        <th scope="col" className="px-3 py-2 text-left font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider w-1/2 text-[10px]">
+                                        <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider w-1/2 text-[10px]">
                                           Emission
                                         </th>
                                       </tr>
@@ -1561,7 +1561,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                           </td>
                                           <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
                                             {item.emission ? (
-                                              <div className="bg-rose-50/60 dark:bg-rose-950/40 p-1.5 rounded-lg text-xs font-medium">
+                                              <div className={`p-1.5 rounded-lg text-xs font-medium ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-900/50' : 'bg-indigo-50/60 dark:bg-indigo-950/40'}`}>
                                                 {item.emission}
                                               </div>
                                             ) : (
