@@ -15,10 +15,14 @@ import {
 import DifferenceInspector from "./DifferenceInspector";
 import QAVerdictPanel from "./QAVerdictPanel";
 
+import { translations, Language } from "../utils/translations";
+
 interface VideoComparisonProps {
   job: ComparisonJob;
   onJobReanalyzed?: () => void;
   onBackToDashboard?: () => void;
+  lang?: Language;
+  theme?: "dark" | "light";
 }
 
 interface ApiResults {
@@ -156,12 +160,15 @@ interface ApiResults {
   }>;
 }
 
-const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed, onBackToDashboard }) => {
+const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed, onBackToDashboard, lang = "PL", theme = "dark" }) => {
+  const t = translations[lang];
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [acceptanceVolume, setAcceptanceVolume] = useState(1);
   const [emissionVolume, setEmissionVolume] = useState(1);
+  const [prevAcceptanceVol, setPrevAcceptanceVol] = useState(1);
+  const [prevEmissionVol, setPrevEmissionVol] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
@@ -562,12 +569,36 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
   const handleAcceptanceVolumeChange = (newVolume: number) => {
     setAcceptanceVolume(newVolume);
-    if (isMuted && newVolume > 0) setIsMuted(false); // Unmute if volume is increased
+    if (newVolume > 0) setPrevAcceptanceVol(newVolume);
+    if (isMuted && newVolume > 0) setIsMuted(false);
   };
 
   const handleEmissionVolumeChange = (newVolume: number) => {
     setEmissionVolume(newVolume);
-    if (isMuted && newVolume > 0) setIsMuted(false); // Unmute if volume is increased
+    if (newVolume > 0) setPrevEmissionVol(newVolume);
+    if (isMuted && newVolume > 0) setIsMuted(false);
+  };
+
+  const toggleAcceptanceMute = () => {
+    if (isMuted || acceptanceVolume === 0) {
+      const restored = prevAcceptanceVol > 0 ? prevAcceptanceVol : 1;
+      setAcceptanceVolume(restored);
+      setIsMuted(false);
+    } else {
+      setPrevAcceptanceVol(acceptanceVolume);
+      setAcceptanceVolume(0);
+    }
+  };
+
+  const toggleEmissionMute = () => {
+    if (isMuted || emissionVolume === 0) {
+      const restored = prevEmissionVol > 0 ? prevEmissionVol : 1;
+      setEmissionVolume(restored);
+      setIsMuted(false);
+    } else {
+      setPrevEmissionVol(emissionVolume);
+      setEmissionVolume(0);
+    }
   };
 
   const toggleMute = () => {
@@ -674,18 +705,18 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const status = getOverallStatus(overallScore);
 
   return (
-    <div className="min-h-screen print:min-h-0 print:h-auto print:p-0 bg-gradient-to-br from-slate-50 to-blue-50 p-6">
+    <div className="min-h-screen print:min-h-0 print:h-auto print:p-0 bg-slate-50 dark:bg-[#0d0e15] text-slate-900 dark:text-slate-100 p-6 transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">
                 {job.job_name}
               </h1>
-              <p className="text-gray-600">Cradle ID: {job.cradle_id || "N/A"}</p>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Cradle ID: {job.cradle_id || "N/A"}</p>
               {differencesFound && (
-                <p className="text-sm text-orange-600 mt-1">
+                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-1">
                   ⚠️ Differences detected ({videoDifferences} video frames, {differences.length} timestamps)
                 </p>
               )}
@@ -693,7 +724,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
             <div className="flex items-center space-x-4">
               <div
-                className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${status.bg} ${status.color}`}
+                className={`inline-flex items-center px-4 py-2 rounded-full text-xs font-black shadow-sm ${status.bg} ${status.color}`}
               >
                 <div className={`w-2 h-2 bg-current rounded-full mr-2 ${status.animate ? "animate-pulse" : ""}`}></div>
                 {status.label}
@@ -702,9 +733,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
               <button
                 onClick={() => setShowResults(!showResults)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                className="inline-flex items-center px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none transition-colors shadow-sm"
               >
-                <ChartBarSquareIcon className="w-4 h-4 mr-2" />
+                <ChartBarSquareIcon className="w-4 h-4 mr-2 text-indigo-600 dark:text-cyan-400" />
                 {showResults ? "Hide Results" : "Show Results"}
               </button>
               
@@ -713,9 +744,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <button
                     onClick={() => {
                         setShowInspector(true);
-                        setIsPlaying(false); // Pause main players
+                        setIsPlaying(false);
                     }}
-                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-xl text-xs font-black text-white bg-gradient-to-r from-[#350F9C] to-[#4960E6] hover:opacity-90 shadow-md transition-all"
                 >
                     <EyeIcon className="w-4 h-4 mr-2" />
                     Inspect Differences
@@ -746,44 +777,46 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
             initialTimestamp={inspectorInitialTimestamp}
         />
 
-        {/* Video Players - Side by Side */}
-        <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Video Players - Side by Side (Sync DualPlayer style - tight gap-2 layout & neutral headers) */}
+        <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-4">
           {/* Acceptance Video */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-green-50">
+          <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
+            <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#12131c]">
               <div className="flex flex-col">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-green-800">
-                    Acceptance Video
-                  </h3>
-                  <span className="text-xs text-gray-500">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                      {t.acceptanceVideo}
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-300 dark:border-white/10">
                     ID: {job.acceptance_file_id}
                   </span>
                 </div>
                 <div className="flex items-center mt-1 space-x-2">
-                  <p className="text-xs text-gray-600 truncate min-w-0" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold truncate min-w-0" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
                     {job.acceptance_file?.original_name || job.acceptance_file?.filename || 'Loading...'}
                   </p>
                   {job.acceptance_file?.width && job.acceptance_file?.height && (
-                    <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                       {job.acceptance_file.width}x{job.acceptance_file.height}
                     </span>
                   )}
                 </div>
               </div>
             </div>
-            <div className="p-4">
-              <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
+            <div className="p-2">
+              <div className="aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-200 dark:border-white/5">
                 {acceptanceLoading && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4"></div>
-                    <p className="text-white text-sm">Loading video...</p>
-                    <p className="text-gray-400 text-xs mt-1">Transcoding if needed</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
+                    <div className="animate-spin rounded-full h-10 w-10 border-3 border-indigo-500 border-t-transparent mb-3"></div>
+                    <p className="text-white text-xs font-bold">Loading video...</p>
                   </div>
                 )}
                 {acceptanceError && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10">
-                    <p className="text-red-400 text-sm">Failed to load video</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
+                    <p className="text-rose-400 text-xs font-bold">Failed to load video</p>
                     <button 
                       onClick={() => {
                         setAcceptanceError(false);
@@ -792,7 +825,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           acceptanceVideoRef.current.load();
                         }
                       }}
-                      className="mt-2 px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                      className="mt-2 px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
                     >
                       Retry
                     </button>
@@ -814,8 +847,19 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               </div>
             </div>
             {/* Acceptance Volume Control */}
-            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center space-x-2">
-              <SpeakerWaveIcon className="w-4 h-4 text-gray-500" />
+            <div className="px-3 py-1.5 bg-slate-50 dark:bg-[#12131c] border-t border-slate-200 dark:border-white/5 flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={toggleAcceptanceMute}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                title={isMuted || acceptanceVolume === 0 ? "Włącz dźwięk akceptu" : "Wycisz dźwięk akceptu"}
+              >
+                {isMuted || acceptanceVolume === 0 ? (
+                  <SpeakerXMarkIcon className="w-4 h-4 text-rose-500" />
+                ) : (
+                  <SpeakerWaveIcon className="w-4 h-4" />
+                )}
+              </button>
               <input
                 type="range"
                 min="0"
@@ -823,33 +867,36 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 step="0.01"
                 value={isMuted ? 0 : acceptanceVolume}
                 onChange={(e) => handleAcceptanceVolumeChange(Number(e.target.value))}
-                className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-green-600"
+                className="w-24 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
-              <span className="text-xs text-gray-500 w-8 tabular-nums font-medium">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 w-8 tabular-nums font-bold">
                 {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
               </span>
             </div>
           </div>
 
           {/* Emission Video */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-red-50">
+          <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
+            <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#12131c]">
               <div className="flex flex-col">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-red-800">
-                    Emission Video
-                  </h3>
-                  <span className="text-xs text-gray-500">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                      {t.emissionVideo}
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-300 dark:border-white/10">
                     ID: {job.emission_file_id}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2 mt-1">
                     <div className="flex items-center space-x-2 flex-grow min-w-0">
-                      <p className="text-xs text-gray-600 truncate" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold truncate" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
                       {job.emission_file?.original_name || job.emission_file?.filename || 'Loading...'}
                       </p>
                       {job.emission_file?.width && job.emission_file?.height && (
-                          <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                           {job.emission_file.width}x{job.emission_file.height}
                           </span>
                       )}
@@ -859,10 +906,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     {results?.overall_result?.report_data?.video?.diff_frames && (
                         <button
                             onClick={() => setShowHeatmap(!showHeatmap)}
-                            className={`flex items-center space-x-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                            className={`flex items-center space-x-1 px-2.5 py-0.5 rounded-lg text-xs font-bold transition-all ${
                                 showHeatmap 
-                                ? 'bg-red-100 text-red-700 border border-red-200' 
-                                : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
+                                ? 'bg-indigo-600 text-white shadow-md' 
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
                             }`}
                             title="Toggle Visual Difference Overlay (Heatmap)"
                         >
@@ -873,18 +920,17 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 </div>
               </div>
             </div>
-            <div className="p-4">
-              <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
+            <div className="p-2">
+              <div className="aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-200 dark:border-white/5">
                 {emissionLoading && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-500 border-t-transparent mb-4"></div>
-                    <p className="text-white text-sm">Loading video...</p>
-                    <p className="text-gray-400 text-xs mt-1">Transcoding if needed</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
+                    <div className="animate-spin rounded-full h-10 w-10 border-3 border-indigo-500 border-t-transparent mb-3"></div>
+                    <p className="text-white text-xs font-bold">Loading video...</p>
                   </div>
                 )}
                 {emissionError && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10">
-                    <p className="text-red-400 text-sm">Failed to load video</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
+                    <p className="text-rose-400 text-xs font-bold">Failed to load video</p>
                     <button 
                       onClick={() => {
                         setEmissionError(false);
@@ -893,7 +939,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           emissionVideoRef.current.load();
                         }
                       }}
-                      className="mt-2 px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+                      className="mt-2 px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
                     >
                       Retry
                     </button>
@@ -921,7 +967,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                             alt="Difference Heatmap" 
                             className="w-full h-full object-contain"
                         />
-                        <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-90 font-bold uppercase tracking-wider">
+                        <div className="absolute top-2 right-2 bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-90 font-black uppercase tracking-wider">
                             DIFF
                         </div>
                     </div>
@@ -930,8 +976,19 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               </div>
             </div>
             {/* Emission Volume Control */}
-            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center space-x-2">
-              <SpeakerWaveIcon className="w-4 h-4 text-gray-500" />
+            <div className="px-3 py-1.5 bg-slate-50 dark:bg-[#12131c] border-t border-slate-200 dark:border-white/5 flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={toggleEmissionMute}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                title={isMuted || emissionVolume === 0 ? "Włącz dźwięk emisji" : "Wycisz dźwięk emisji"}
+              >
+                {isMuted || emissionVolume === 0 ? (
+                  <SpeakerXMarkIcon className="w-4 h-4 text-rose-500" />
+                ) : (
+                  <SpeakerWaveIcon className="w-4 h-4" />
+                )}
+              </button>
               <input
                 type="range"
                 min="0"
@@ -939,36 +996,34 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 step="0.01"
                 value={isMuted ? 0 : emissionVolume}
                 onChange={(e) => handleEmissionVolumeChange(Number(e.target.value))}
-                className="w-24 h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-red-600"
+                className="w-24 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
-              <span className="text-xs text-gray-500 w-8 tabular-nums font-medium">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 w-8 tabular-nums font-bold">
                 {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
               </span>
             </div>
           </div>
         </div>
 
-        {/* Synchronized Video Controls */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        {/* Synchronized Video Controls - Neutral Card Container without blue apla, with Blue Tracks */}
+        <div className="bg-white dark:bg-[#161824] text-slate-900 dark:text-white rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 p-4 mb-8 transition-colors">
           <div className="flex items-center justify-between">
             <div className="flex items-start space-x-4 flex-grow">
               <button
                 onClick={togglePlayPause}
-                className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex-shrink-0 shadow-lg relative z-10"
+                className="w-11 h-11 flex items-center justify-center bg-blue-600 dark:bg-indigo-600 text-white hover:scale-105 transition-transform rounded-full shadow-md flex-shrink-0 relative z-10 font-black"
               >
                 {isPlaying ? (
-                  <PauseIcon className="w-6 h-6" />
+                  <PauseIcon className="w-5 h-5" />
                 ) : (
                   <PlayIcon className="w-6 h-6 ml-1" />
                 )}
               </button>
 
               <div className="flex items-center space-x-2 flex-grow mx-4">
-                {/* Time display moved inside slider row */}
                 <div className="flex-grow flex flex-col">
-                  {/* Main Slider Row - Height matched to button (h-12) for perfect alignment */}
                   <div className="h-12 flex items-center space-x-3">
-                    <span className="text-sm text-gray-600 w-12 text-right font-mono">
+                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 w-12 text-right">
                       {formatTime(currentTime)}
                     </span>
                     <input
@@ -977,19 +1032,19 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       max={displayDuration || 100}
                       value={currentTime}
                       onChange={(e) => handleSeek(Number(e.target.value))}
-                      className="flex-grow h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      className="flex-grow h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:accent-cyan-400"
                     />
-                    <span className="text-sm text-gray-600 w-12 font-mono">
+                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 w-12">
                       {formatTime(displayDuration)}
                     </span>
                   </div>
                   
                   {/* Difference Tracks Container */}
-                  <div className="mt-4 space-y-3 w-full">
+                  <div className="mt-3 space-y-2.5 w-full">
                     
-                    {/* 1. VIDEO Differences Track (RED) */}
-                    <div className="relative h-4 w-full bg-red-50 rounded border border-red-100 flex items-center overflow-hidden">
-                      <span className="absolute -left-16 text-xs font-bold text-red-600 uppercase w-14 text-right">Video</span>
+                    {/* 1. VIDEO Differences Track (BLUE PASKI) */}
+                    <div className="relative h-4 w-full bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
+                      <span className="absolute -left-16 text-[10px] font-bold text-blue-600 dark:text-cyan-400 uppercase w-14 text-right">Video</span>
                       {displayDuration > 0 && differences.map((diff, index) => {
                         const position = (diff.timestamp_seconds / displayDuration) * 100;
                         return (
@@ -1000,10 +1055,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               setInspectorInitialTimestamp(diff.timestamp_seconds);
                               setShowInspector(true);
                             }}
-                            className="absolute bg-red-600 hover:bg-red-700 cursor-pointer z-10"
+                            className="absolute bg-blue-600 dark:bg-cyan-400 hover:opacity-80 cursor-pointer z-10"
                             style={{ 
                                 left: `${position}%`, 
-                                width: '2px', 
+                                width: '2.5px', 
                                 height: '100%' 
                             }}
                             title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
@@ -1014,9 +1069,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
  
  
  
-                    {/* 3. AUDIO Differences Track (BLUE) - Placeholder for now */}
-                    <div className="relative h-4 w-full bg-blue-50 rounded border border-blue-100 flex items-center">
-                      <span className="absolute -left-16 text-xs font-bold text-blue-600 uppercase w-14 text-right">Audio</span>
+                    {/* 2. AUDIO Differences Track (BLUE PASKI) */}
+                    <div className="relative h-4 w-full bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
+                      <span className="absolute -left-16 text-[10px] font-bold text-blue-600 dark:text-cyan-400 uppercase w-14 text-right">Audio</span>
                       {audioDiffSegments.map((seg: any, index: number) => {
                          const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
                          const time = parseFloat(timeStr.replace('s', ''));
@@ -1031,7 +1086,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                              onClick={() => {
                                handleSeek(time);
                              }}
-                             className="absolute bg-blue-500 hover:bg-blue-600 cursor-pointer z-10 rounded-full"
+                             className="absolute bg-indigo-500 dark:bg-indigo-400 hover:opacity-80 cursor-pointer z-10 rounded-full"
                              style={{ 
                                  left: `${position}%`, 
                                  width: '6px', 
@@ -1046,14 +1101,13 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   </div>
                 </div>
 
-                {/* Duration display moved inside slider row */}
               </div>
             </div>
 
             <div className="flex items-center space-x-2 ml-4 flex-shrink-0">
               <button
                 onClick={toggleMute}
-                className={`p-2 rounded-lg transition-colors ${isMuted ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`p-2.5 rounded-xl transition-all border ${isMuted ? 'bg-rose-500 text-white font-bold border-rose-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-white/10'}`}
                 title="Global Mute"
               >
                 {isMuted ? (
@@ -1066,34 +1120,32 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
           </div>
 
           {/* Timeline Legend */}
-          <div className="flex items-center justify-center gap-6 text-xs text-gray-500 mt-6">
-            <div className="flex items-center">
-              <div className="w-2.5 h-2.5 bg-red-500 rounded-full mr-2"></div>
+          <div className="flex items-center justify-center gap-6 text-xs text-slate-500 dark:text-slate-400 mt-4 pt-3 border-t border-slate-100 dark:border-white/5">
+            <div className="flex items-center font-bold">
+              <div className="w-2.5 h-2.5 bg-blue-600 dark:bg-cyan-400 rounded-full mr-2 shadow-sm"></div>
               Video Differences
             </div>
 
-            <div className="flex items-center">
-              <div className="w-1 h-4 bg-blue-500 mr-2"></div>
+            <div className="flex items-center font-bold">
+              <div className="w-2.5 h-2.5 bg-indigo-500 dark:bg-indigo-400 rounded-full mr-2 shadow-sm"></div>
               Audio Differences
             </div>
           </div>
-
-          {/* Difference Jump Buttons Removed as requested */}
         </div>
 
         {/* Results Panel */}
         {showResults && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 p-6 transition-colors">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <div className="flex items-center">
-                <DocumentChartBarIcon className="w-6 h-6 text-blue-500 mr-3" />
-                <h2 className="text-xl font-semibold text-gray-900">
+                <DocumentChartBarIcon className="w-6 h-6 text-indigo-600 dark:text-cyan-400 mr-3" />
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">
                   Comparison Results
                 </h2>
-                {loading && <span className="ml-2 text-gray-500">(Loading...)</span>}
+                {loading && <span className="ml-2 text-xs font-bold text-slate-400">(Loading...)</span>}
               </div>
               
-              <div className="flex items-center">
+              <div className="flex items-center space-x-3">
                  {/* Print Button - visible on screen, hidden on print */}
                  <button 
                     onClick={() => {
@@ -1104,7 +1156,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         document.title = oldTitle;
                       }, 50);
                     }} 
-                    className="flex items-center space-x-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 print:hidden mr-4 shadow-sm"
+                    className="flex items-center space-x-1 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold print:hidden shadow-sm transition-colors"
                  >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -1115,11 +1167,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
               {/* Re-analyze dropdown with current level indicator */}
               <div className="flex items-center gap-2 print:hidden">
-                <span className="text-sm text-gray-500">
-                  Current: <span className="font-semibold capitalize">{job.comparison_type === "automation" ? "Automation" : (job.sensitivity_level || "medium")}</span>
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                  Current: <span className="font-black capitalize text-slate-800 dark:text-slate-200">{job.comparison_type === "automation" ? "Automation" : (job.sensitivity_level || "medium")}</span>
                 </span>
-                <span className="text-gray-300">|</span>
-                <span className="text-sm text-gray-500">Re-analyze:</span>
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Re-analyze:</span>
                 
                 {/* Manual Levels */}
                 {(["high", "automation", "vo_transcript"] as const).map((level) => {
@@ -1134,7 +1186,6 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       onClick={async () => {
                         setReanalyzing(true);
                         try {
-                          // ARM THE EXTENSION for Agent 2 -> Agent 1 Hand-off
                           if (levelStr === "automation") {
                               localStorage.setItem("cradle-auto-video-compare", "true");
                               console.log("[VideoComparison] 🤖 Arming Extension for Auto Hand-off...");
@@ -1169,11 +1220,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           setReanalyzing(false);
                         }
                       }}
-                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors font-bold ${
-                        levelStr === "high" ? "bg-red-100 text-red-700 hover:bg-red-200" :
-                        levelStr === "vo_transcript" ? "bg-purple-600 text-white hover:bg-purple-700 shadow-sm ring-1 ring-purple-800" :
-                        "bg-blue-600 text-white hover:bg-blue-700 shadow-sm ring-1 ring-blue-800"
-                      } ${isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript" ? "ring-2 ring-offset-1 ring-blue-500" : ""} ${
+                      className={`px-3 py-1.5 text-xs rounded-xl transition-all font-black ${
+                        levelStr === "high" ? "bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-200" :
+                        levelStr === "vo_transcript" ? "bg-purple-600 text-white hover:bg-purple-700 shadow-md" :
+                        "bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white hover:opacity-90 shadow-md"
+                      } ${isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript" ? "ring-2 ring-offset-1 ring-indigo-500" : ""} ${
                         reanalyzing || (isCurrent && levelStr !== "automation" && levelStr !== "vo_transcript") ? "opacity-50 cursor-not-allowed" : ""
                       }`}
                     >
@@ -1182,48 +1233,46 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     </button>
                   );
                 })}
-                
-
               </div>
             </div>
 
             {results ? (
               <>
-                {/* Similarity Scores */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {/* Similarity Scores - Minimalist & Unified */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                   {/* Overall Similarity */}
-                  <div className="text-center p-6 bg-blue-50 rounded-xl">
-                    <div className="text-4xl font-bold text-blue-600 mb-2">
+                  <div className="text-center p-5 bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-2xl">
+                    <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">
                       {Math.round((overallScore || 0) * 100)}%
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                       Overall Similarity
                     </h3>
-                    <p className="text-sm text-gray-600">Combined analysis</p>
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">Combined analysis</p>
                   </div>
 
                   {/* Video Similarity */}
-                  <div className="text-center p-6 bg-purple-50 rounded-xl">
-                    <div className="text-4xl font-bold text-purple-600 mb-2">
+                  <div className="text-center p-5 bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-2xl">
+                    <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">
                       {Math.round((videoSimilarity || 0) * 100)}%
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                       Video Similarity
                     </h3>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                       {videoDifferences} / {totalFrames} frames differ
                     </p>
                   </div>
 
                   {/* Audio Similarity */}
-                  <div className="text-center p-6 bg-green-50 rounded-xl">
-                    <div className="text-4xl font-bold text-green-600 mb-2">
+                  <div className="text-center p-5 bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-2xl">
+                    <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">
                       {Math.round((audioSimilarity || 0) * 100)}%
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                       Audio Similarity
                     </h3>
-                    <p className="text-sm text-gray-600">Spectral analysis</p>
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">Spectral analysis</p>
                   </div>
                 </div>
 
@@ -1235,85 +1284,85 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   const similarity = audio.similarity;
                   
                   return (
-                    <div id="audio-results-section" className="mb-8">
+                    <div id="audio-results-section" className="mb-8 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden">
                       {/* Header */}
-                      <div className="flex items-center justify-between mb-4 p-4 bg-purple-50 rounded-t-xl border border-purple-200">
-                        <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <div className="flex items-center justify-between p-4 bg-slate-100 dark:bg-[#12131c] border-b border-slate-200 dark:border-white/10">
+                        <h3 className="text-xs font-black text-slate-900 dark:text-white flex items-center uppercase tracking-wider">
                           🔊 Audio Comparison
                           {detectedLanguage && (
-                              <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded border border-gray-200 uppercase font-mono" title="Detected Language">
+                              <span className="ml-2 px-2 py-0.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] rounded border border-slate-300 dark:border-white/10 font-mono" title="Detected Language">
                                   {detectedLanguage}
                               </span>
                           )}
                           {audio.has_loudness_differences ? (
-                            <span className="ml-2 px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium">
+                            <span className="ml-2 px-2.5 py-0.5 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-[11px] rounded-md font-bold border border-rose-200 dark:border-rose-900/40">
                               Loudness Differences
                             </span>
                           ) : (
-                            <span className="ml-2 px-3 py-1 bg-green-100 text-green-700 text-sm rounded-full font-medium">
+                            <span className="ml-2 px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] rounded-md font-bold border border-emerald-200 dark:border-emerald-900/40">
                               ✓ Loudness match
                             </span>
                           )}
                         </h3>
                         {similarity && (
-                          <span className="text-2xl font-bold text-purple-600">
+                          <span className="text-lg font-black text-indigo-600 dark:text-cyan-400">
                             {Math.round((similarity.overall_audio_similarity || 0) * 100)}% match
                           </span>
                         )}
                       </div>
                       
                       {/* Two Panel View - LUFS */}
-                      <div className="grid grid-cols-2 gap-0 border border-gray-200 rounded-b-xl overflow-hidden">
+                      <div className="grid grid-cols-2 gap-0 border-b border-slate-200 dark:border-white/10">
                         {/* Acceptance LUFS */}
-                        <div className="border-r border-gray-200">
-                          <div className="bg-green-500 text-white px-4 py-2 font-semibold text-center">
-                            📊 Acceptance LUFS
+                        <div className="border-r border-slate-200 dark:border-white/10">
+                          <div className="bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white px-4 py-2 font-black text-xs text-center uppercase tracking-wider">
+                            Acceptance LUFS
                           </div>
-                          <div className="p-4 bg-gray-50">
+                          <div className="p-4 bg-slate-50 dark:bg-slate-900/60">
                             {loudness?.acceptance ? (
                               <>
                                 <div className="text-center mb-3">
-                                  <span className="text-4xl font-bold text-gray-800">
+                                  <span className="text-3xl font-black text-slate-900 dark:text-white">
                                     {typeof loudness.acceptance.integrated_lufs === 'number' ? loudness.acceptance.integrated_lufs : 'N/A'}
                                   </span>
-                                  <span className="text-lg text-gray-500 ml-1">LUFS</span>
+                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1">LUFS</span>
                                 </div>
-                                <div className="text-sm text-gray-600 space-y-1">
+                                <div className="text-xs font-bold text-slate-600 dark:text-slate-300 space-y-1">
                                   <div className="flex justify-between">
                                     <span>True Peak:</span>
-                                    <span className="font-medium">{loudness.acceptance.true_peak_db} dB</span>
+                                    <span className="font-mono">{loudness.acceptance.true_peak_db} dB</span>
                                   </div>
                                 </div>
                               </>
                             ) : (
-                              <p className="text-gray-400 text-sm italic">Brak danych</p>
+                              <p className="text-slate-400 text-xs italic">Brak danych</p>
                             )}
                           </div>
                         </div>
                         
                         {/* Emission LUFS */}
                         <div>
-                          <div className="bg-red-500 text-white px-4 py-2 font-semibold text-center">
-                            📊 Emission LUFS
+                          <div className="bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white px-4 py-2 font-black text-xs text-center uppercase tracking-wider">
+                            Emission LUFS
                           </div>
-                          <div className="p-4 bg-gray-50">
+                          <div className="p-4 bg-slate-50 dark:bg-slate-900/60">
                             {loudness?.emission ? (
                               <>
                                 <div className="text-center mb-3">
-                                  <span className="text-4xl font-bold text-gray-800">
+                                  <span className="text-3xl font-black text-slate-900 dark:text-white">
                                     {typeof loudness.emission.integrated_lufs === 'number' ? loudness.emission.integrated_lufs : 'N/A'}
                                   </span>
-                                  <span className="text-lg text-gray-500 ml-1">LUFS</span>
+                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1">LUFS</span>
                                 </div>
-                                <div className="text-sm text-gray-600 space-y-1">
+                                <div className="text-xs font-bold text-slate-600 dark:text-slate-300 space-y-1">
                                   <div className="flex justify-between">
                                     <span>True Peak:</span>
-                                    <span className="font-medium">{loudness.emission.true_peak_db} dB</span>
+                                    <span className="font-mono">{loudness.emission.true_peak_db} dB</span>
                                   </div>
                                 </div>
                               </>
                             ) : (
-                              <p className="text-gray-400 text-sm italic">Brak danych</p>
+                              <p className="text-slate-400 text-xs italic">Brak danych</p>
                             )}
                           </div>
                         </div>
@@ -1321,22 +1370,22 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       
                       {/* Comparison Summary */}
                       {loudness?.comparison && (
-                        <div className="mt-3 p-4 bg-gray-100 rounded-lg">
+                        <div className="p-4 bg-slate-100 dark:bg-slate-800/60">
                           <div className="grid grid-cols-2 gap-4 text-center">
-                            <div className={`p-3 rounded-lg ${loudness.comparison.is_lufs_match ? 'bg-green-100' : 'bg-red-100'}`}>
-                              <div className="text-sm text-gray-600">LUFS Difference</div>
-                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.lufs_difference || 0) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                            <div className={`p-3 rounded-xl border ${loudness.comparison.is_lufs_match ? 'bg-emerald-100/60 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300' : 'bg-rose-100/60 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'}`}>
+                              <div className="text-xs font-bold opacity-80">LUFS Difference</div>
+                              <div className="text-sm font-mono font-black mt-1">
                                 {typeof loudness.comparison.lufs_difference === 'number' ? `${loudness.comparison.lufs_difference > 0 ? '+' : ''}${loudness.comparison.lufs_difference.toFixed(1)} LU` : 'N/A'}
-                                <span className="ml-2 text-xs font-normal opacity-70">
+                                <span className="ml-2 text-[10px] font-bold opacity-80">
                                   ({loudness.comparison.is_lufs_match ? '✓ Within tolerance ±1 LU' : '⚠️ Out of tolerance'})
                                 </span>
                               </div>
                             </div>
-                            <div className={`p-3 rounded-lg ${loudness.comparison.is_peak_match ? 'bg-green-100' : 'bg-red-100'}`}>
-                              <div className="text-sm text-gray-600">Peak Difference</div>
-                              <div className={`text-sm font-mono font-bold ${Math.abs(loudness.comparison.peak_difference_db || 0) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                            <div className={`p-3 rounded-xl border ${loudness.comparison.is_peak_match ? 'bg-emerald-100/60 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300' : 'bg-rose-100/60 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'}`}>
+                              <div className="text-xs font-bold opacity-80">Peak Difference</div>
+                              <div className="text-sm font-mono font-black mt-1">
                                 {typeof loudness.comparison.peak_difference_db === 'number' ? `${loudness.comparison.peak_difference_db > 0 ? '+' : ''}${loudness.comparison.peak_difference_db.toFixed(1)} dB` : 'N/A'}
-                                <span className="ml-2 text-xs font-normal opacity-70">
+                                <span className="ml-2 text-[10px] font-bold opacity-80">
                                   ({loudness.comparison.is_peak_match ? '✓ Within tolerance ±1 dB' : '⚠️ Out of tolerance'})
                                 </span>
                               </div>
@@ -1347,43 +1396,43 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       
                       {/* Audio Waveforms (Stacked) */}
                       <div className="mt-6 mb-8">
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                          <span className="bg-gray-100 p-1.5 rounded-lg mr-2">🌊</span>
+                        <h4 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-3 flex items-center">
+                          <span className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg mr-2">🌊</span>
                           Audio Waveform Comparison
                         </h4>
-                        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-4">
+                        <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/10 p-4 space-y-4">
                           
                           {/* Acceptance Waveform */}
                           <div className="relative">
                             <div className="flex justify-between items-center mb-1">
-                              <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Acceptance Audio</span>
+                              <span className="text-[11px] font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">Acceptance Audio</span>
                               {waveformError && (
-                                <span className={`text-xs font-bold px-2 rounded border ${waveformError === 'No audio track' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                <span className={`text-[10px] font-bold px-2 rounded border ${waveformError === 'No audio track' ? 'text-slate-500 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-white/10' : 'text-rose-500 bg-white dark:bg-slate-900 border-rose-200'}`}>
                                   {waveformError === 'No audio track' ? waveformError : `Error: ${waveformError}`}
                                 </span>
                               )}
                             </div>
-                            <div className="h-[60px] w-full bg-white rounded border border-blue-100 relative overflow-hidden">
+                            <div className="h-[60px] w-full bg-white dark:bg-[#12131c] rounded-xl border border-indigo-100 dark:border-indigo-900/40 relative overflow-hidden">
                               <div ref={waveformRef} className="absolute inset-0 w-full h-full" />
                               {/* Central Line */}
-                              <div className="absolute top-1/2 left-0 right-0 h-px bg-blue-100 z-0"></div>
+                              <div className="absolute top-1/2 left-0 right-0 h-px bg-indigo-100 dark:bg-indigo-900/40 z-0"></div>
                             </div>
                           </div>
 
                           {/* Emission Waveform */}
                           <div className="relative">
                             <div className="flex justify-between items-center mb-1">
-                              <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Emission Audio</span>
+                              <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">Emission Audio</span>
                               {emissionWaveformError && (
-                                <span className={`text-xs font-bold px-2 rounded border ${emissionWaveformError === 'No audio track' ? 'text-gray-500 bg-gray-100 border-gray-200' : 'text-red-500 bg-white border-red-200'}`}>
+                                <span className={`text-[10px] font-bold px-2 rounded border ${emissionWaveformError === 'No audio track' ? 'text-slate-500 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-white/10' : 'text-rose-500 bg-white dark:bg-slate-900 border-rose-200'}`}>
                                   {emissionWaveformError === 'No audio track' ? emissionWaveformError : `Error: ${emissionWaveformError}`}
                                 </span>
                               )}
                             </div>
-                            <div className="h-[60px] w-full bg-white rounded border border-red-100 relative overflow-hidden">
+                            <div className="h-[60px] w-full bg-white dark:bg-[#12131c] rounded-xl border border-rose-100 dark:border-rose-900/40 relative overflow-hidden">
                               <div ref={emissionWaveformRef} className="absolute inset-0 w-full h-full" />
                               {/* Central Line */}
-                              <div className="absolute top-1/2 left-0 right-0 h-px bg-red-100 z-0"></div>
+                              <div className="absolute top-1/2 left-0 right-0 h-px bg-rose-100 dark:bg-rose-900/40 z-0"></div>
                             </div>
                           </div>
 
@@ -1392,26 +1441,26 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       
                       {/* Voiceover Comparison (if both have vocals) */}
                       {audio.voiceover && (
-                        <div className={`mt-4 p-4 rounded-lg border ${audio.voiceover.is_same_voice ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                          <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                        <div className={`mt-4 p-4 rounded-2xl border ${audio.voiceover.is_same_voice ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/40' : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/40'}`}>
+                          <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-3">
                             🎤 Voiceover Comparison
                           </h4>
                           <div className="grid grid-cols-3 gap-4 text-center">
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Voice Similarity</div>
-                              <div className={`text-2xl font-bold ${audio.voiceover.is_same_voice ? 'text-green-600' : 'text-yellow-600'}`}>
+                              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Voice Similarity</div>
+                              <div className={`text-2xl font-black ${audio.voiceover.is_same_voice ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {Math.round(audio.voiceover.voice_similarity * 100)}%
                               </div>
                             </div>
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Same Voice?</div>
-                              <div className={`text-lg font-bold ${audio.voiceover.is_same_voice ? 'text-green-600' : 'text-yellow-600'}`}>
+                              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Same Voice?</div>
+                              <div className={`text-lg font-black ${audio.voiceover.is_same_voice ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {audio.voiceover.is_same_voice ? '✓ TAK' : '⚠️ NIE'}
                               </div>
                             </div>
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Sync Status</div>
-                              <div className={`text-lg font-bold ${audio.voiceover.timing?.is_synced ? 'text-green-600' : 'text-yellow-600'}`}>
+                              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Sync Status</div>
+                              <div className={`text-lg font-black ${audio.voiceover.timing?.is_synced ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {audio.voiceover.timing?.is_synced ? '✓ Synced' : `${audio.voiceover.timing?.average_offset_seconds?.toFixed(2)}s offset`}
                               </div>
                             </div>
@@ -1421,15 +1470,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       
                       {/* Transcript Comparison (HIGH sensitivity only) */}
                       {audio.speech_to_text && (
-                        <div className="mt-4 p-4 bg-teal-50 rounded-lg border border-teal-200">
-                          <h4 className="flex items-center text-sm font-semibold text-gray-700 mb-3">
+                        <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/10">
+                          <h4 className="flex items-center text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-3">
                             📝 Transcript Comparison (Whisper)
                             {audio.speech_to_text.detected_language && (
-                                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 uppercase border border-blue-200" title="Detected Language">
+                                <span className="ml-2 px-2 py-0.5 text-[10px] rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 uppercase border border-indigo-200 dark:border-indigo-900/40 font-mono" title="Detected Language">
                                     {audio.speech_to_text.detected_language}
                                 </span>
                             )}
-                            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${audio.speech_to_text.is_text_match ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                            <span className={`ml-2 px-2 py-0.5 text-[10px] rounded-full font-black ${audio.speech_to_text.is_text_match ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'}`}>
                               {Math.round(audio.speech_to_text.text_similarity * 100)}% match
                             </span>
                           </h4>
@@ -1437,20 +1486,20 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           <div className="space-y-4">
                             {/* Comparison View */}
                             {audio.speech_to_text.comparison && audio.speech_to_text.comparison.total_differences > 0 ? (
-                              <div className="bg-white p-3 rounded border border-gray-200 max-h-40 overflow-y-auto">
-                                <div className="text-xs text-gray-500 mb-2 font-medium">Word Differences Detected:</div>
+                              <div className="bg-white dark:bg-[#12131c] p-3 rounded-xl border border-slate-200 dark:border-white/10 max-h-40 overflow-y-auto">
+                                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 font-bold">Word Differences Detected:</div>
                                 {audio.speech_to_text.comparison.word_differences.map((diff, idx) => (
-                                  <div key={idx} className="mb-2 text-sm pl-2 border-l-2 border-red-300">
+                                  <div key={idx} className="mb-2 text-xs pl-2 border-l-2 border-rose-300">
                                     <div className="flex gap-2">
-                                      <span className="text-gray-400 w-16 text-xs uppercase">{diff.type}</span>
-                                      <div className="flex-1">
+                                      <span className="text-slate-400 w-16 text-[10px] font-bold uppercase">{diff.type}</span>
+                                      <div className="flex-1 font-mono text-xs">
                                         {diff.acceptance && (
-                                          <div className="text-green-700 bg-green-50 px-1 rounded inline-block mr-1">
+                                          <div className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1 rounded inline-block mr-1">
                                             {diff.acceptance}
                                           </div>
                                         )}
                                         {diff.emission && (
-                                          <div className="text-red-700 bg-red-50 px-1 rounded inline-block decoration-slice">
+                                          <div className="text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-1 rounded inline-block decoration-slice">
                                             {diff.emission}
                                           </div>
                                         )}
@@ -1460,55 +1509,54 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                 ))}
                               </div>
                             ) : (
-                              <div className="bg-green-50 p-3 rounded text-green-700 text-sm flex items-center">
+                              <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center">
                                 <span className="mr-2">✓</span> No text differences found
                               </div>
                             )}
 
-                            {/* OCR Timeline (SRT Style) */}
                             {/* Dialog Timeline (Whisper) - Side by Side */}
                             {dialogTimeline.length > 0 ? (
                               <div className="mt-4">
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2">Detected Dialog Timeline</h4>
-                                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
-                                  <table className="min-w-full divide-y divide-gray-200 text-xs table-fixed">
-                                    <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
+                                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Detected Dialog Timeline</h4>
+                                <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-white/10 rounded-xl">
+                                  <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5 text-xs table-fixed">
+                                    <thead className="bg-slate-100 dark:bg-slate-800/80 sticky top-0 z-10 shadow-sm">
                                       <tr>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-24">Time</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-1/2">
-                                          <span className="text-blue-600">Acceptance</span>
+                                        <th scope="col" className="px-3 py-2 text-left font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24 text-[10px]">Time</th>
+                                        <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider w-1/2 text-[10px]">
+                                          Acceptance
                                         </th>
-                                        <th scope="col" className="px-3 py-2 text-left font-medium text-gray-500 uppercase tracking-wider w-1/2">
-                                          <span className="text-red-600">Emission</span>
+                                        <th scope="col" className="px-3 py-2 text-left font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider w-1/2 text-[10px]">
+                                          Emission
                                         </th>
                                       </tr>
                                     </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
+                                    <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
                                       {dialogTimeline.map((item, idx) => (
                                         <tr 
                                           key={idx} 
-                                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-orange-50' : ''}`}
+                                          className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
                                           onClick={() => jumpToDifference(item.timestamp)}
                                         >
-                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-gray-500 align-top">
+                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-xs font-bold text-slate-500 dark:text-slate-400 align-top">
                                             {formatTime(item.timestamp)}
                                           </td>
-                                          <td className="px-3 py-2 text-gray-900 break-words align-top border-r border-gray-100">
+                                          <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top border-r border-slate-100 dark:border-white/5">
                                             {item.acceptance ? (
-                                              <div className="bg-blue-50/50 p-1 rounded">
+                                              <div className="bg-indigo-50/60 dark:bg-indigo-950/40 p-1.5 rounded-lg text-xs font-medium">
                                                 {item.acceptance}
                                               </div>
                                             ) : (
-                                              <span className="text-gray-300 italic">-</span>
+                                              <span className="text-slate-400 italic text-xs">-</span>
                                             )}
                                           </td>
-                                          <td className="px-3 py-2 text-gray-900 break-words align-top">
+                                          <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
                                             {item.emission ? (
-                                              <div className="bg-red-50/50 p-1 rounded">
+                                              <div className="bg-rose-50/60 dark:bg-rose-950/40 p-1.5 rounded-lg text-xs font-medium">
                                                 {item.emission}
                                               </div>
                                             ) : (
-                                              <span className="text-gray-300 italic">-</span>
+                                              <span className="text-slate-400 italic text-xs">-</span>
                                             )}
                                           </td>
                                         </tr>
@@ -1518,8 +1566,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                 </div>
                               </div>
                             ) : (
-                                /* Legacy Fallback if timeline missing */
-                              <div className="text-center p-4 bg-gray-50 rounded text-gray-500 italic">
+                              <div className="text-center p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl text-slate-400 text-xs font-bold italic">
                                 No dialog timeline available.
                               </div>
                             )}

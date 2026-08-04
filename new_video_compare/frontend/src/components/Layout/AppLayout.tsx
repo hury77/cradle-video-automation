@@ -15,10 +15,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   className
 }) => {
   return (
-    <div className={clsx('min-h-screen bg-gray-100', className)}>
+    <div className={clsx('min-h-screen bg-slate-50 dark:bg-[#0d0e15] text-slate-900 dark:text-slate-100 transition-colors', className)}>
       {/* Header */}
       {header && (
-        <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="bg-white dark:bg-[#12131c] shadow-sm border-b border-slate-200 dark:border-white/10">
           {header}
         </div>
       )}
@@ -26,7 +26,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       <div className="flex">
         {/* Sidebar */}
         {sidebar && (
-          <div className="w-80 bg-white shadow-sm border-r border-gray-200 min-h-screen">
+          <div className="w-80 bg-white dark:bg-[#161824] shadow-sm border-r border-slate-200 dark:border-white/10 min-h-screen">
             {sidebar}
           </div>
         )}

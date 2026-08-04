@@ -7,9 +7,9 @@ interface QAVerdictPanelProps {
 }
 
 const VERDICT_LABELS = {
-  approve: { label: "✅ APPROVE", bg: "bg-green-500 hover:bg-green-600", ring: "ring-green-500", text: "text-green-700", light: "bg-green-50 border-green-200" },
-  reject: { label: "❌ REJECT", bg: "bg-red-500 hover:bg-red-600", ring: "ring-red-500", text: "text-red-700", light: "bg-red-50 border-red-200" },
-  review: { label: "👤 REVIEW", bg: "bg-amber-500 hover:bg-amber-600", ring: "ring-amber-500", text: "text-amber-700", light: "bg-amber-50 border-amber-200" },
+  approve: { label: "✅ APPROVE", bg: "bg-emerald-500 hover:bg-emerald-600", ring: "ring-emerald-500", text: "text-emerald-700 dark:text-emerald-300", light: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/40" },
+  reject: { label: "❌ REJECT", bg: "bg-rose-500 hover:bg-rose-600", ring: "ring-rose-500", text: "text-rose-700 dark:text-rose-300", light: "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/40" },
+  review: { label: "👤 REVIEW", bg: "bg-amber-500 hover:bg-amber-600", ring: "ring-amber-500", text: "text-amber-700 dark:text-amber-300", light: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/40" },
 };
 
 const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSaveSuccess }) => {
@@ -54,7 +54,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           verdict,
-          reasoning: comment || reasoning || undefined,  // Use comment as main reasoning if provided
+          reasoning: comment || reasoning || undefined,
           comment: comment || undefined,
           override_reason: isOverride ? overrideReason || undefined : undefined,
           client_name: clientName || undefined,
@@ -105,18 +105,18 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
   if (saved && !isEditing && existingDecision) {
     return (
       <div className="mt-8 mb-4 print:mb-0 mx-auto max-w-7xl">
-        <div className={`rounded-2xl shadow-md border-2 p-6 transition-all ${selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white border-gray-200"}`}>
+        <div className={`rounded-2xl shadow-xl border p-6 transition-all ${selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white dark:bg-[#161824] border-slate-200 dark:border-white/10"}`}>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <span className="text-2xl">📋</span>
               <div>
-                <h2 className="text-xl font-bold text-gray-900">QA Decision</h2>
-                {clientName && <p className="text-sm text-gray-500">Client: <span className="font-semibold text-gray-700">{clientName}</span></p>}
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">QA Decision</h2>
+                {clientName && <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Client: <span className="font-bold text-slate-700 dark:text-slate-200">{clientName}</span></p>}
               </div>
             </div>
             {verdict && selectedStyle && (
-              <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${selectedStyle.text} ${selectedStyle.light} border`}>
+              <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${selectedStyle.text} ${selectedStyle.light} border`}>
                 {VERDICT_LABELS[verdict].label}
               </span>
             )}
@@ -125,11 +125,11 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
           {/* Author badge */}
           <div className="mb-4">
             {isHumanOverride ? (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold w-fit">
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold w-fit">
                 <span>👤</span><span>Human override — decision changed by QA user</span>
               </div>
             ) : isAiDecision ? (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 text-sm font-semibold w-fit">
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold w-fit">
                 <span>🧠</span><span>AI Analyst (Agent 2) — automatic decision</span>
               </div>
             ) : null}
@@ -137,34 +137,32 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
 
           {/* AI Reasoning (if AI decision or preserved after override) */}
           {existingDecision.ai_reasoning && (
-            <div className="mb-3 rounded-xl bg-purple-50 border border-purple-200 px-4 py-3">
-              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-1">🧠 AI Analysis</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{existingDecision.ai_reasoning}</p>
+            <div className="mb-3 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
+              <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">🧠 AI Analysis</p>
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">{existingDecision.ai_reasoning}</p>
             </div>
           )}
 
           {/* Override Reason (if human overrode AI) */}
           {isHumanOverride && existingDecision.override_reason && (
-            <div className="mb-3 rounded-xl bg-blue-50 border border-blue-200 px-4 py-3">
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1">✏️ Override Reason</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{existingDecision.override_reason}</p>
+            <div className="mb-3 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
+              <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">✏️ Override Reason</p>
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">{existingDecision.override_reason}</p>
             </div>
           )}
 
           {/* QA Comment */}
           {existingDecision.comment && (
-            <div className="mb-4 rounded-xl bg-white border border-gray-200 px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">💬 QA Comment</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{existingDecision.comment}</p>
+            <div className="mb-4 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
+              <p className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">💬 QA Comment</p>
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">{existingDecision.comment}</p>
             </div>
           )}
 
           {/* Override button */}
           <button
             onClick={handleStartEdit}
-            className={`w-full py-3 rounded-xl font-bold text-sm transition-all shadow flex items-center justify-center gap-2 print:hidden ${
-              isAiDecision ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
-            }`}
+            className="w-full py-3 rounded-xl font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-2 print:hidden bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-white/10"
           >
             <span>✏️</span>
             <span>{isAiDecision ? "Override AI Decision" : "Edit Decision"}</span>
@@ -177,17 +175,17 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
   // ── Edit/Create mode ──
   return (
     <div className="mt-8 mb-4 mx-auto max-w-7xl print:hidden">
-      <div className={`rounded-2xl shadow-md border-2 p-6 transition-all ${saved && selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white border-gray-200"}`}>
+      <div className="rounded-2xl shadow-xl border p-6 bg-white dark:bg-[#161824] border-slate-200 dark:border-white/10">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <span className="text-2xl">📋</span>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">QA Decision</h2>
-              {clientName && <p className="text-sm text-gray-500">Client: <span className="font-semibold text-gray-700">{clientName}</span></p>}
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">QA Decision</h2>
+              {clientName && <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Client: <span className="font-bold text-slate-700 dark:text-slate-200">{clientName}</span></p>}
             </div>
           </div>
           {isAiDecision && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold">
               <span>🧠</span><span>Overriding AI verdict</span>
             </div>
           )}
@@ -195,9 +193,9 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
 
         {/* Show original AI reasoning when overriding */}
         {isAiDecision && existingDecision?.ai_reasoning && (
-          <div className="mb-4 rounded-xl bg-purple-50 border border-purple-200 px-4 py-3">
-            <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-1">🧠 Original AI Analysis (for reference)</p>
-            <p className="text-sm text-gray-600 leading-relaxed italic">{existingDecision.ai_reasoning}</p>
+          <div className="mb-4 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
+            <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">🧠 Original AI Analysis (for reference)</p>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed italic">{existingDecision.ai_reasoning}</p>
           </div>
         )}
 
@@ -208,7 +206,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
             const isSelected = verdict === v;
             return (
               <button key={v} onClick={() => { setVerdict(v); setSaved(false); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-white font-bold text-sm transition-all shadow-sm ${style.bg} ${isSelected ? `ring-4 ring-offset-2 ${style.ring} scale-105` : "opacity-80 hover:opacity-100"}`}>
+                className={`flex-1 py-3 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider transition-all shadow-md ${style.bg} ${isSelected ? `ring-4 ring-offset-2 ${style.ring} scale-105` : "opacity-80 hover:opacity-100"}`}>
                 {style.label}
               </button>
             );
@@ -218,45 +216,45 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
         {/* Override Reason (only shown when overriding AI) */}
         {isAiDecision && (
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Override Reason <span className="text-gray-400 font-normal">(why are you changing the AI decision?)</span>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+              Override Reason <span className="text-slate-400 font-medium">(why are you changing the AI decision?)</span>
             </label>
             <input
               type="text"
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
               placeholder="e.g. 'AI missed logo change at 0:08'"
-              className="w-full rounded-xl border border-purple-300 px-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition"
+              className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#12131c] px-4 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
             />
           </div>
         )}
 
         {/* QA Comment */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            QA Comment <span className="text-gray-400 font-normal">(notes for the team, visible in knowledge base)</span>
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+            QA Comment <span className="text-slate-400 font-medium">(notes for the team, visible in knowledge base)</span>
           </label>
           <textarea
             value={comment}
             onChange={(e) => { setComment(e.target.value); setSaved(false); }}
             rows={3}
             placeholder="e.g. 'Background color difference at 0:04-0:07, acceptable compression artifact. Audio identical.'"
-            className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none transition"
+            className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#12131c] px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none transition"
           />
         </div>
 
-        {error && <p className="text-red-600 text-sm mb-3 font-medium">⚠️ {error}</p>}
+        {error && <p className="text-rose-600 dark:text-rose-400 text-xs mb-3 font-bold">⚠️ {error}</p>}
 
         {/* Action Buttons */}
         <div className="flex gap-3">
           {existingDecision && isEditing && (
             <button onClick={handleCancel}
-              className="flex-none py-3 px-5 rounded-xl font-bold text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 transition-all">
+              className="flex-none py-3 px-5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 transition-all">
               Cancel
             </button>
           )}
           <button onClick={handleSave} disabled={saving || !verdict}
-            className={`flex-1 py-3 rounded-xl text-white font-bold text-base transition-all shadow ${saving || !verdict ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:scale-[0.98]"}`}>
+            className={`flex-1 py-3 rounded-xl text-white font-black text-xs uppercase tracking-wider transition-all shadow-md ${saving || !verdict ? "bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500" : "bg-gradient-to-r from-[#350F9C] to-[#4960E6] hover:opacity-90 active:scale-[0.98]"}`}>
             {saving ? "Saving..." : isAiDecision ? "💾 Save as Human Override" : "💾 Save decision and continue automation"}
           </button>
         </div>

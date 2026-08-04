@@ -316,69 +316,67 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
             />
 
             {/* Modal Panel */}
-            <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 text-left transform transition-all">
+            <div className="relative bg-white dark:bg-[#161824] rounded-2xl shadow-2xl border border-slate-200 dark:border-white/10 max-w-2xl w-full p-6 text-left transform transition-all">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-blue-100 rounded-xl">
-                    <FilmIcon className="w-6 h-6 text-blue-600" />
+                  <div className="p-2.5 bg-indigo-100 dark:bg-indigo-950/60 rounded-xl">
+                    <FilmIcon className="w-6 h-6 text-indigo-600 dark:text-cyan-400" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900">
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">
                       New Video Comparison
                     </h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
                       Upload acceptance and emission videos to compare
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                 >
-                  <XCircleIcon className="w-6 h-6 text-gray-400" />
+                  <XCircleIcon className="w-6 h-6 text-slate-400 dark:text-slate-500" />
                 </button>
               </div>
 
               {/* Sensitivity Level */}
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-2">
                   Sensitivity Level
                 </label>
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
                     onClick={() => setSensitivityLevel("low")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
                       sensitivityLevel === "low"
-                        ? "border-green-500 bg-green-50"
-                        : "border-gray-200 hover:border-gray-300"
+                        ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40"
+                        : "border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#12131c] hover:border-slate-300"
                     }`}
                   >
                     <div className="flex items-center mb-1">
-                      <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
-                      <span className="font-medium text-gray-900">Low</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
+                      <span className="font-bold text-slate-900 dark:text-white text-xs">Low</span>
                     </div>
-                    <p className="text-xs text-gray-500">Quick check</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Quick check</p>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSensitivityLevel("high")}
-                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
                       sensitivityLevel === "high"
-                        ? "border-red-500 bg-red-50"
-                        : "border-gray-200 hover:border-gray-300"
+                        ? "border-rose-500 bg-rose-50 dark:bg-rose-950/40"
+                        : "border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#12131c] hover:border-slate-300"
                     }`}
                   >
                     <div className="flex items-center mb-1">
-                      <span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span>
-                      <span className="font-medium text-gray-900">High</span>
+                      <span className="w-2 h-2 rounded-full bg-rose-500 mr-2"></span>
+                      <span className="font-bold text-slate-900 dark:text-white text-xs">High</span>
                     </div>
-                    <p className="text-xs text-gray-500">Critical QA</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Critical QA</p>
                   </button>
                 </div>
               </div>
-
-              {/* OCR Slider removed — visual differences detected by SSIM+pixel diff */}
 
               {/* Upload Areas */}
               <div className="flex space-x-4 mb-6">
@@ -396,7 +394,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
 
               {/* Error Message */}
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-700 dark:text-rose-300 text-xs font-bold">
                   {error}
                 </div>
               )}
@@ -405,14 +403,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
               <div className="flex justify-between">
                 <button
                   onClick={resetForm}
-                  className="px-4 py-2.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
                   Reset
                 </button>
                 <div className="flex space-x-3">
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+                    className="px-4 py-2.5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     Cancel
                   </button>
@@ -420,11 +418,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                     onClick={createJob}
                     disabled={!acceptanceFile || !emissionFile || creatingJob}
                     className={`
-                      px-6 py-2.5 rounded-xl font-medium transition-all
+                      px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all
                       ${
                         acceptanceFile && emissionFile && !creatingJob
-                          ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/25"
-                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                          ? "bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white hover:opacity-90 shadow-md"
+                          : "bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                       }
                     `}
                   >

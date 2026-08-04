@@ -7,8 +7,15 @@ import {
   InformationCircleIcon,
   ArrowPathIcon
 } from "@heroicons/react/24/outline";
+import { translations, Language } from "../utils/translations";
 
-export default function AutomationLogs() {
+interface AutomationLogsProps {
+  lang?: Language;
+  theme?: "dark" | "light";
+}
+
+export default function AutomationLogs({ lang = "PL", theme = "dark" }: AutomationLogsProps) {
+  const t = translations[lang];
   const [logs, setLogs] = useState<AutomationLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -50,18 +57,18 @@ export default function AutomationLogs() {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-6 py-8 transition-colors">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Automation Logs</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <h2 className="text-2xl font-black text-slate-900 dark:text-white">Automation Logs</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
             System health and events from Desktop App and Chrome Extension
           </p>
         </div>
         <button
           onClick={fetchLogs}
           disabled={loading}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+          className="inline-flex items-center px-4 py-2 border border-slate-200 dark:border-white/10 text-xs font-bold rounded-xl text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
         >
           <ArrowPathIcon className={`w-4 h-4 mr-2 ${loading ? 'animate-spin cursor-not-allowed' : ''}`} />
           Refresh
@@ -69,11 +76,11 @@ export default function AutomationLogs() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+      <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 p-5 mb-6 transition-colors">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+              <MagnifyingGlassIcon className="h-4 w-4 text-slate-400" />
             </div>
             <input
               type="text"
@@ -83,13 +90,13 @@ export default function AutomationLogs() {
                 setCradleIdSearch(e.target.value);
                 setPage(1);
               }}
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="block w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-[#12131c] text-slate-900 dark:text-white placeholder-slate-400 text-xs font-bold focus:ring-indigo-500"
             />
           </div>
 
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FunnelIcon className="h-5 w-5 text-gray-400" />
+              <FunnelIcon className="h-4 w-4 text-slate-400" />
             </div>
             <select
               value={componentFilter}
@@ -97,11 +104,11 @@ export default function AutomationLogs() {
                 setComponentFilter(e.target.value);
                 setPage(1);
               }}
-              className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none"
+              className="block w-full pl-9 pr-8 py-2 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-[#12131c] text-slate-900 dark:text-white text-xs font-bold appearance-none focus:ring-indigo-500"
             >
-              <option value="">All Components</option>
+              <option value="" className="dark:bg-[#161824]">All Components</option>
               {availableComponents.map((comp) => (
-                <option key={comp} value={comp}>
+                <option key={comp} value={comp} className="dark:bg-[#161824]">
                   {comp}
                 </option>
               ))}
@@ -117,78 +124,77 @@ export default function AutomationLogs() {
                   setOnlyErrors(e.target.checked);
                   setPage(1);
                 }}
-                className="w-5 h-5 text-red-600 focus:ring-red-500 border-gray-300 rounded transition-colors"
+                className="w-4 h-4 text-rose-600 focus:ring-rose-500 border-slate-300 rounded transition-colors"
               />
-              <span className="text-sm font-medium text-gray-700 select-none">Show Errors Only</span>
+              <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200 select-none">Show Errors Only</span>
             </label>
           </div>
         </div>
       </div>
 
       {/* Logs Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5">
+            <thead className="bg-slate-100 dark:bg-slate-800/80">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3.5 text-left text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Time
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3.5 text-left text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Type
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3.5 text-left text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Component / Action
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3.5 text-left text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Message
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3.5 text-left text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Cradle ID
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
               {loading && logs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                    <p className="mt-2 text-sm text-gray-500">Loading logs...</p>
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 dark:border-cyan-400"></div>
+                    <p className="mt-2 text-xs font-bold text-slate-400">Loading logs...</p>
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-12 text-center text-xs font-bold text-slate-400">
                     No logs found matching your filters.
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => (
-                  <tr key={log.id} className={`hover:bg-gray-50 transition-colors ${log.is_error ? 'bg-red-50 hover:bg-red-100' : ''}`}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 truncate max-w-xs">
+                  <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${log.is_error ? 'bg-rose-50/50 dark:bg-rose-950/20' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-xs">
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {log.is_error ? (
-                        <div className="flex items-center text-red-700">
-                          <ExclamationCircleIcon className="w-5 h-5 mr-1" />
-                          <span className="text-sm font-medium">Error</span>
+                        <div className="flex items-center text-rose-600 dark:text-rose-400">
+                          <ExclamationCircleIcon className="w-4 h-4 mr-1.5" />
+                          <span className="text-xs font-black">Error</span>
                         </div>
                       ) : (
-                        <div className="flex items-center text-blue-700">
-                          <InformationCircleIcon className="w-5 h-5 mr-1" />
-                          <span className="text-sm font-medium">Info</span>
+                        <div className="flex items-center text-indigo-600 dark:text-cyan-400">
+                          <InformationCircleIcon className="w-4 h-4 mr-1.5" />
+                          <span className="text-xs font-black">Info</span>
                         </div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-gray-900">{log.component}</span>
-                        <span className="text-xs text-gray-500">{log.action}</span>
+                        <span className="text-xs font-black text-slate-900 dark:text-white">{log.component}</span>
+                        <span className="text-[11px] font-semibold text-slate-400">{log.action}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                       {/* truncate long messages if needed */}
+                    <td className="px-6 py-4 text-xs font-medium text-slate-900 dark:text-slate-200">
                        <div className="line-clamp-2" title={log.message}>{log.message}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

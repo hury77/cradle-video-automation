@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom body & dark mode defaults */
+body {
+  @apply bg-slate-50 text-slate-900 transition-colors duration-200;
+}
+
+html.dark body {
+  @apply bg-[#0d0e15] text-slate-100;
+}
+
 /* Video.js custom styling */
 .vjs-default-skin {
   color: #fff;
@@ -12,14 +21,31 @@
   height: 100%;
 }
 
+/* Custom glow & VITO gradient utilities */
+.brand-gradient {
+  background: linear-gradient(135deg, #6816B0 0%, #350F9C 50%, #4960E6 100%);
+}
+
+.brand-gradient-hover:hover {
+  background: linear-gradient(135deg, #7a1ace 0%, #3d12b5 50%, #5970f5 100%);
+}
+
+.brand-glow {
+  box-shadow: 0 0 20px rgba(73, 96, 230, 0.35);
+}
+
+.brand-glow-lg {
+  box-shadow: 0 0 35px rgba(104, 22, 176, 0.45);
+}
+
 /* Custom components */
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+    @apply bg-gradient-to-r from-[#350F9C] to-[#4960E6] hover:from-[#3d12b5] hover:to-[#5970f5] text-white font-medium py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg;
   }
   
   .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium py-2 px-4 rounded-lg transition-colors;
+    @apply bg-gray-200 dark:bg-slate-800 hover:bg-gray-300 dark:hover:bg-slate-700 text-gray-900 dark:text-gray-100 font-medium py-2 px-4 rounded-lg transition-colors;
   }
 }
 
