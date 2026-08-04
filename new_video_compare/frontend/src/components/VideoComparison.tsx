@@ -1541,35 +1541,41 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                       </tr>
                                     </thead>
                                     <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
-                                      {dialogTimeline.map((item, idx) => (
-                                        <tr 
-                                          key={idx} 
-                                          className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
-                                          onClick={() => jumpToDifference(item.timestamp)}
-                                        >
-                                          <td className="px-3 py-2 whitespace-nowrap font-mono text-xs font-bold text-slate-500 dark:text-slate-400 align-top">
-                                            {formatTime(item.timestamp)}
-                                          </td>
-                                          <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top border-r border-slate-100 dark:border-white/5">
-                                            {item.acceptance ? (
-                                              <div className="bg-indigo-50/60 dark:bg-indigo-950/40 p-1.5 rounded-lg text-xs font-medium">
-                                                {item.acceptance}
-                                              </div>
-                                            ) : (
-                                              <span className="text-slate-400 italic text-xs">-</span>
-                                            )}
-                                          </td>
-                                          <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
-                                            {item.emission ? (
-                                              <div className={`p-1.5 rounded-lg text-xs font-medium ${item.acceptance && item.emission && item.acceptance !== item.emission ? 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-900/50' : 'bg-indigo-50/60 dark:bg-indigo-950/40'}`}>
-                                                {item.emission}
-                                              </div>
-                                            ) : (
-                                              <span className="text-slate-400 italic text-xs">-</span>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      ))}
+                                      {dialogTimeline.map((item, idx) => {
+                                        const normA = (item.acceptance || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
+                                        const normB = (item.emission || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
+                                        const isMismatch = Boolean(item.acceptance && item.emission && normA !== normB);
+
+                                        return (
+                                          <tr 
+                                            key={idx} 
+                                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${isMismatch ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
+                                            onClick={() => jumpToDifference(item.timestamp)}
+                                          >
+                                            <td className="px-3 py-2 whitespace-nowrap font-mono text-xs font-bold text-slate-500 dark:text-slate-400 align-top">
+                                              {formatTime(item.timestamp)}
+                                            </td>
+                                            <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top border-r border-slate-100 dark:border-white/5">
+                                              {item.acceptance ? (
+                                                <div className="bg-indigo-50/60 dark:bg-indigo-950/40 p-1.5 rounded-lg text-xs font-medium">
+                                                  {item.acceptance}
+                                                </div>
+                                              ) : (
+                                                <span className="text-slate-400 italic text-xs">-</span>
+                                              )}
+                                            </td>
+                                            <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
+                                              {item.emission ? (
+                                                <div className={`p-1.5 rounded-lg text-xs font-medium ${isMismatch ? 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-900/50' : 'bg-indigo-50/60 dark:bg-indigo-950/40'}`}>
+                                                  {item.emission}
+                                                </div>
+                                              ) : (
+                                                <span className="text-slate-400 italic text-xs">-</span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>
