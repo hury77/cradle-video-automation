@@ -11,6 +11,7 @@ import {
   SpeakerXMarkIcon,
   ChartBarSquareIcon,
   DocumentChartBarIcon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import DifferenceInspector from "./DifferenceInspector";
 import QAVerdictPanel from "./QAVerdictPanel";
@@ -1042,61 +1043,69 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   {/* Difference Tracks Container */}
                   <div className="mt-3 space-y-2.5 w-full">
                     
-                    {/* 1. VIDEO Differences Track (BLUE PASKI) */}
-                    <div className="relative h-4 w-full bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
-                      <span className="absolute -left-16 text-[10px] font-bold text-blue-600 dark:text-cyan-400 uppercase w-14 text-right">Video</span>
-                      {displayDuration > 0 && differences.map((diff, index) => {
-                        const position = (diff.timestamp_seconds / displayDuration) * 100;
-                        return (
-                          <div
-                            key={`video-${index}`}
-                            onClick={() => {
-                              jumpToDifference(diff.timestamp_seconds);
-                              setInspectorInitialTimestamp(diff.timestamp_seconds);
-                              setShowInspector(true);
-                            }}
-                            className="absolute bg-blue-600 dark:bg-cyan-400 hover:opacity-80 cursor-pointer z-10"
-                            style={{ 
-                                left: `${position}%`, 
-                                width: '2.5px', 
-                                height: '100%' 
-                            }}
-                            title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
-                          />
-                        );
-                      })}
+                    {/* 1. VIDEO Differences Track (RED PASKI) */}
+                    <div className="flex items-center space-x-3 w-full">
+                      <span className="text-[10px] font-bold text-red-600 dark:text-rose-400 uppercase w-12 text-right flex-shrink-0">
+                        Video
+                      </span>
+                      <div className="relative h-4 flex-grow bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
+                        {displayDuration > 0 && differences.map((diff, index) => {
+                          const position = (diff.timestamp_seconds / displayDuration) * 100;
+                          return (
+                            <div
+                              key={`video-${index}`}
+                              onClick={() => {
+                                jumpToDifference(diff.timestamp_seconds);
+                                setInspectorInitialTimestamp(diff.timestamp_seconds);
+                                setShowInspector(true);
+                              }}
+                              className="absolute bg-red-600 dark:bg-rose-500 hover:opacity-80 cursor-pointer z-10"
+                              style={{ 
+                                  left: `${position}%`, 
+                                  width: '2.5px', 
+                                  height: '100%' 
+                              }}
+                              title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <span className="w-12 flex-shrink-0"></span>
                     </div>
- 
- 
- 
-                    {/* 2. AUDIO Differences Track (BLUE PASKI) */}
-                    <div className="relative h-4 w-full bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
-                      <span className="absolute -left-16 text-[10px] font-bold text-blue-600 dark:text-cyan-400 uppercase w-14 text-right">Audio</span>
-                      {audioDiffSegments.map((seg: any, index: number) => {
-                         const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
-                         const time = parseFloat(timeStr.replace('s', ''));
-                         
-                         if (isNaN(time) || displayDuration <= 0) return null;
-                         
-                         const position = (time / displayDuration) * 100;
-                         
-                         return (
-                           <div
-                             key={`audio-${index}`}
-                             onClick={() => {
-                               handleSeek(time);
-                             }}
-                             className="absolute bg-indigo-500 dark:bg-indigo-400 hover:opacity-80 cursor-pointer z-10 rounded-full"
-                             style={{ 
-                                 left: `${position}%`, 
-                                 width: '6px', 
-                                 height: '6px',
-                                 transform: 'translateX(-50%)'
-                             }}
-                             title={`🎤 Audio Diff: ${seg.text_a || 'Missing'} vs ${seg.text_b || 'Missing'}`}
-                           />
-                         );
-                      })}
+
+                    {/* 2. AUDIO Differences Track (INDIGO PASKI) */}
+                    <div className="flex items-center space-x-3 w-full">
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase w-12 text-right flex-shrink-0">
+                        Audio
+                      </span>
+                      <div className="relative h-4 flex-grow bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
+                        {audioDiffSegments.map((seg: any, index: number) => {
+                           const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
+                           const time = parseFloat(timeStr.replace('s', ''));
+                           
+                           if (isNaN(time) || displayDuration <= 0) return null;
+                           
+                           const position = (time / displayDuration) * 100;
+                           
+                           return (
+                             <div
+                               key={`audio-${index}`}
+                               onClick={() => {
+                                 handleSeek(time);
+                               }}
+                               className="absolute bg-indigo-500 dark:bg-indigo-400 hover:opacity-80 cursor-pointer z-10 rounded-full"
+                               style={{ 
+                                   left: `${position}%`, 
+                                   width: '6px', 
+                                   height: '6px',
+                                   transform: 'translateX(-50%)'
+                               }}
+                               title={`🎤 Audio Diff: ${seg.text_a || 'Missing'} vs ${seg.text_b || 'Missing'}`}
+                             />
+                           );
+                        })}
+                      </div>
+                      <span className="w-12 flex-shrink-0"></span>
                     </div>
                   </div>
                 </div>
@@ -1122,7 +1131,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
           {/* Timeline Legend */}
           <div className="flex items-center justify-center gap-6 text-xs text-slate-500 dark:text-slate-400 mt-4 pt-3 border-t border-slate-100 dark:border-white/5">
             <div className="flex items-center font-bold">
-              <div className="w-2.5 h-2.5 bg-blue-600 dark:bg-cyan-400 rounded-full mr-2 shadow-sm"></div>
+              <div className="w-2.5 h-2.5 bg-red-600 dark:bg-rose-500 rounded-full mr-2 shadow-sm"></div>
               Video Differences
             </div>
 
@@ -1577,7 +1586,104 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   );
                 })()}
 
-                {/* Detected Differences (REMOVED) */}
+                {/* ======================== INSPECT DIFFERENCES REPORT SECTION ======================== */}
+                {differencesFound && (
+                  <div className="mt-8 pt-6 border-t border-slate-200 dark:border-white/10 break-inside-avoid page-break-inside-avoid">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <EyeIcon className="w-5 h-5 text-red-500" />
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                          Frame Differences Analysis (Inspect Differences)
+                        </h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">
+                          {differences.length > 0 ? `${differences.length} timestamped diffs` : `${videoDifferences} different frames`}
+                        </span>
+                      </div>
+                      
+                      <button
+                        onClick={() => setShowInspector(true)}
+                        className="px-3.5 py-1.5 bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white rounded-xl text-xs font-bold hover:opacity-90 transition-all shadow-sm print:hidden flex items-center space-x-1.5"
+                      >
+                        <span>Open Interactive Inspector</span>
+                        <ChevronRightIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {(() => {
+                        const sortedDiffs = [...differences].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
+                        const diffFrames = results?.overall_result?.report_data?.video?.diff_frames || {};
+
+                        return sortedDiffs.map((diff, index) => {
+                          const time = diff.timestamp_seconds;
+                          const timeKeyInt = Math.floor(time).toString();
+                          const timeKeyFloat = time.toFixed(1);
+                          let diffImg = diffFrames[timeKeyInt] || diffFrames[timeKeyFloat];
+                          
+                          if (!diffImg && Object.keys(diffFrames).length > 0) {
+                            const keys = Object.keys(diffFrames);
+                            const closestKey = keys.reduce((prev, curr) => 
+                              Math.abs(Number(curr) - time) < Math.abs(Number(prev) - time) ? curr : prev
+                            );
+                            if (Math.abs(Number(closestKey) - time) < 1.0) {
+                              diffImg = diffFrames[closestKey];
+                            }
+                          }
+
+                          return (
+                            <div 
+                              key={`diff-report-card-${index}`}
+                              className="bg-slate-50 dark:bg-[#12131c] rounded-xl p-3 border border-slate-200 dark:border-white/10 flex flex-col justify-between break-inside-avoid page-break-inside-avoid shadow-sm"
+                            >
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="px-2 py-0.5 bg-red-100 dark:bg-rose-950/60 text-red-700 dark:text-rose-300 font-mono font-bold text-xs rounded-md border border-red-200 dark:border-rose-800/30">
+                                    ⏱ {formatTime(time)}
+                                  </span>
+                                  <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                    {diff.difference_type || 'Visual Difference'}
+                                  </span>
+                                </div>
+
+                                {diffImg ? (
+                                  <div className="aspect-video bg-black rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 mb-2.5 relative">
+                                    <img 
+                                      src={diffImg} 
+                                      alt={`Difference at ${formatTime(time)}`} 
+                                      className="w-full h-full object-contain"
+                                    />
+                                    <div className="absolute bottom-1 right-1 bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-bold text-white uppercase border border-white/10">
+                                      Heatmap
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="aspect-video bg-slate-200/60 dark:bg-slate-800/60 rounded-lg flex items-center justify-center mb-2.5 text-slate-400 text-xs font-semibold italic border border-slate-300 dark:border-white/5">
+                                    Frame diff detected
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300 pt-1 border-t border-slate-200/60 dark:border-white/5">
+                                <span>Confidence: <strong className="text-slate-900 dark:text-white">{diff.confidence ? (diff.confidence > 1 ? `${diff.confidence}%` : `${(diff.confidence * 100).toFixed(1)}%`) : 'N/A'}</strong></span>
+                                <button
+                                  onClick={() => {
+                                    jumpToDifference(time);
+                                    setInspectorInitialTimestamp(time);
+                                    setShowInspector(true);
+                                  }}
+                                  className="text-xs font-bold text-indigo-600 dark:text-cyan-400 hover:underline print:hidden flex items-center space-x-0.5"
+                                >
+                                  <span>Inspect</span>
+                                  <span>→</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                )}
               </>
             ) : !loading ? (
               <div className="text-center py-8 text-gray-500">
