@@ -332,12 +332,14 @@ class AnalystService:
         similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
         
         is_missing_audio = False
-        if audio_sim == 0.0:
-            if "No audio streams found" in similarity_error or "FFmpeg failed" in similarity_error:
+        if audio_sim is None or (isinstance(audio_data, dict) and (audio_data.get("no_audio_tracks") or audio_data.get("has_audio") is False)):
+            is_missing_audio = True
+        elif audio_sim == 0.0:
+            if "No audio streams found" in similarity_error or "FFmpeg failed" in similarity_error or "Format not recognised" in similarity_error:
                 is_missing_audio = True
 
         if is_missing_audio:
-            parts.append("Audio: Brak ścieżek dźwiękowych w obu plikach.")
+            parts.append("Audio: brak ścieżki dźwiękowej w materiałach (plik niemy / GIF).")
         elif audio_sim is not None:
             audio_sim = float(audio_sim)
             if audio_sim >= 0.95:
@@ -348,41 +350,43 @@ class AnalystService:
                 parts.append(f"Audio: POWAŻNE RÓŻNICE (audio_similarity={audio_sim:.4f}).")
 
         # LUFS
-        loudness = metrics.get("audio_loudness", {})
-        if isinstance(loudness, dict):
-            lufs_diff = loudness.get("lufs_difference")
-            if lufs_diff is not None:
-                lufs_diff = abs(float(lufs_diff))
-                if lufs_diff <= 1.0:
-                    parts.append(f"Głośność: OK (|LUFS diff|={lufs_diff:.2f}).")
-                elif lufs_diff <= 2.0:
-                    parts.append(f"Głośność: wyraźna rozbieżność (|LUFS diff|={lufs_diff:.2f}) — próg REVIEW.")
-                else:
-                    parts.append(f"Głośność: KRYTYCZNA RÓŻNICA (|LUFS diff|={lufs_diff:.2f}) — próg REJECT.")
+        if not is_missing_audio:
+            loudness = metrics.get("audio_loudness", {})
+            if isinstance(loudness, dict):
+                lufs_diff = loudness.get("lufs_difference")
+                if lufs_diff is not None:
+                    lufs_diff = abs(float(lufs_diff))
+                    if lufs_diff <= 1.0:
+                        parts.append(f"Głośność: OK (|LUFS diff|={lufs_diff:.2f}).")
+                    elif lufs_diff <= 2.0:
+                        parts.append(f"Głośność: wyraźna rozbieżność (|LUFS diff|={lufs_diff:.2f}) — próg REVIEW.")
+                    else:
+                        parts.append(f"Głośność: KRYTYCZNA RÓŻNICA (|LUFS diff|={lufs_diff:.2f}) — próg REJECT.")
 
         # STT
-        transcription = metrics.get("audio_transcription", {})
-        if isinstance(transcription, dict):
-            if transcription.get("status") == "not_run":
-                parts.append("Transkrypcja: nie uruchomiona.")
-            else:
-                text_sim = transcription.get("text_similarity")
-                skipped = transcription.get("skipped", False)
-                if skipped:
-                    parts.append(
-                        "Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
-                    )
-                elif text_sim is not None:
-                    text_sim = float(text_sim)
-                    # Check if there is actual speech
-                    audio_data = metrics.get("audio_analysis_data", {})
-                    stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
-                    if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
-                        parts.append("Transkrypcja: brak mowy / VO.")
-                    elif text_sim >= 0.98:
-                        parts.append(f"Transkrypcja: zgodna (text_similarity={text_sim:.4f}).")
-                    else:
-                        parts.append(f"Transkrypcja: różnice (text_similarity={text_sim:.4f}).")
+        if not is_missing_audio:
+            transcription = metrics.get("audio_transcription", {})
+            if isinstance(transcription, dict):
+                if transcription.get("status") == "not_run":
+                    pass
+                else:
+                    text_sim = transcription.get("text_similarity")
+                    skipped = transcription.get("skipped", False)
+                    if skipped:
+                        parts.append(
+                            "Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
+                        )
+                    elif text_sim is not None:
+                        text_sim = float(text_sim)
+                        # Check if there is actual speech
+                        audio_data = metrics.get("audio_analysis_data", {})
+                        stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
+                        if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                            parts.append("Transkrypcja: brak mowy / VO.")
+                        elif text_sim >= 0.98:
+                            parts.append(f"Transkrypcja: zgodna (text_similarity={text_sim:.4f}).")
+                        else:
+                            parts.append(f"Transkrypcja: różnice (text_similarity={text_sim:.4f}).")
 
         # Duration / ARPP
         duration_diff = metrics.get("duration_difference", 0.0)

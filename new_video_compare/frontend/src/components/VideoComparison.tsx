@@ -359,13 +359,6 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const [showInspector, setShowInspector] = useState(false);
   const [inspectorInitialTimestamp, setInspectorInitialTimestamp] = useState<number | null>(null);
 
-  const isEn = lang === "EN";
-
-  const isGifFile = (file?: { filename?: string; original_name?: string } | null, url?: string | null) => {
-    const str = (file?.original_name || file?.filename || url || "").toLowerCase();
-    return str.endsWith(".gif") || str.includes(".gif?");
-  };
-
   
   // Video loading states
   const [acceptanceLoading, setAcceptanceLoading] = useState(true);
@@ -710,105 +703,96 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
 
 
+  const isAcceptanceGif = useMemo(() => {
+    const name = (job.acceptance_file?.original_name || job.acceptance_file?.filename || "").toLowerCase();
+    return name.endsWith('.gif');
+  }, [job.acceptance_file]);
+
+  const isEmissionGif = useMemo(() => {
+    const name = (job.emission_file?.original_name || job.emission_file?.filename || "").toLowerCase();
+    return name.endsWith('.gif');
+  }, [job.emission_file]);
+
   const status = getOverallStatus(overallScore);
 
   return (
     <div className="min-h-screen print:min-h-0 print:h-auto print:p-0 bg-slate-50 dark:bg-[#0d0e15] text-slate-900 dark:text-slate-100 p-6 transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
-        {/* Metryczka Raportu QA (Report Summary Header Card) */}
-        <div className="mb-6 bg-white dark:bg-[#161824] border border-slate-200 dark:border-white/10 rounded-2xl p-5 shadow-sm break-inside-avoid page-break-inside-avoid">
-          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-white/10 mb-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <DocumentChartBarIcon className="w-5 h-5 text-indigo-600 dark:text-cyan-400" />
-                <h2 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  {t.reportHeaderTitle || (isEn ? "QA REPORT — METRICS SUMMARY" : "RAPORT QA — METRYCZKA METADANYCH")}
-                </h2>
+        {/* Metryczka Raportu QA / Professional Report Summary Header */}
+        <div className="mb-6 bg-white dark:bg-[#161824] rounded-2xl p-5 border border-slate-200 dark:border-white/10 shadow-md break-inside-avoid page-break-inside-avoid transition-colors">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-3 mb-4 flex-wrap gap-2">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-cyan-400 rounded-xl flex items-center justify-center font-black text-lg border border-indigo-100 dark:border-indigo-900/40">
+                📋
               </div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                {job.job_name}
-              </h1>
-              {differencesFound && (
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-1">
-                  ⚠️ {isEn ? `Differences detected (${videoDifferences} video frames, ${differences.length} timestamps)` : `Różnice wykryte (${videoDifferences} klatek wideo, ${differences.length} znaczników czasu)`}
+              <div>
+                <h1 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  {t.reportMetryczkaTitle || "METRYCZKA RAPORTU QA"}
+                </h1>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                  {job.job_name}
                 </p>
-              )}
+              </div>
             </div>
 
-            <div className="flex items-center space-x-3">
-              <div className={`px-4 py-1.5 rounded-full text-xs font-black shadow-sm ${status.bg} ${status.color}`}>
-                <div className={`w-2 h-2 bg-current rounded-full inline-block mr-2 ${status.animate ? "animate-pulse" : ""}`}></div>
+            <div className="flex items-center space-x-3 flex-wrap gap-2 print:hidden">
+              <div
+                className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-black shadow-xs ${status.bg} ${status.color}`}
+              >
+                <div className={`w-2 h-2 bg-current rounded-full mr-2 ${status.animate ? "animate-pulse" : ""}`}></div>
                 {status.label}
               </div>
 
               <button
                 onClick={() => setShowResults(!showResults)}
-                className="inline-flex items-center px-3.5 py-1.5 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none transition-colors shadow-sm print:hidden"
+                className="inline-flex items-center px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none transition-colors shadow-sm"
               >
-                <ChartBarSquareIcon className="w-4 h-4 mr-1.5 text-indigo-600 dark:text-cyan-400" />
-                {showResults ? (isEn ? "Hide Results" : "Ukryj Wyniki") : (isEn ? "Show Results" : "Pokaż Wyniki")}
+                <ChartBarSquareIcon className="w-4 h-4 mr-2 text-indigo-600 dark:text-cyan-400" />
+                {showResults ? (lang === "PL" ? "Ukryj Wyniki" : "Hide Results") : (lang === "PL" ? "Pokaż Wyniki" : "Show Results")}
               </button>
               
+              {/* Inspect Button */}
               {differencesFound && (
                 <button
-                  onClick={() => {
-                    setShowInspector(true);
-                    setIsPlaying(false);
-                  }}
-                  className="inline-flex items-center px-4 py-1.5 border border-transparent rounded-xl text-xs font-black text-white bg-gradient-to-r from-[#350F9C] to-[#4960E6] hover:opacity-90 shadow-md transition-all print:hidden"
+                    onClick={() => {
+                        setShowInspector(true);
+                        setIsPlaying(false);
+                    }}
+                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-xl text-xs font-black text-white bg-gradient-to-r from-[#350F9C] to-[#4960E6] hover:opacity-90 shadow-md transition-all"
                 >
-                  <EyeIcon className="w-4 h-4 mr-1.5" />
-                  {t.inspectBtn || (isEn ? "Inspect Differences" : "Inspekcja Różnic")}
+                    <EyeIcon className="w-4 h-4 mr-2" />
+                    {t.openInspector || "Inspect Differences"}
                 </button>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 block mb-1">
-                {t.cradleIdLabel || (isEn ? "Cradle ID" : "ID Cradle")}
-              </span>
-              <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
-                {job.cradle_id || "N/A"}
+          {/* Grid Metryczki */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            {/* Cradle ID */}
+            <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.cradleId}</span>
+              <span className="font-bold text-slate-900 dark:text-white font-mono text-sm">{job.cradle_id || "N/A"}</span>
+            </div>
+
+            {/* Client */}
+            <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.client}</span>
+              <span className="font-bold text-slate-900 dark:text-white text-sm truncate block">{job.client_name || "-"}</span>
+            </div>
+
+            {/* Analysis Date */}
+            <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.dateCreated}</span>
+              <span className="font-bold text-slate-900 dark:text-white text-xs">
+                {new Date(job.created_at).toLocaleString(lang === "PL" ? "pl-PL" : "en-US", { dateStyle: "medium", timeStyle: "short" })}
               </span>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 block mb-1">
-                {t.reportGeneratedDate || (isEn ? "Generated Date" : "Data wygenerowania")}
-              </span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">
-                {new Date().toLocaleString(isEn ? "en-US" : "pl-PL")}
-              </span>
-            </div>
-
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-cyan-400 block mb-1">
-                {t.acceptanceFileLabel || (isEn ? "Acceptance File" : "Plik Akceptacja")}
-              </span>
-              <span className="font-bold text-slate-900 dark:text-white truncate block" title={job.acceptance_file?.original_name || job.acceptance_file?.filename || ''}>
-                {job.acceptance_file?.original_name || job.acceptance_file?.filename || 'N/A'}
-              </span>
-              {job.acceptance_file?.width && (
-                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 block mt-0.5">
-                  {job.acceptance_file.width}x{job.acceptance_file.height}
-                </span>
-              )}
-            </div>
-
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-bold uppercase text-purple-600 dark:text-purple-400 block mb-1">
-                {t.emissionFileLabel || (isEn ? "Emission File" : "Plik Emisja")}
-              </span>
-              <span className="font-bold text-slate-900 dark:text-white truncate block" title={job.emission_file?.original_name || job.emission_file?.filename || ''}>
-                {job.emission_file?.original_name || job.emission_file?.filename || 'N/A'}
-              </span>
-              {job.emission_file?.width && (
-                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 block mt-0.5">
-                  {job.emission_file.width}x{job.emission_file.height}
-                </span>
-              )}
+            {/* Commercial Duration */}
+            <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.durationLabel}</span>
+              <span className="font-bold text-slate-900 dark:text-white font-mono text-sm">{formatTime(displayDuration)}</span>
             </div>
           </div>
         </div>
@@ -834,10 +818,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
             initialTimestamp={inspectorInitialTimestamp}
         />
 
-        {/* Video Players - Side by Side (Sync DualPlayer style - tight gap-2 layout & neutral headers) */}
-        <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-4">
+        {/* Video Players - Side by Side (Touching seamlessly without gap, Sync DualPlayer style) */}
+        <div id="video-player-section" className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-4">
           {/* Acceptance Video */}
-          <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
+          <div className="bg-white dark:bg-[#161824] rounded-2xl lg:rounded-r-none shadow-xl border border-slate-200 dark:border-white/10 lg:border-r-0 overflow-hidden transition-colors">
             <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#12131c]">
               <div className="flex flex-col">
                 <div className="flex items-center justify-between">
@@ -868,12 +852,12 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 {acceptanceLoading && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
                     <div className="animate-spin rounded-full h-10 w-10 border-3 border-indigo-500 border-t-transparent mb-3"></div>
-                    <p className="text-white text-xs font-bold">Loading video...</p>
+                    <p className="text-white text-xs font-bold">Loading media...</p>
                   </div>
                 )}
                 {acceptanceError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
-                    <p className="text-rose-400 text-xs font-bold">Failed to load video</p>
+                    <p className="text-rose-400 text-xs font-bold">Failed to load media</p>
                     <button 
                       onClick={() => {
                         setAcceptanceError(false);
@@ -888,7 +872,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     </button>
                   </div>
                 )}
-                {isGifFile(job.acceptance_file, acceptanceVideoUrl) ? (
+                {isAcceptanceGif ? (
                   <img
                     src={acceptanceVideoUrl}
                     alt="Acceptance GIF"
@@ -946,7 +930,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
           </div>
 
           {/* Emission Video */}
-          <div className="bg-white dark:bg-[#161824] rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
+          <div className="bg-white dark:bg-[#161824] rounded-2xl lg:rounded-l-none shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden transition-colors">
             <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#12131c]">
               <div className="flex flex-col">
                 <div className="flex items-center justify-between">
@@ -1015,7 +999,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     </button>
                   </div>
                 )}
-                {isGifFile(job.emission_file, emissionVideoUrl) ? (
+                {isEmissionGif ? (
                   <img
                     src={emissionVideoUrl}
                     alt="Emission GIF"
@@ -1358,12 +1342,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   {/* Audio Similarity */}
                   <div className="text-center p-5 bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-2xl">
                     <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">
-                      {Math.round((audioSimilarity || 0) * 100)}%
+                      {audioSimilarity != null ? `${Math.round(audioSimilarity * 100)}%` : "N/A"}
                     </div>
                     <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                      Audio Similarity
+                      {t.audioDifferences || "Audio Similarity"}
                     </h3>
-                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">Spectral analysis</p>
+                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                      {audioSimilarity != null ? "Spectral analysis" : (lang === "PL" ? "Brak ścieżki dźwiękowej" : "No audio track")}
+                    </p>
                   </div>
                 </div>
 
@@ -1608,21 +1594,17 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                             {/* Dialog Timeline (Whisper) - Side by Side */}
                             {dialogTimeline.length > 0 ? (
                               <div className="mt-4">
-                                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">
-                                  {t.detectedDialogTimeline || (isEn ? "Detected Dialog Timeline" : "Wykryta Linia Dialogowa (Transkrypcja)")}
-                                </h4>
+                                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Detected Dialog Timeline</h4>
                                 <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-white/10 rounded-xl">
                                   <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5 text-xs table-fixed">
                                     <thead className="bg-slate-100 dark:bg-slate-800/80 sticky top-0 z-10 shadow-sm">
                                       <tr>
-                                        <th scope="col" className="px-3 py-2 text-left font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24 text-[10px]">
-                                          {t.timeHeader || (isEn ? "Time" : "Czas")}
-                                        </th>
+                                        <th scope="col" className="px-3 py-2 text-left font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24 text-[10px]">Time</th>
                                         <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider w-1/2 text-[10px]">
-                                          {isEn ? "Acceptance" : "Akceptacja (Acceptance)"}
+                                          Acceptance
                                         </th>
                                         <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider w-1/2 text-[10px]">
-                                          {isEn ? "Emission" : "Emisja (Emission)"}
+                                          Emission
                                         </th>
                                       </tr>
                                     </thead>
@@ -1685,10 +1667,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       <div className="flex items-center space-x-2">
                         <EyeIcon className="w-5 h-5 text-red-500" />
                         <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                          {t.inspectDiffsTitle || (isEn ? "Frame Differences Analysis (Inspect Differences)" : "Analiza Różnic Klatek (Inspect Differences)")}
+                          {t.frameAnalysis || "Frame Differences Analysis (Inspect Differences)"}
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">
-                          {differences.length > 0 ? (isEn ? `${differences.length} timestamped diffs` : `${differences.length} dyferencji ze znacznikami czasu`) : (isEn ? `${videoDifferences} different frames` : `${videoDifferences} zmienionych klatek`)}
+                          {differences.length > 0 ? `${differences.length} diffs` : `${videoDifferences} frames`}
                         </span>
                       </div>
                       
@@ -1696,7 +1678,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         onClick={() => setShowInspector(true)}
                         className="px-3.5 py-1.5 bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white rounded-xl text-xs font-bold hover:opacity-90 transition-all shadow-sm print:hidden flex items-center space-x-1.5"
                       >
-                        <span>{t.openInspectorBtn || (isEn ? "Open Interactive Inspector" : "Otwórz Interaktywny Inspektor")}</span>
+                        <span>{t.openInspector || "Open Interactive Inspector"}</span>
                         <ChevronRightIcon className="w-4 h-4" />
                       </button>
                     </div>
@@ -1765,7 +1747,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                   }}
                                   className="text-xs font-bold text-indigo-600 dark:text-cyan-400 hover:underline print:hidden flex items-center space-x-0.5"
                                 >
-                                  <span>Inspect</span>
+                                  <span>{t.inspect || "Inspect"}</span>
                                   <span>→</span>
                                 </button>
                               </div>
@@ -1780,8 +1762,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
             ) : !loading ? (
               <div className="text-center py-8 text-gray-500">
                 {job.status === "completed" 
-                  ? "No detailed results available"
-                  : `Job status: ${job.status}. Results will be available after completion.`
+                  ? (lang === "PL" ? "Brak szczegółowych wyników" : "No detailed results available")
+                  : `Job status: ${job.status}.`
                 }
               </div>
             ) : null}
@@ -1789,13 +1771,12 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         )}
       </div>
 
-      {/* Frame Comparison Modal (REMOVED: Replaced by DifferenceInspector) */}
-
       {/* ======================== QA VERDICT PANEL ======================== */}
       {job.status === "completed" && (
         <QAVerdictPanel 
           jobId={job.id} 
-          clientName={(job as any).client_name || ""} 
+          clientName={(job as any).client_name || ""}
+          lang={lang}
           onSaveSuccess={onBackToDashboard}
         />
       )}

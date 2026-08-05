@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { translations, Language } from "../utils/translations";
 
 interface QAVerdictPanelProps {
   jobId: number;
   clientName: string;
+  lang?: Language;
   onSaveSuccess?: () => void;
 }
 
@@ -12,7 +14,8 @@ const VERDICT_LABELS = {
   review: { label: "👤 REVIEW", bg: "bg-amber-500 hover:bg-amber-600", ring: "ring-amber-500", text: "text-amber-700 dark:text-amber-300", light: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/40" },
 };
 
-const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSaveSuccess }) => {
+const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang = "PL", onSaveSuccess }) => {
+  const t = translations[lang];
   const [verdict, setVerdict] = useState<"approve" | "reject" | "review" | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [comment, setComment] = useState("");
@@ -104,15 +107,15 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, onSa
   // ── Read-only view ──
   if (saved && !isEditing && existingDecision) {
     return (
-      <div className="mt-8 mb-4 print:mb-0 mx-auto max-w-7xl">
-        <div className={`rounded-2xl shadow-xl border p-6 transition-all ${selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white dark:bg-[#161824] border-slate-200 dark:border-white/10"}`}>
+      <div className="mt-8 mb-4 print:mb-0 mx-auto max-w-7xl break-inside-avoid page-break-inside-avoid">
+        <div className={`rounded-2xl shadow-xl border p-6 transition-all break-inside-avoid page-break-inside-avoid ${selectedStyle ? `${selectedStyle.light} ${selectedStyle.ring} ring-2` : "bg-white dark:bg-[#161824] border-slate-200 dark:border-white/10"}`}>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <span className="text-2xl">📋</span>
               <div>
-                <h2 className="text-xl font-black text-slate-900 dark:text-white">QA Decision</h2>
-                {clientName && <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Client: <span className="font-bold text-slate-700 dark:text-slate-200">{clientName}</span></p>}
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.qaVerdict}</h2>
+                {clientName && <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{t.client}: <span className="font-bold text-slate-700 dark:text-slate-200">{clientName}</span></p>}
               </div>
             </div>
             {verdict && selectedStyle && (

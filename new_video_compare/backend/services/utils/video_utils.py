@@ -37,7 +37,7 @@ class VideoUtils:
     
     # Supported video formats
     SUPPORTED_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.mxf', '.prores', '.gif'}
-    SUPPORTED_CODECS = {'h264', 'h265', 'prores', 'dnxhd', 'mpeg2video'}
+    SUPPORTED_CODECS = {'h264', 'h265', 'prores', 'dnxhd', 'mpeg2video', 'gif', 'rawvideo'}
     
     def __init__(self, ffmpeg_utils: Optional[FFmpegUtils] = None):
         """

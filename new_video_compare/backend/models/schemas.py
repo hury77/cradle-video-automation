@@ -31,6 +31,7 @@ class FileFormatEnum(str, Enum):
     MKV = "mkv"
     MXF = "mxf"
     PRORES = "prores"
+    GIF = "gif"
     WAV = "wav"
     MP3 = "mp3"
     AAC = "aac"

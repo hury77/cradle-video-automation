@@ -277,7 +277,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
                 <p className="text-sm text-gray-600 text-center">
                   <span className="font-medium">Click to upload</span> or drag & drop
                 </p>
-                <p className="text-xs text-gray-400 mt-1">MP4, MOV, AVI, MKV, GIF</p>
+                <p className="text-xs text-slate-400 mt-1 font-semibold">MP4, MOV, MXF, GIF, ZIP</p>
               </>
             )}
           </div>
@@ -286,7 +286,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onJobCreated }) => {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*,image/gif,.mp4,.mov,.avi,.mkv,.mxf,.gif"
+          accept="video/*,image/gif,.gif,.mp4,.mov,.mxf,.zip"
           className="hidden"
           onChange={(e) => handleFileSelect(e, fileType)}
         />

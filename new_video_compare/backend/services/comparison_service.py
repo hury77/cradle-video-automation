@@ -337,55 +337,85 @@ class ComparisonService:
 
                 audio_result = {}
                 
-                # LUFS Loudness comparison (new)
+                # Probe audio streams before running audio comparison (silent files / GIFs support)
+                acc_audio_streams = 0
+                emi_audio_streams = 0
                 try:
-                    logger.info("📊 Measuring LUFS loudness levels...")
-                    loudness_result = compare_loudness(
-                        acceptance_path, 
-                        emission_path,
-                        start_time_acc=start_time_acc,
-                        start_time_emi=start_time_emi,
-                        duration=audio_duration
-                    )
-                    audio_result["loudness"] = loudness_result
-                except Exception as lufs_err:
-                    logger.warning(f"LUFS comparison failed: {lufs_err}")
-                    audio_result["loudness"] = {"error": str(lufs_err)}
-                
-                job.progress = 75.0
-                db.commit()
-                
-                # Audio similarity (MFCC-based)
-                try:
-                    logger.info("🎼 Computing audio similarity...")
-                    similarity_result = compare_audio_similarity(
-                        acceptance_path, 
-                        emission_path,
-                        start_time_acc=start_time_acc,
-                        start_time_emi=start_time_emi,
-                        duration=audio_duration
-                    )
-                    audio_result["similarity"] = similarity_result
-                    audio_result["similarity_score"] = similarity_result.get("overall_audio_similarity", 0.0)
-                except Exception as sim_err:
-                    logger.warning(f"Audio similarity failed: {sim_err}")
-                    audio_result["similarity"] = {"error": str(sim_err)}
-                    audio_result["similarity_score"] = 0.0
-                
-                # Legacy audio processor (spectral comparison)
-                try:
-                    legacy_result = self.audio_processor.compare_audio_files(
-                        video_path1=acceptance_path,
-                        video_path2=emission_path,
-                        sync_audio=True,
-                        start_time1=start_time_acc,
-                        start_time2=start_time_emi,
-                        duration=audio_duration
-                    )
-                    audio_result["spectral"] = legacy_result
-                except Exception as audio_err:
-                    logger.warning(f"Spectral audio comparison failed: {audio_err}")
-                    audio_result["spectral"] = {"error": str(audio_err)}
+                    from services.audio_service import get_audio_stream_count
+                    acc_audio_streams = get_audio_stream_count(Path(acceptance_path))
+                    emi_audio_streams = get_audio_stream_count(Path(emission_path))
+                except Exception as probe_audio_e:
+                    logger.warning(f"Could not probe audio streams: {probe_audio_e}")
+
+                if acc_audio_streams == 0 and emi_audio_streams == 0:
+                    logger.info("🔇 No audio streams found in both files (silent video / GIF). Skipping audio comparison.")
+                    audio_result = {
+                        "has_audio": False,
+                        "no_audio_tracks": True,
+                        "similarity_score": None,
+                        "message": "No audio tracks present in source files"
+                    }
+                    results["audio_result"] = audio_result
+                elif (acc_audio_streams > 0 and emi_audio_streams == 0) or (acc_audio_streams == 0 and emi_audio_streams > 0):
+                    logger.warning("⚠️ Audio stream mismatch: One file has audio tracks, the other has none.")
+                    audio_result = {
+                        "has_audio": False,
+                        "audio_mismatch": True,
+                        "similarity_score": 0.0,
+                        "error": "Audio stream mismatch: One file contains audio, but the other has no audio streams."
+                    }
+                    results["audio_result"] = audio_result
+                else:
+                    audio_result["has_audio"] = True
+                    # LUFS Loudness comparison (new)
+                    try:
+                        logger.info("📊 Measuring LUFS loudness levels...")
+                        loudness_result = compare_loudness(
+                            acceptance_path, 
+                            emission_path,
+                            start_time_acc=start_time_acc,
+                            start_time_emi=start_time_emi,
+                            duration=audio_duration
+                        )
+                        audio_result["loudness"] = loudness_result
+                    except Exception as lufs_err:
+                        logger.warning(f"LUFS comparison failed: {lufs_err}")
+                        audio_result["loudness"] = {"error": str(lufs_err)}
+                    
+                    job.progress = 75.0
+                    db.commit()
+                    
+                    # Audio similarity (MFCC-based)
+                    try:
+                        logger.info("🎼 Computing audio similarity...")
+                        similarity_result = compare_audio_similarity(
+                            acceptance_path, 
+                            emission_path,
+                            start_time_acc=start_time_acc,
+                            start_time_emi=start_time_emi,
+                            duration=audio_duration
+                        )
+                        audio_result["similarity"] = similarity_result
+                        audio_result["similarity_score"] = similarity_result.get("overall_audio_similarity", 0.0)
+                    except Exception as sim_err:
+                        logger.warning(f"Audio similarity failed: {sim_err}")
+                        audio_result["similarity"] = {"error": str(sim_err)}
+                        audio_result["similarity_score"] = 0.0
+                    
+                    # Legacy audio processor (spectral comparison)
+                    try:
+                        legacy_result = self.audio_processor.compare_audio_files(
+                            video_path1=acceptance_path,
+                            video_path2=emission_path,
+                            sync_audio=True,
+                            start_time1=start_time_acc,
+                            start_time2=start_time_emi,
+                            duration=audio_duration
+                        )
+                        audio_result["spectral"] = legacy_result
+                    except Exception as audio_err:
+                        logger.warning(f"Spectral audio comparison failed: {audio_err}")
+                        audio_result["spectral"] = {"error": str(audio_err)}
                 
                 job.progress = 80.0
                 db.commit()
@@ -395,7 +425,7 @@ class ComparisonService:
                 # NOTE: FULL+HIGH was added in bdf5231 but caused OOM crashes on 16 GB M4
                 # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
                 # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
-                should_run_stt = check_comp_type(
+                should_run_stt = audio_result.get("has_audio", True) and not audio_result.get("no_audio_tracks", False) and check_comp_type(
                     job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT]
                 )
                 if should_run_stt:
@@ -582,14 +612,18 @@ class ComparisonService:
                 has_differences = has_differences or video_result.get("frames_with_differences", 0) > 0
             
         if audio_result and isinstance(audio_result, dict):
-            if "error" in audio_result:
+            if audio_result.get("no_audio_tracks") or audio_result.get("has_audio") is False:
+                # Source files have no audio streams (silent video / GIF) — DO NOT penalize overall_similarity!
+                pass
+            elif "error" in audio_result:
                 has_error = True
                 has_differences = True
                 overall_similarity = 0.0
             else:
-                audio_similarity = audio_result.get("similarity_score", 1.0)
-                overall_similarity = min(overall_similarity, audio_similarity)
-                has_differences = has_differences or audio_similarity < 0.99
+                audio_similarity = audio_result.get("similarity_score")
+                if audio_similarity is not None:
+                    overall_similarity = min(overall_similarity, audio_similarity)
+                    has_differences = has_differences or audio_similarity < 0.99
 
         # Build report data
         report_data = {}
@@ -597,9 +631,12 @@ class ComparisonService:
         # Add audio results to report_data
         if audio_result and isinstance(audio_result, dict):
             report_data["audio"] = {
+                "has_audio": audio_result.get("has_audio", True),
+                "no_audio_tracks": audio_result.get("no_audio_tracks", False),
+                "message": audio_result.get("message"),
                 "loudness": audio_result.get("loudness"),
                 "similarity": audio_result.get("similarity"),
-                "has_loudness_differences": audio_result.get("loudness", {}).get("has_loudness_differences", False),
+                "has_loudness_differences": audio_result.get("loudness", {}).get("has_loudness_differences", False) if isinstance(audio_result.get("loudness"), dict) else False,
                 "source_separation": audio_result.get("source_separation"),
                 "voiceover": audio_result.get("voiceover"),
                 "speech_to_text": audio_result.get("speech_to_text"),

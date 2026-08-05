@@ -44,6 +44,7 @@ def get_file_format_from_extension(filename: str) -> FileFormatEnum:
         'mkv': FileFormatEnum.MKV,
         'mxf': FileFormatEnum.MXF,
         'prores': FileFormatEnum.PRORES,
+        'gif': FileFormatEnum.GIF,
         'wav': FileFormatEnum.WAV,
         'mp3': FileFormatEnum.MP3,
         'aac': FileFormatEnum.AAC,
