@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Cradle Video Automation - Enterprise Technical Specs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css" id="theme">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --accent-color: #6366f1;
+            --secondary-accent: #f43f5e;
+            --tech-blue: #00d2ff;
+            --bg-gradient: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+            --card-bg: rgba(15, 23, 42, 0.7);
+        }
+        .reveal {
+            font-family: 'Inter', sans-serif !important;
+            background: var(--bg-gradient);
+        }
+        .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+            font-family: 'Inter', sans-serif !important;
+            text-transform: none !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.04em !important;
+        }
+        
+        .reveal h1 { color: #fff; font-size: 1.4em !important; margin-bottom: 25px !important; }
+        .reveal h2 { color: var(--tech-blue); font-size: 1.2em !important; margin-bottom: 20px !important; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; display: inline-block; }
+        .reveal h3 { color: #fff; font-size: 0.8em !important; margin-bottom: 15px !important; }
+        .reveal h4 { color: var(--accent-color); font-size: 0.8em !important; margin-bottom: 10px !important; }
+        
+        .reveal p, .reveal li {
+            font-size: 0.55em;
+            color: #94a3b8;
+            line-height: 1.5;
+            font-weight: 400;
+        }
+        
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            padding: 25px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            text-align: left;
+            margin-bottom: 20px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .highlight { color: #fff; font-weight: 700; }
+        .rose-highlight { color: var(--secondary-accent); font-weight: 700; }
+        
+        /* LANGUAGE SWITCH */
+        .lang-switch {
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            z-index: 1000;
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 50px;
+            padding: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .lang-btn {
+            padding: 6px 14px;
+            border-radius: 50px;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .lang-btn.active {
+            background: var(--accent-color);
+            color: #fff;
+        }
+
+        /* CONFIDENTIAL TAG */
+        .confidential-tag {
+            position: fixed;
+            bottom: 25px;
+            right: 120px;
+            z-index: 1000;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 10px;
+            font-family: 'Inter', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            pointer-events: none;
+        }
+
+        /* FLOW DIAGRAM */
+        .flow-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-top: 50px;
+            padding: 0 20px;
+            position: relative;
+        }
+        .flow-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 180px;
+            z-index: 2;
+        }
+        .node-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid var(--accent-color);
+            background: rgba(99, 102, 241, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+            color: #fff;
+            font-size: 24px;
+        }
+        .node-icon.engine { border-color: var(--secondary-accent); background: rgba(244, 63, 94, 0.1); box-shadow: 0 0 20px rgba(244, 63, 94, 0.3); }
+        .node-title { font-size: 0.5em; font-weight: 800; color: #fff; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .node-desc { font-size: 0.35em; color: #94a3b8; text-align: center; line-height: 1.2; }
+        .flow-arrow { color: rgba(255, 255, 255, 0.3); font-size: 24px; font-weight: 300; }
+        .loopback-line { position: absolute; bottom: -60px; left: 5%; right: 5%; height: 1px; border-bottom: 1px dashed rgba(255, 255, 255, 0.15); display: flex; justify-content: center; align-items: center; }
+        .loopback-label { background: #020617; padding: 0 20px; color: var(--accent-color); font-size: 0.4em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; margin-top: -1px; }
+        .loopback-arrow { position: absolute; right: 5%; bottom: -68px; color: var(--accent-color); font-size: 14px; }
+
+        .step-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            margin-top: 30px;
+        }
+        .step-box {
+            flex: 1;
+            padding: 15px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            margin: 0 8px;
+            border-top: 3px solid var(--accent-color);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+        .step-box::after {
+            content: "→";
+            position: absolute;
+            right: -14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent-color);
+            font-weight: 900;
+            font-size: 20px;
+            z-index: 10;
+        }
+        .step-box:last-child::after { content: ""; }
+        .step-box h5 { font-size: 0.5em; color: #fff; margin-bottom: 10px; font-weight: 800; }
+        .step-box p { font-size: 0.35em; margin: 0; line-height: 1.3; }
+
+    </style>
+</head>
+<body>
+    <div class="lang-switch">
+        <div class="lang-btn active" onclick="setLanguage('en')">EN</div>
+        <div class="lang-btn" onclick="setLanguage('pl')">PL</div>
+    </div>
+
+    <div class="confidential-tag">Confidential</div>
+
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- SLIDE 1: WELCOME -->
+            <section data-background-image="https://images.unsplash.com/photo-1518770660439-4636190af477?q=80&w=2070&auto=format&fit=crop" data-background-opacity="0.2">
+                <div class="card" style="background: rgba(2, 6, 23, 0.85); text-align: center; border: 2px solid var(--tech-blue); max-width: 900px; margin: 0 auto;">
+                    <div style="width: 80px; height: 3px; background: var(--tech-blue); margin: 0 auto 25px;"></div>
+                    <h1 style="color: #fff; font-size: 1.7em !important; white-space: nowrap;">Cradle Video Automation</h1>
+                    <h3 style="font-size: 1.1em !important; opacity: 0.8;">Technical Deep Dive</h3>
+                    <p style="margin-top: 35px; font-weight: 600; color: var(--tech-blue); letter-spacing: 0.15em; font-size: 0.5em;">VERSION 7.6 | FINAL RELEASE</p>
+                </div>
+            </section>
+
+            <!-- SLIDE 2: THE PROBLEM -->
+            <section>
+                <h2 style="text-align: center;" data-en="The Operational Problem" data-pl="Wyzwania operacyjne">The Operational Problem</h2>
+                <div class="grid">
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h3 data-en="Efficiency Leak" data-pl="Wąskie gardła procesowe">Efficiency Leak</h3>
+                        <p data-en="Manual video QA requires 100% human presence, creating massive delays in final delivery." data-pl="Ręczna kontrola jakości wideo wymaga stałej obecności człowieka, co paraliżuje proces dostarczania materiałów końcowych.">Manual video QA requires 100% human presence, creating massive delays in final delivery.</p>
+                    </div>
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h3 data-en="Human Fatigue" data-pl="Czynnik ludzki i zmęczenie">Human Fatigue</h3>
+                        <p data-en="Micro-glitches are statistically missed by humans after 2 hours of repetitive checking." data-pl="Błędy typu 'micro-glitch' są statystycznie częściej pomijane przez ludzi już po dwóch godzinach monotonnej pracy.">Micro-glitches are statistically missed by humans after 2 hours of repetitive checking.</p>
+                    </div>
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h3 data-en="Process Friction" data-pl="Złożoność logistyczna">Process Friction</h3>
+                        <p data-en="70% of the timeline is spent on manual file discovery, download, and folder management." data-pl="Aż 70% czasu pracy poświęcane jest na logistykę: wyszukiwanie, pobieranie i ręczne segregowanie plików w folderach.">70% of the timeline is spent on manual file discovery, download, and folder management.</p>
+                    </div>
+                    <div class="card" style="border-left: 4px solid var(--secondary-accent);">
+                        <h3 data-en="Subjectivity" data-pl="Subiektywna ocena">Subjectivity</h3>
+                        <p data-en="Inconsistent criteria for 'minor differences' lead to unstable approval standards." data-pl="Brak ujednoliconych kryteriów dla 'drobnych różnic' prowadzi do niespójnych standardów akceptacji materiałów.">Inconsistent criteria for 'minor differences' lead to unstable approval standards.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 3: OPERATIONAL GOALS -->
+            <section>
+                <h2 style="text-align: center;" data-en="Operational Goals" data-pl="Cele strategiczne">Operational Goals</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3 data-en="Multi-Channel Ingestion" data-pl="Automatyczne pobieranie danych">Multi-Channel Ingestion</h3>
+                        <p data-en="Automated retrieval from Lucid Link, Cloud CDNs (Direct Blobs), and local network shares." data-pl="Zautomatyzowane pobieranie plików z Lucid Link, Cloud CDN (Direct Blobs) oraz zasobów lokalnych (NAS).">Automated retrieval from Lucid Link, Cloud CDNs (Direct Blobs), and local network shares.</p>
+                    </div>
+                    <div class="card">
+                        <h3 data-en="Signal Intelligence" data-pl="Analiza percepcyjna sygnału">Signal Intelligence</h3>
+                        <p data-en="Deterministic analysis of Visual (SSIM/MSE) and Acoustic (Loudness/STT) signals." data-pl="Precyzyjna analiza matematyczna sygnału wizualnego (SSIM) oraz akustycznego (Loudness/STT).">Deterministic analysis of Visual (SSIM/MSE) and Acoustic (Loudness/STT) signals.</p>
+                    </div>
+                    <div class="card">
+                        <h3 data-en="Decision Registry" data-pl="Baza decyzji AI">Decision Registry</h3>
+                        <p data-en="Standardizing QA logic across the team via a unified decision history." data-pl="Ujednolicona baza danych decyzji QA wspierająca standaryzację całego zespołu.">Standardizing QA logic across the team via a unified decision history.</p>
+                    </div>
+                    <div class="card">
+                        <h3 data-en="Infinite Scaling" data-pl="Skalowalność i wydajność">Infinite Scaling</h3>
+                        <p data-en="Horizontal scalability via multi-node task distribution and cloud orchestration." data-pl="Wysoka wydajność dzięki rozproszeniu zadań na wiele nodów i nowoczesnej orkiestracji IT.">Horizontal scalability via multi-node task distribution and cloud orchestration.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 4: HOW FILES MOVE -->
+            <section>
+                <h2 data-en="How files move" data-pl="Przepływ plików i danych">How files move</h2>
+                <div class="flow-container">
+                    <div class="flow-node">
+                        <div class="node-icon">⊞</div>
+                        <div class="node-title">Cradle</div>
+                        <div class="node-desc" data-en="Project Platform" data-pl="Platforma projektowa">Project Platform</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node">
+                        <div class="node-icon">⏱</div>
+                        <div class="node-title" data-en="Agent 1" data-pl="Agent 1">Agent 1</div>
+                        <div class="node-desc" data-en='"Hands" / Retrieval' data-pl='"Ręce" / Pobieranie'>"Hands" / Retrieval</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node">
+                        <div class="node-icon engine">☵</div>
+                        <div class="node-title" data-en="Engine" data-pl="Silnik">Engine</div>
+                        <div class="node-desc" data-en="Video Analysis" data-pl="Analiza wideo">Video Analysis</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node">
+                        <div class="node-icon">🛡</div>
+                        <div class="node-title" data-en="Agent 2" data-pl="Agent 2">Agent 2</div>
+                        <div class="node-desc" data-en='"Brain" / Decision' data-pl='"Mózg" / Decyzja'>"Brain" / Decision</div>
+                    </div>
+                    <div class="loopback-line">
+                        <div class="loopback-label" data-en="Back to Cradle (Auto-Response)" data-pl="Powrót do Cradle (Auto-Odpowiedź)">Back to Cradle (Auto-Response)</div>
+                    </div>
+                    <div class="loopback-arrow">←</div>
+                </div>
+            </section>
+
+            <!-- SLIDE 5: OPERATIONAL WORKFLOW -->
+            <section>
+                <h2 data-en="Operational Workflow" data-pl="Przebieg automatyzacji">Operational Workflow</h2>
+                <div class="step-container">
+                    <div class="step-box">
+                        <h5 data-en="1. TRIGGER" data-pl="1. START">1. TRIGGER</h5>
+                        <p data-en="Cradle status change detected. Metadata captured via Browser Extension." data-pl="Monitorowanie zmiany statusu w Cradle i pobranie metadanych.">Cradle status change detected. Metadata captured via Browser Extension.</p>
+                    </div>
+                    <div class="step-box" style="border-top-color: var(--tech-blue);">
+                        <h5 data-en="2. ACQUIRE" data-pl="2. POBIERANIE">2. ACQUIRE</h5>
+                        <p data-en="Multi-source fetching: Cloud CDN (Binary Blobs) or Network Paths (Lucid/SMB)." data-pl="Pobieranie plików z CDN lub dysków sieciowych do folderów joba.">Multi-source fetching: Cloud CDN (Binary Blobs) or Network Paths (Lucid/SMB).</p>
+                    </div>
+                    <div class="step-box">
+                        <h5 data-en="3. PROCESS" data-pl="3. PROCES">3. PROCESS</h5>
+                        <p data-en="Media Engine decodes streams and isolates audio stems via AI separation." data-pl="Dekodowanie strumieni i izolacja ścieżki lektorskiej przez AI.">Media Engine decodes streams and isolates audio stems via AI separation.</p>
+                    </div>
+                    <div class="step-box">
+                        <h5 data-en="4. ANALYZE" data-pl="4. ANALIZA">4. ANALYZE</h5>
+                        <p data-en="Signal processing: Visual SSIM, Audio LUFS, and linguistic transcription." data-pl="Analiza różnic obrazu, poziomów głośności oraz treści transkrypcji.">Signal processing: Visual SSIM, Audio LUFS, and linguistic transcription.</p>
+                    </div>
+                    <div class="step-box" style="border-top-color: var(--secondary-accent);">
+                        <h5 data-en="5. VERDICT" data-pl="5. WERDYKT">5. VERDICT</h5>
+                        <p data-en="Agent 2 applies logic guardrails and reports final justification to Cradle." data-pl="Podjęcie decyzji na podstawie twardych danych i wysłanie werdyktu.">Agent 2 applies logic guardrails and reports final justification to Cradle.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 6: AGENT 1 - THE CONTROLLER -->
+            <section>
+                <h2 data-en="Agent 1: The Controller" data-pl="Agent 1: Kontroler (Wykonawca)">Agent 1: The Controller</h2>
+                <div class="card">
+                    <p><span class="highlight" data-en="Control Loop:" data-pl="Monitoring aktywny:">Control Loop:</span> <span data-en="Periodic monitoring of Cradle DOM every 120s." data-pl="Skanowanie platformy Cradle co 120 sekund w poszukiwaniu nowych zadań.">Periodic monitoring of Cradle DOM every 120s.</span></p>
+                    <p><span class="highlight" data-en="Acquisition Strategy:" data-pl="Metody pobierania:">Acquisition Strategy:</span></p>
+                    <ul>
+                        <li><span class="highlight" data-en="Cloud CDN (Direct Blobs):" data-pl="Pobieranie strumieniowe (Cloud CDN):">Cloud CDN (Direct Blobs):</span> <span data-en="High-speed binary streams directly from project URLs." data-pl="Bezpośrednie pobieranie paczek binarnych z serwerów Cradle.">High-speed binary streams directly from project URLs.</span></li>
+                        <li><span class="highlight" data-en="Network Shares:" data-pl="Dostęp sieciowy (Lucid/NAS):">Network Shares:</span> <span data-en="Automated path mapping for Lucid Link and local NAS volumes." data-pl="Automatyczne mapowanie i kopiowanie plików z dysków wirtualnych.">Automated path mapping for Lucid Link and local NAS volumes.</span></li>
+                        <li><span class="highlight" data-en="Relevance Logic:" data-pl="Logika identyfikacji:">Relevance Logic:</span> <span data-en="Precise file identification via Cradle ID, Template ID, and specific workflow steps." data-pl="Precyzyjna identyfikacja plików na podstawie Cradle ID, Template ID oraz etapu prac.">Precise file identification via Cradle ID, Template ID, and specific workflow steps.</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 7: AGENT 1 COMPONENTS -->
+            <section>
+                <h2 data-en="Agent 1: Components" data-pl="Agent 1: Komponenty">Agent 1: Components</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3 data-en="Extension" data-pl="Extension">Extension</h3>
+                        <p><span class="highlight" data-en="Role:" data-pl="Rola:">Role:</span> <span data-en="Real-time DOM scanning and metadata harvesting directly from Cradle." data-pl="Skanowanie struktury Cradle w czasie rzeczywistym i przechwytywanie metadanych.">Real-time DOM scanning and metadata harvesting directly from Cradle.</span></p>
+                        <p><span class="highlight" data-en="Tech:" data-pl="Technologia:">Tech:</span> <code>JavaScript / DOM Observer</code></p>
+                    </div>
+                    <div class="card">
+                        <h3 data-en="Desktop Application" data-pl="Aplikacja Desktopowa">Desktop Application</h3>
+                        <p><span class="highlight" data-en="Role:" data-pl="Rola:">Role:</span> <span data-en="Local file orchestration, secure downloading, and media job creation." data-pl="Orkiestracja plików lokalnych, bezpieczne pobieranie i inicjowanie zadań NVC.">Local file orchestration, secure downloading, and media job creation.</span></p>
+                        <p><span class="highlight" data-en="Tech:" data-pl="Technologia:">Tech:</span> <code>Python / WebSockets (wss://)</code></p>
+                    </div>
+                </div>
+                <div class="card" style="margin-top: 15px; text-align: center; border: 1px solid var(--accent-color);">
+                    <p style="font-size: 0.45em;" data-en="Communication Bridge: Real-time synchronization via encrypted WebSockets (wss://) between the browser and the host system." data-pl="Most komunikacyjny: Szyfrowana synchronizacja w czasie rzeczywistym przez WebSockets (wss://) między przeglądarką a systemem.">Communication Bridge: Real-time synchronization via encrypted WebSockets (wss://) between the browser and the host system.</p>
+                </div>
+            </section>
+
+            <!-- SLIDE 8: MEDIA PROCESSING ENGINE -->
+            <section>
+                <h2 data-en="NVC Processing Engine" data-pl="Silnik dekodujący NVC">NVC Processing Engine</h2>
+                <div class="card">
+                    <p><span class="highlight" data-en="FFmpeg Integration:" data-pl="Silnik FFmpeg:">FFmpeg Integration:</span> <span data-en="Native decoding with multi-platform hardware support." data-pl="Optymalne dekodowanie z szerokim wsparciem akceleracji sprzętowej.">Native decoding with multi-platform hardware support.</span></p>
+                    <p><span class="highlight" data-en="Hardware Abstraction:" data-pl="Akceleracja sprzętowa:">Hardware Abstraction:</span></p>
+                    <ul style="margin-bottom: 20px;">
+                        <li><span class="highlight" data-en="macOS:" data-pl="macOS:">macOS:</span> <span data-en="Native VideoToolbox acceleration." data-pl="Wsparcie dla natywnego silnika VideoToolbox.">Native VideoToolbox acceleration.</span></li>
+                        <li><span class="highlight" data-en="Linux/Server:" data-pl="Linux/Server:">Linux/Server:</span> <span data-en="NVDEC via CUDA (Requires NVIDIA optimized code)." data-pl="NVDEC przez CUDA (Wymaga optymalizacji pod serwery NVIDIA).">NVDEC via CUDA (Requires NVIDIA optimized code).</span></li>
+                        <li><span class="highlight" data-en="Other:" data-pl="Inne:">Other:</span> <span data-en="Intel QSV or Software decoding (libx264)." data-pl="Intel QSV lub dekodowanie programowe (libx264).">Intel QSV or Software decoding (libx264).</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 9: VIDEO: SSIM ALGORITHM -->
+            <section>
+                <h2 data-en="Video: SSIM Algorithm" data-pl="Analiza obrazu: SSIM">Video: SSIM Algorithm</h2>
+                <div class="card">
+                    <h3 data-en="Structural Similarity Index (SSIM)" data-pl="Analiza percepcyjna (SSIM)">Structural Similarity Index (SSIM)</h3>
+                    <p data-en="Mathematical model evaluating degradation across three human visual perception layers:" data-pl="Model matematyczny badający jakość obrazu w oparciu o ludzką percepcję:">Mathematical model evaluating degradation across three human visual perception layers:</p>
+                    <ul>
+                        <li><span class="highlight" data-en="Luminance:" data-pl="Luminancja:">Luminance:</span> <span data-en="Mean pixel intensity." data-pl="Średnia jasność pikseli.">Mean pixel intensity.</span></li>
+                        <li><span class="highlight" data-en="Contrast:" data-pl="Kontrast:">Contrast:</span> <span data-en="Structural variance and standard deviation." data-pl="Wariancja strukturalna (rozpiętość tonalna).">Structural variance and standard deviation.</span></li>
+                        <li><span class="highlight" data-en="Structure:" data-pl="Struktura:">Structure:</span> <span data-en="Correlation and covariance between shifted pixels." data-pl="Korelacja i wzajemne powiązanie pikseli.">Correlation and covariance between shifted pixels.</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 10: VIDEO: MSE & HEATMAPS -->
+            <section>
+                <h2 data-en="Video: MSE & Heatmaps" data-pl="Wizualizacja błędów">Video: MSE & Heatmaps</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3 data-en="Mean Squared Error" data-pl="Analiza różnic (MSE)">Mean Squared Error</h3>
+                        <p data-en="Global variance tracking. Essential for detecting color-space errors and bitrate drops." data-pl="Śledzenie globalnej wariancji pikseli. Kluczowe dla wykrywania błędów koloru i artefaktów bitrate.">Global variance tracking. Essential for detecting color-space errors and bitrate drops.</p>
+                        <p style="margin-top: 10px; font-style: italic; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px;" data-en="In practice: Catching massive encoding failures that SSIM might classify as structural matches." data-pl="W praktyce: Wykrywanie błędów kodowania i przesunięć kolorów, których SSIM może nie zauważyć.">In practice: Catching massive encoding failures that SSIM might classify as structural matches.</p>
+                    </div>
+                    <div class="card">
+                        <h3 data-en="Visual Diff Masks" data-pl="Heatmapy różnic">Visual Diff Masks</h3>
+                        <p data-en="Generates Heatmaps highlighting coordinates where files differ, enabling rapid manual verification." data-pl="Generowanie map ciepła wskazujących dokładnie miejsce błędu, co przyspiesza weryfikację.">Generates Heatmaps highlighting coordinates where files differ, enabling rapid manual verification.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 11: AUDIO: AI SOURCE SEPARATION -->
+            <section>
+                <h2 data-en="Audio: AI Source Separation" data-pl="Audio: Izolacja ścieżek AI">Audio: AI Source Separation</h2>
+                <div class="card">
+                    <h3 data-en="Demucs v4 (Hybrid Transformer)" data-pl="Separacja lektora (Demucs)">Demucs v4 (Hybrid Transformer)</h3>
+                    <p data-en="AI model used to isolate the voiceover (VO) stem from complex background music." data-pl="Model AI oddzielający głos lektora od muzyki i efektów tła.">AI model used to isolate the voiceover (VO) stem from complex background music.</p>
+                    <ul>
+                        <li data-en="Vocal Isolation: Prevents music interference during linguistic analysis." data-pl="Eliminacja tła: Usuwa muzykę, aby nie zakłócała procesu transkrypcji.">Vocal Isolation: Prevents music interference during linguistic analysis.</li>
+                        <li data-en="Clean Input: Dramatically reduces Whisper hallucinations in action-heavy content." data-pl="Czysty sygnał: Znacząco redukuje błędy AI przy dynamicznych podkładach.">Clean Input: Dramatically reduces Whisper hallucinations in action-heavy content.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 12: AUDIO: EBU R128 COMPLIANCE -->
+            <section>
+                <h2 data-en="Audio: EBU R128 Compliance" data-pl="Standardy głośności: R128">Audio: EBU R128 Compliance</h2>
+                <div class="card">
+                    <h3 data-en="Loudness Normalization Standards" data-pl="Pomiary zgodne ze specyfikacją">Loudness Normalization Standards</h3>
+                    <p data-en="Standardized volume measurement to ensure broadcast and digital audio consistency." data-pl="Ustandaryzowany pomiar poziomu dźwięku dla zapewnienia spójności w emisji.">Standardized volume measurement to ensure broadcast and digital audio consistency.</p>
+                    <ul>
+                        <li><span class="highlight" data-en="Absolute Integrated Loudness:" data-pl="Głośność zintegrowana:">Absolute Integrated Loudness:</span> <span data-en="Measures integrated volume across the file (Target: -23 LUFS)." data-pl="Mierzy głośność zintegrowaną całego pliku (Target: -23 LUFS).">Measures integrated volume across the file (Target: -23 LUFS).</span></li>
+                        <li><span class="highlight" data-en="True Peak (dBTP):" data-pl="Wartości szczytowe (True Peak):">True Peak (dBTP):</span> <span data-en="Measures signal peaks to prevent digital clipping." data-pl="Mierzy szczyty sygnału, aby zapobiec cyfrowym przesterom.">Measures signal peaks to prevent digital clipping.</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 13: STT: FASTER-WHISPER ENGINE -->
+            <section>
+                <h2 data-en="STT: Faster-Whisper Engine" data-pl="Transkrypcja: Faster-Whisper">STT: Faster-Whisper Engine</h2>
+                <div class="card">
+                    <h3 data-en="CTranslate2 Re-implementation" data-pl="Silnik CTranslate2">CTranslate2 Re-implementation</h3>
+                    <p data-en="High-performance Whisper backend using CTranslate2 for up to 4x faster inference." data-pl="Ultrawydajny silnik Whisper działający do 4 razy szybciej dzięki optymalizacji CTranslate2.">High-performance Whisper backend using CTranslate2 for up to 4x faster inference.</p>
+                    <ul>
+                        <li data-en="CTranslate2: Specialized inference engine utilizing custom kernels for Transformers." data-pl="CTranslate2: Dedykowany silnik wykorzystujący customowe jądra dla modeli Transformer.">CTranslate2: Specialized inference engine utilizing custom kernels for Transformers.</li>
+                        <li data-en="Int8 Quantization: Halves VRAM usage (12GB -> 3GB) with near-zero accuracy loss." data-pl="Kwantyzacja Int8: Redukuje zapotrzebowanie na VRAM o 75% przy zachowaniu dokładności.">Int8 Quantization: Halves VRAM usage (12GB -> 3GB) with near-zero accuracy loss.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 14: LINGUISTIC: SEMANTIC ANALYSIS -->
+            <section>
+                <h2 data-en="Linguistic: AI Semantic Analysis" data-pl="Analiza treści (Semantyka)">Linguistic: AI Semantic Analysis</h2>
+                <div class="card">
+                    <p data-en="The system uses LLM-driven Semantic Analysis (Agent 2) to compare transcriptions." data-pl="System wykorzystuje modele LLM (Agent 2) do inteligentnego porównywania treści.">The system uses LLM-driven Semantic Analysis (Agent 2) to compare transcriptions.</p>
+                    <ul>
+                        <li data-en="Contextual Match: AI understands if a word variation is a phonetic artifact or an error." data-pl="Dopasowanie kontekstowe: AI odróżnia artefakt transkrypcji od faktycznego błędu w tekście.">Contextual Match: AI understands if a word variation is a phonetic artifact or an error.</li>
+                        <li data-en="Locale Check: Confirms spoken language correctly reflects the target market." data-pl="Weryfikacja: Potwierdza zgodność języka lektora z rynkiem docelowym.">Locale Check: Confirms spoken language correctly reflects the target market.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 15: AGENT 2 - THE ANALYST -->
+            <section>
+                <h2 data-en="Agent 2: The Logic Brain" data-pl="Agent 2: Mózg Analityczny">Agent 2: The Logic Brain</h2>
+                <div class="card">
+                    <p data-en="Processes multidimensional signal data to generate a final project verdict." data-pl="Synteza wielowymiarowych danych w celu podjęcia ostatecznej decyzji o emisji.">Processes multidimensional signal data to generate a final project verdict.</p>
+                    <div class="grid">
+                        <div class="card" style="background: rgba(2, 6, 23, 0.5);">
+                            <h3 style="color: var(--tech-blue);" data-en="Quantitative Metrics" data-pl="Analiza matematyczna">Quantitative Metrics</h3>
+                            <p style="font-size: 0.4em;" data-en="Hard math comparison: SSIM, MSE, LUFS, WER." data-pl="Twarde parametry techniczne: SSIM, MSE, LUFS, WER.">Hard math comparison: SSIM, MSE, LUFS, WER.</p>
+                        </div>
+                        <div class="card" style="background: rgba(2, 6, 23, 0.5);">
+                            <h3 style="color: var(--tech-blue);" data-en="Qualitative Reasoning" data-pl="Wnioskowanie logiczne">Qualitative Reasoning</h3>
+                            <p style="font-size: 0.4em;" data-en="Synthesizing data points into a readable explanation." data-pl="Interpretacja wyników i generowanie jasnego uzasadnienia decyzji.">Synthesizing data points into a readable explanation.</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; text-align: center;">
+                    <h5 style="font-size: 0.4em; color: var(--tech-blue); margin-bottom: 10px;" data-en="Glossary" data-pl="Słowniczek pojęć">Glossary</h5>
+                    <div class="grid" style="grid-template-columns: 1fr 1fr; text-align: left;">
+                        <p style="font-size: 0.3em; margin: 2px 0;"><span class="highlight">SSIM:</span> <span data-en="Structural Similarity Index (Perceptual image quality)." data-pl="Percepcyjne podobieństwo strukturalne obrazu.">Structural Similarity Index (Perceptual image quality).</span></p>
+                        <p style="font-size: 0.3em; margin: 2px 0;"><span class="highlight">MSE:</span> <span data-en="Mean Squared Error (Pixel variance)." data-pl="Średni błąd kwadratowy (wariancja pikseli).">Mean Squared Error (Pixel variance).</span></p>
+                        <p style="font-size: 0.3em; margin: 2px 0;"><span class="highlight">LUFS:</span> <span data-en="Loudness Units Full Scale (Audio volume standard)." data-pl="Miara głośności względem skali cyfrowej.">Loudness Units Full Scale (Audio volume standard).</span></p>
+                        <p style="font-size: 0.3em; margin: 2px 0;"><span class="highlight">WER:</span> <span data-en="Word Error Rate (STT system performance)." data-pl="Współczynnik błędów w transkrypcji tekstu.">Word Error Rate (STT system performance).</span></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 16: AI REASONING & OLLAMA -->
+            <section>
+                <h2 data-en="AI Reasoning: Ollama & Llama 3" data-pl="Silnik AI: Ollama i Llama 3">AI Reasoning: Ollama & Llama 3</h2>
+                <div class="card">
+                    <p data-en="Agent 2 uses Llama 3 (running locally via Ollama) to generate reasoning." data-pl="Agent 2 wykorzystuje model Llama 3 do interpretacji wyników w środowisku lokalnym.">Agent 2 uses Llama 3 (running locally via Ollama) to generate reasoning.</p>
+                    <ul>
+                        <li data-en="Data Privacy: GDPR compliant; all inference stays within the local network." data-pl="Bezpieczeństwo: Pełna ochrona danych; proces nie opuszcza sieci lokalnej.">Data Privacy: GDPR compliant; all inference stays within the local network.</li>
+                        <li data-en="Context Injection: Metrics are formatted into a prompt for descriptive reporting." data-pl="Analiza kontekstowa: Przetwarzanie metryk technicznych na zrozumiały raport.">Context Injection: Metrics are formatted into a prompt for descriptive reporting.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 17: DETERMINISTIC THRESHOLDS -->
+            <section>
+                <h2 data-en="Safety: Deterministic Thresholds" data-pl="Standardy: Twarde progi kontrolne">Safety: Deterministic Thresholds</h2>
+                <div class="card">
+                    <p data-en="Hard-coded Guardrail Thresholds prevent AI hallucinations." data-pl="Algorytmiczne progi bezpieczeństwa (Guardrails) eliminują ryzyko błędów AI.">Hard-coded Guardrail Thresholds prevent AI hallucinations.</p>
+                    <ul style="font-size: 0.6em;">
+                        <li><span class="rose-highlight" data-en="FORCE REJECT" data-pl="ODRZUCENIE (REJECT)">FORCE REJECT</span> <span data-en="if SSIM < 0.95 (Critical visual discrepancy)." data-pl="przy SSIM < 0.95 (Krytyczna niezgodność obrazu).">if SSIM < 0.95 (Critical visual discrepancy).</span></li>
+                        <li><span class="rose-highlight" data-en="FORCE REJECT" data-pl="ODRZUCENIE (REJECT)">FORCE REJECT</span> <span data-en="if Audio Sync Offset > 2 frames (Noticeable desync)." data-pl="przy desynchronizacji audio > 2 klatek.">if Audio Sync Offset > 2 frames (Noticeable desync).</span></li>
+                        <li><span class="rose-highlight" data-en="FORCE REVIEW" data-pl="DO KONTROLI (REVIEW)">FORCE REVIEW</span> <span data-en="if STT Confidence < 0.7 (Unreliable transcription)." data-pl="przy niskiej pewności transkrypcji (< 0.7).">if STT Confidence < 0.7 (Unreliable transcription).</span></li>
+                        <li><span class="rose-highlight" data-en="FORCE REVIEW" data-pl="DO KONTROLI (REVIEW)">FORCE REVIEW</span> <span data-en="if LUFS Difference > 1.5 (Significant volume gap)." data-pl="przy odchyleniu głośności > 1.5 LUFS.">if LUFS Difference > 1.5 (Significant volume gap).</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 18: RESOURCE OPTIMIZATION -->
+            <section>
+                <h2 data-en="Optimization & RAM" data-pl="Wydajność i zarządzanie zasobami">Optimization & RAM</h2>
+                <div class="card">
+                    <p data-en="Operational stability strategies for resource-constrained hardware:" data-pl="Mechanizmy stabilności procesów na infrastrukturze serwerowej:">Operational stability strategies for resource-constrained hardware:</p>
+                    <ul>
+                        <li data-en="Sequential Lifecycle: Modules run serially to minimize peak memory load." data-pl="Przetwarzanie sekwencyjne: Moduły AI działają kolejno, by ograniczyć szczytowe zużycie RAM.">Sequential Lifecycle: Modules run serially to minimize peak memory load.</li>
+                        <li><span class="highlight" data-en="VRAM Flushing:" data-pl="Czyszczenie VRAM:">VRAM Flushing:</span> <span data-en="Explicit torch.cuda.empty_cache() after AI stages." data-pl="Automatyczne zwalnianie pamięci GPU po każdym etapie analizy.">Explicit torch.cuda.empty_cache() after AI stages.</span></li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 19: FUTURE DEVELOPMENT ROADMAP -->
+            <section>
+                <h2 style="text-align: center;" data-en="Future Development Roadmap" data-pl="Kierunki dalszego rozwoju">Future Development Roadmap</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3 style="color: var(--tech-blue);" data-en="1. Technical QA Tool" data-pl="1. Narzędzia Technical QA">1. Technical QA Tool</h3>
+                        <p style="font-size: 0.45em;" data-en="Integration with MediaInfo to verify Codec, Bitrate, Resolution." data-pl="Weryfikacja parametrów technicznych kontenera (Codec, Bitrate, Resolution) przez MediaInfo.">Integration with MediaInfo to verify Codec, Bitrate, Resolution.</p>
+                    </div>
+                    <div class="card">
+                        <h3 style="color: var(--tech-blue);" data-en="2. Agent 3 Implementation" data-pl="2. Agent 3 (Optymalizator)">2. Agent 3 Implementation</h3>
+                        <p style="font-size: 0.45em;" data-en="Proactive tuning and parameter suggestions under admin supervision." data-pl="Automatyczne sugestie optymalizacji i dostrajania czułości systemu.">Proactive tuning and parameter suggestions under admin supervision.</p>
+                    </div>
+                    <div class="card">
+                        <h3 style="color: var(--tech-blue);" data-en="3. Clustering" data-pl="3. Klastrowanie i chmura">3. Clustering</h3>
+                        <p style="font-size: 0.45em;" data-en="Horizontal scaling via Kubernetes for massive parallel processing." data-pl="Skalowanie poziome (Kubernetes) dla masowego przetwarzania materiałów.">Horizontal scaling via Kubernetes for massive parallel processing.</p>
+                    </div>
+                    <div class="card">
+                        <h3 style="color: var(--tech-blue);" data-en="4. Knowledge Base" data-pl="4. Ekspansja Bazy Wiedzy">4. Knowledge Base</h3>
+                        <p style="font-size: 0.45em;" data-en="Building a cross-market database of localized QA patterns." data-pl="Budowa bazy specyficznych wzorców akceptacji dla rynków zagranicznych.">Building a cross-market database of localized QA patterns.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 20: THANK YOU -->
+            <section>
+                <div style="text-align: center; margin-top: 150px;">
+                    <h1 style="color: var(--tech-blue); font-size: 2.5em !important;" data-en="Thank You" data-pl="Dziękuję">Thank You</h1>
+                    <p style="font-size: 0.7em; font-weight: 800; color: #fff;">INTERNAL SYSTEM &bull; MAY 2026</p>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <div class="confidential-tag">Confidential</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: 'c/t',
+            transition: 'slide',
+            backgroundTransition: 'convex',
+            width: 1100,
+            height: 700,
+            margin: 0.15,
+            center: true,
+            controls: true,
+            progress: true
+        });
+
+        function setLanguage(lang) {
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.innerText.toLowerCase() === lang);
+            });
+
+            document.querySelectorAll('[data-en]').forEach(el => {
+                const text = el.getAttribute('data-' + lang);
+                if (text) {
+                    el.innerText = text;
+                }
+            });
+        }
+    </script>
+</body>
+</html>
