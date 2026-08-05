@@ -310,7 +310,7 @@ def compare_loudness(
         acceptance_ext = Path(acceptance_path).suffix.lower()
         emission_ext = Path(emission_path).suffix.lower()
         
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores'}
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores', '.gif'}
         
         # Extract audio from acceptance if video
         if acceptance_ext in video_extensions:
@@ -410,7 +410,7 @@ def compare_audio_similarity(
         # Extract audio if needed
         acceptance_ext = Path(acceptance_path).suffix.lower()
         emission_ext = Path(emission_path).suffix.lower()
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores'}
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores', '.gif'}
         
         if acceptance_ext in video_extensions:
             acceptance_audio = tempfile.mktemp(suffix='_acceptance.wav')
@@ -851,7 +851,7 @@ def compare_audio_full(
     
     try:
         # Step 1: Extract audio from videos
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores'}
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores', '.gif'}
         
         acceptance_ext = Path(acceptance_path).suffix.lower()
         emission_ext = Path(emission_path).suffix.lower()
@@ -1580,7 +1580,7 @@ def transcribe_single_file(
     
     try:
         # Step 1: Extract audio from video
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores'}
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mxf', '.prores', '.gif'}
         file_ext = Path(file_path).suffix.lower()
         
         if file_ext in video_extensions:

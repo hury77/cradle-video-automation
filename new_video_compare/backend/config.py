@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     upload_dir: Path = Field(default=Path("./uploads"), env="UPLOAD_DIR")
     max_file_size: int = Field(default=10737418240, env="MAX_FILE_SIZE")  # 10GB
     allowed_video_extensions: List[str] = Field(
-        default=[".mp4", ".mov", ".avi", ".mkv", ".mxf", ".prores"],
+        default=[".mp4", ".mov", ".avi", ".mkv", ".mxf", ".prores", ".gif"],
         env="ALLOWED_VIDEO_EXTENSIONS"
     )
     allowed_audio_extensions: List[str] = Field(
