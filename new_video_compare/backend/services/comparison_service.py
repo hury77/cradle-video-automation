@@ -711,9 +711,10 @@ class ComparisonService:
         # Save audio results
         if audio_result and isinstance(audio_result, dict) and "error" not in audio_result:
             metadata = audio_result.get("comparison_metadata", {})
+            sim_score = audio_result.get("similarity_score")
             audio_db_result = AudioComparisonResult(
                 job_id=job.id,
-                similarity_score=audio_result.get("similarity_score", 0.0),
+                similarity_score=sim_score,
                 spectral_similarity=metadata.get("spectral_similarity"),
                 mfcc_similarity=metadata.get("mfcc_similarity"),
                 audio_analysis_data=audio_result,  # This is already clean_results["audio_result"]

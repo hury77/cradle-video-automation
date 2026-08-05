@@ -408,7 +408,7 @@ class AudioComparisonResult(Base):
     )
 
     # Overall metrics
-    similarity_score = Column(Float, nullable=False)  # 0.0 - 1.0
+    similarity_score = Column(Float, nullable=True)  # 0.0 - 1.0 (nullable when no audio tracks present)
     sync_offset_ms = Column(
         Float, nullable=True
     )  # Audio sync difference in milliseconds
