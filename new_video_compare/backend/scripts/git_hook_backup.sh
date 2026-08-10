@@ -9,5 +9,6 @@ TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 if [ -f "$DB_PATH" ]; then
     mkdir -p "$BACKUP_DIR"
     cp "$DB_PATH" "$BACKUP_DIR/git_pre_op_backup_${TIMESTAMP}.db"
+    chflags uchg "$BACKUP_DIR/git_pre_op_backup_${TIMESTAMP}.db"
     echo "🛡️ Git Hook: Wykonano szybki zrzut bazy przed operacją Git (git_pre_op_backup_${TIMESTAMP}.db)"
 fi

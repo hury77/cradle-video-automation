@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cradle.dbbackup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Users/hubert.rycaj/.cradle_data/backup_db.py</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>14400</integer> <!-- Co 4 godziny (14400 sekund) -->
+
+    <key>StandardOutPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/launchd_backup_out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/hubert.rycaj/Documents/cradle-video-automation/new_video_compare/backend/logs/launchd_backup_err.log</string>
+</dict>
+</plist>

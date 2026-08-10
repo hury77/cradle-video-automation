@@ -10,6 +10,7 @@ Zgodny z zasadami SOUL.md: baza jest "Biblią systemu" i musi być regularnie ar
 """
 import shutil
 import logging
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -49,8 +50,10 @@ def run_backup():
 
     try:
         shutil.copy2(DB_PATH, backup_path)
+        # Założenie flagi immutable (uchg), aby zapobiec przypadkowemu skasowaniu (nawet przez właściciela)
+        subprocess.run(["chflags", "uchg", str(backup_path)], check=True)
         size_mb = backup_path.stat().st_size / (1024 * 1024)
-        logger.info(f"✅ Backup zapisany: {backup_name} ({size_mb:.1f} MB)")
+        logger.info(f"✅ Backup zapisany i zamrożony (uchg): {backup_name} ({size_mb:.1f} MB)")
     except Exception as e:
         logger.error(f"❌ Błąd podczas kopiowania bazy: {e}")
         return False
@@ -62,6 +65,8 @@ def run_backup():
         try:
             mtime = datetime.fromtimestamp(old_backup.stat().st_mtime)
             if mtime < cutoff:
+                # Zdjęcie flagi immutable przed próbą usunięcia
+                subprocess.run(["chflags", "nouchg", str(old_backup)], check=True)
                 old_backup.unlink()
                 removed += 1
                 logger.info(f"🗑️ Usunięto stary backup: {old_backup.name}")
