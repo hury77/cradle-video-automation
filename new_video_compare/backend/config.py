@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     # =============================================================================
     # PROCESSING SETTINGS
     # =============================================================================
+    target_lufs: float = Field(default=-23.0, env="TARGET_LUFS")
+    enable_vad_filter: bool = Field(default=True, env="ENABLE_VAD_FILTER")
     ffmpeg_path: str = Field(default="ffmpeg", env="FFMPEG_PATH")
     ffprobe_path: str = Field(default="ffprobe", env="FFPROBE_PATH")
     max_concurrent_jobs: int = Field(default=3, env="MAX_CONCURRENT_JOBS")

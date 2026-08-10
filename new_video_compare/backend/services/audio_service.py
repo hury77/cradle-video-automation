@@ -23,6 +23,8 @@ _librosa = None
 _soundfile = None
 _whisper = None
 _mlx_whisper = None
+_silero_vad_model = None
+_silero_vad_utils = None
 
 
 def get_pyloudnorm():
@@ -53,6 +55,24 @@ def get_soundfile():
         _soundfile = sf
         logger.info("✅ soundfile loaded")
     return _soundfile
+
+def get_silero_vad():
+    """Lazy load Silero VAD model"""
+    global _silero_vad_model, _silero_vad_utils
+    if _silero_vad_model is None:
+        import torch
+        logger.info("⏳ Downloading/Loading Silero VAD model from torch hub...")
+        model, utils = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False,
+            trust_repo=True
+        )
+        _silero_vad_model = model
+        _silero_vad_utils = utils
+        logger.info("✅ Silero VAD loaded")
+    return _silero_vad_model, _silero_vad_utils
+
 def get_mlx_whisper():
     """Lazy load mlx_whisper"""
     global _mlx_whisper
@@ -757,6 +777,78 @@ def compare_voiceovers(
         logger.error(f"❌ Voiceover comparison failed: {e}")
         return {"error": str(e), "voice_similarity": 0.0}
 
+
+
+def apply_vad_filter(
+    audio_path: str, 
+    output_path: str,
+    threshold: float = 0.5,
+    min_silence_duration_ms: int = 400,
+    speech_pad_ms: int = 200
+) -> bool:
+    """
+    Applies Silero VAD to mute non-speech segments to zero.
+    Preserves exact timeline (timestamps) for correct downstream processing.
+    """
+    import os
+    import numpy as np
+    
+    sf = get_soundfile()
+    
+    try:
+        model, utils = get_silero_vad()
+        (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+        
+        logger.info(f"🎙️ Applying VAD filter on: {Path(audio_path).name}")
+        
+        # Silero requires 16000 Hz, read_audio handles it natively
+        wav = read_audio(audio_path, sampling_rate=16000)
+        
+        # Get speech timestamps (in samples at 16kHz)
+        speech_timestamps = get_speech_timestamps(
+            wav,
+            model,
+            sampling_rate=16000,
+            threshold=threshold,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms
+        )
+        
+        # Load original audio at original sample rate to preserve full quality
+        original_wav, orig_sr = sf.read(audio_path)
+        
+        # Create a boolean mask of False (will become zero/muted)
+        mask = np.zeros(len(original_wav), dtype=bool)
+        
+        # Convert 16kHz sample indices to original sample rate indices
+        ratio = orig_sr / 16000.0
+        
+        if not speech_timestamps:
+            logger.warning("🎙️ VAD detected NO speech! Muting entire file.")
+        else:
+            for ts in speech_timestamps:
+                start_idx = int(ts['start'] * ratio)
+                end_idx = int(ts['end'] * ratio)
+                mask[start_idx:end_idx] = True
+                
+        # Apply mask: anything outside speech segments becomes 0
+        muted_wav = original_wav.copy()
+        
+        # Handle multi-channel audio if present
+        if len(muted_wav.shape) > 1:
+            muted_wav[~mask, :] = 0.0
+        else:
+            muted_wav[~mask] = 0.0
+            
+        # Save output
+        sf.write(output_path, muted_wav, orig_sr)
+        logger.info(f"✅ VAD filtering complete. Saved to: {Path(output_path).name}")
+        return True
+        
+    except Exception as e:
+        from .exceptions import AudioVADError
+        logger.warning(f"⚠️ VAD filter encountered an error: {e}")
+        raise AudioVADError(f"Failed to apply VAD filter: {e}")
 
 
 def filter_song_vocals(vocals_path: str, other_stems: Dict[str, str], output_path: str) -> bool:
@@ -1672,8 +1764,27 @@ def transcribe_single_file(
                     "summary": sep_result.get("summary", {}),
                 }
         
-        # Step 4: Transcribe with Whisper
+        # Step 4: VAD Filtering & Transcription
         is_using_vocals = vocals_path != audio_path
+        
+        # Apply VAD if enabled and we have valid audio
+        enable_vad = os.getenv("ENABLE_VAD_FILTER", "True").lower() in ("true", "1", "yes")
+        if enable_vad:
+            vad_output_path = tempfile.mktemp(suffix=f'_vad_{label}.wav')
+            temp_files.append(vad_output_path)
+            try:
+                # Parameters based on implementation plan for optimal VO keeping
+                apply_vad_filter(
+                    vocals_path, 
+                    vad_output_path,
+                    threshold=0.5,
+                    min_silence_duration_ms=400,
+                    speech_pad_ms=200
+                )
+                vocals_path = vad_output_path
+            except Exception as e:
+                logger.warning(f"  [{label.upper()}] ⚠️ VAD failed, falling back to unfiltered audio: {e}")
+                
         logger.info(f"  [{label.upper()}] Transcribing with Whisper (input: {'vocals' if is_using_vocals else 'mixed'})...")
         transcript = transcribe_audio(vocals_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
         
@@ -1892,6 +2003,9 @@ def compare_spoken_text(
     
     logger.info("📊 Comparing transcripts...")
     comparison = compare_transcripts(transcript_a, transcript_b)
+    similarity = comparison.get("text_similarity", 0)
+    
+
     
     result = {
         "transcript_acceptance": transcript_a,
@@ -1908,7 +2022,6 @@ def compare_spoken_text(
         "detected_language": transcript_a.get("language") or transcript_b.get("language"),
     }
     
-    similarity = result["text_similarity"]
     if similarity > 0.95:
         logger.info(f"✅ Transcripts match: {similarity:.1%}")
     else:

@@ -16,6 +16,12 @@ class FFmpegError(VideoProcessingError):
     pass
 
 
+class AudioVADError(VideoProcessingError):
+    """Voice Activity Detection (VAD) errors"""
+
+    pass
+
+
 class UnsupportedVideoFormatError(VideoProcessingError):
     """Unsupported video format errors"""
 
