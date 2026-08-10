@@ -410,7 +410,7 @@ function App() {
                                 {log.component === "desktop_app" ? "Desktop App" : log.component === "extension" ? "Rozszerzenie" : "Backend"}
                               </span>
                               <span className="text-[10px] text-slate-400">
-                                {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(log.created_at.endsWith('Z') ? log.created_at : log.created_at + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
                             <p className="mt-1 text-xs font-bold text-slate-900 dark:text-white">

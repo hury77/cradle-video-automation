@@ -173,7 +173,7 @@ export default function AutomationLogs({ lang = "PL", theme = "dark" }: Automati
                 logs.map((log) => (
                   <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${log.is_error ? 'bg-rose-50/50 dark:bg-rose-950/20' : ''}`}>
                     <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-xs">
-                      {new Date(log.created_at).toLocaleString()}
+                      {new Date(log.created_at.endsWith('Z') ? log.created_at : log.created_at + 'Z').toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {log.is_error ? (

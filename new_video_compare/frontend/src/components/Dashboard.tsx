@@ -210,7 +210,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
     );
   };
 
-  const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
+  const formatDate = (dateString: string) => {
+    const utcString = dateString.endsWith('Z') || dateString.includes('+') ? dateString : `${dateString}Z`;
+    return new Date(utcString).toLocaleString();
+  };
   const formatDuration = (seconds?: number) => (seconds === undefined || seconds === null) ? "-" : `${seconds.toFixed(2)}s`;
 
   if (loading) {
@@ -330,7 +333,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
                             <Line
                                 data={{
                                     labels: dashboardStats.chart_data.map(d => {
-                                        const date = new Date(d.date);
+                                        const dateStr = d.date.endsWith('Z') || d.date.includes('+') ? d.date : `${d.date}Z`;
+                                        const date = new Date(dateStr);
                                         return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
                                     }),
                                     datasets: [
@@ -490,7 +494,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className={`font-black ${log.is_error ? 'text-rose-700 dark:text-rose-400' : 'text-blue-700 dark:text-blue-400'}`}>{log.component}</span>
                                             {log.cradle_id && <span className="bg-white dark:bg-slate-900 px-1.5 rounded border text-[10px] font-bold text-slate-600 dark:text-slate-300">{log.cradle_id}</span>}
-                                            <span className="text-xs font-bold text-slate-400">{new Date(log.created_at).toLocaleTimeString()}</span>
+                                            <span className="text-xs font-bold text-slate-400">{new Date(log.created_at.endsWith('Z') ? log.created_at : log.created_at + 'Z').toLocaleTimeString()}</span>
                                         </div>
                                         <p className="text-slate-700 dark:text-slate-300 font-medium">{log.message}</p>
                                     </div>

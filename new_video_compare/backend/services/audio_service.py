@@ -1678,19 +1678,19 @@ def transcribe_single_file(
         transcript = transcribe_audio(vocals_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
         
         # ── RETRY FALLBACK: If vocals yielded empty text, try original mixed audio ──
-        # Only fallback if it's NOT a music-dominant track.
-        # If it is music-dominant (>55% music), an empty transcript is expected (just music) and falling back would cause hallucinations.
+        # Only fallback if it's NOT extremely music-dominant.
+        # If it is extremely music-dominant (>70% music), an empty transcript is expected (just music) and falling back would cause hallucinations.
         music_prop = sep_result.get("summary", {}).get("music_proportion", 0) if sep_result else 0
-        is_music_dominant = music_prop > 0.55
+        is_music_dominant_for_fallback = music_prop > 0.70
         
         word_count = transcript.get("word_count", 0)
         if is_using_vocals and (not transcript.get("text") or word_count < 10) and not transcript.get("error"):
-            if not is_music_dominant:
+            if not is_music_dominant_for_fallback:
                 logger.warning(f"  [{label.upper()}] ⚠️ Empty or short transcript ({word_count} words) from vocals. Retrying with MIXED audio...")
                 transcript = transcribe_audio(audio_path, language=language, model_name=model_name, initial_prompt=initial_prompt)
                 is_using_vocals = False # Mark that we ended up using mixed
             else:
-                logger.info(f"  [{label.upper()}] 🛑 Empty or short transcript ({word_count} words) from vocals, but track is music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
+                logger.info(f"  [{label.upper()}] 🛑 Empty or short transcript ({word_count} words) from vocals, but track is EXTREMELY music-dominant (Music: {music_prop:.1%}). Skipping fallback to prevent hallucinations.")
         
         if transcript.get("error"):
             logger.error(f"  [{label.upper()}] Whisper failed: {transcript['error']}")

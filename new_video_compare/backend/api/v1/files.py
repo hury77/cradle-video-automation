@@ -34,6 +34,28 @@ router = APIRouter(prefix="/files", tags=["Files"])
 # UTILITY FUNCTIONS
 # =============================================================================
 
+def mirror_to_other_env(file_path: Path):
+    """Creates a hardlink to the other environment's upload directory for cross-visibility."""
+    try:
+        from config import settings
+        
+        is_proxy = file_path.parent.name == "proxies"
+        base_dir = file_path.parent.parent if is_proxy else file_path.parent
+        
+        if base_dir.name == "uploads_dev":
+            other_base = base_dir.with_name("uploads")
+        else:
+            other_base = base_dir.with_name("uploads_dev")
+            
+        other_path = other_base / ("proxies" / file_path.name if is_proxy else file_path.name)
+        other_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if not other_path.exists():
+            os.link(file_path, other_path)
+            logger.info(f"🔗 Mirrored file to {other_path}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to mirror file {file_path}: {e}")
+
 def get_file_format_from_extension(filename: str) -> FileFormatEnum:
     """Determine file format from extension"""
     ext = Path(filename).suffix.lower().lstrip('.')
@@ -278,6 +300,9 @@ async def upload_file_stream(
                 
         logger.info(f"✅ Stream upload saved: {upload_path}")
         
+        # Mirror file to the other environment for cross-visibility
+        mirror_to_other_env(upload_path)
+        
         # Extract metadata
         metadata = await process_file_metadata(upload_path)
         
@@ -386,6 +411,9 @@ async def upload_file(
         await loop.run_in_executor(None, save)
         
         logger.info(f"✅ File saved: {upload_path}")
+        
+        # Mirror file to the other environment for cross-visibility
+        mirror_to_other_env(upload_path)
         
         # Extract basic metadata
         metadata = await process_file_metadata(upload_path)
@@ -656,6 +684,8 @@ def transcode_to_mp4(input_path: Path, output_path: Path) -> bool:
         
         if result.returncode == 0:
             logger.info(f"✅ Transcoding complete: {output_path}")
+            # Mirror proxy to the other environment for cross-visibility
+            mirror_to_other_env(output_path)
             return True
         else:
             error_details = result.stderr or "Unknown FFmpeg error"

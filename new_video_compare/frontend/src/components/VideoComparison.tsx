@@ -785,7 +785,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
             <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
               <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.dateCreated}</span>
               <span className="font-bold text-slate-900 dark:text-white text-xs">
-                {new Date(job.created_at).toLocaleString(lang === "PL" ? "pl-PL" : "en-US", { dateStyle: "medium", timeStyle: "short" })}
+                {new Date(job.created_at.endsWith('Z') ? job.created_at : job.created_at + 'Z').toLocaleString(lang === "PL" ? "pl-PL" : "en-US", { dateStyle: "medium", timeStyle: "short" })}
               </span>
             </div>
 
@@ -1662,7 +1662,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
                 {/* ======================== INSPECT DIFFERENCES REPORT SECTION ======================== */}
                 {differencesFound && (
-                  <div className="mt-8 pt-6 border-t border-slate-200 dark:border-white/10 break-inside-avoid page-break-inside-avoid">
+                  <div className="hidden print:block mt-8 pt-6 border-t border-slate-200 dark:border-white/10 break-inside-avoid page-break-inside-avoid">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-2">
                         <EyeIcon className="w-5 h-5 text-red-500" />

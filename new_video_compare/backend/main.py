@@ -44,7 +44,7 @@ async def dev_cleanup_loop():
         return
         
     logger.info("🧹 [CLEANER] DEV mode detected. Starting periodic cleaner task (10 min retention)...")
-    uploads_dir = Path(__file__).parent / "uploads"
+    uploads_dir = settings.upload_dir
     
     while True:
         try:
@@ -55,7 +55,7 @@ async def dev_cleanup_loop():
             if uploads_dir.exists():
                 # 1. Clean old source video files in uploads
                 for item in uploads_dir.iterdir():
-                    if item.is_file() and item.suffix.lower() in [".mp4", ".mov", ".mxf", ".zip"]:
+                    if item.is_file() and item.suffix.lower() in [".mp4", ".mov", ".mxf", ".zip", ".gif"]:
                         mtime = item.stat().st_mtime
                         age = now - mtime
                         if age > retention_seconds:
@@ -64,6 +64,20 @@ async def dev_cleanup_loop():
                                 logger.info(f"🧹 [CLEANER] Deleted old DEV video file (>10 min): {item.name}")
                             except Exception as e:
                                 logger.error(f"🧹 [CLEANER] Failed to delete DEV video {item.name}: {e}")
+                                
+                # 1.5 Clean old proxy video files in uploads/proxies
+                proxies_dir = uploads_dir / "proxies"
+                if proxies_dir.exists():
+                    for item in proxies_dir.iterdir():
+                        if item.is_file() and item.suffix.lower() in [".mp4", ".gif"]:
+                            mtime = item.stat().st_mtime
+                            age = now - mtime
+                            if age > retention_seconds:
+                                try:
+                                    item.unlink()
+                                    logger.info(f"🧹 [CLEANER] Deleted old DEV proxy file (>10 min): {item.name}")
+                                except Exception as e:
+                                    logger.error(f"🧹 [CLEANER] Failed to delete DEV proxy {item.name}: {e}")
                                 
                 # 2. Clean old temp frame folders in uploads/temp
                 temp_dir = uploads_dir / "temp"
@@ -183,8 +197,10 @@ app.add_middleware(
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-uploads_dir = Path(__file__).parent / "uploads"
-uploads_dir.mkdir(exist_ok=True)
+from config import settings
+
+uploads_dir = settings.upload_dir
+uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # Frontend build directory defined for later use

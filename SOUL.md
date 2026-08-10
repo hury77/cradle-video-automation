@@ -159,6 +159,12 @@ PORT=3001 REACT_APP_API_URL=http://localhost:8002 npm start
 
 > **Zmiany w kodzie (`src/`) nie wpływają na LIVE dopóki człowiek świadomie nie zarządzi wdrożenia.**
 
+### Izolacja fizyczna DEV od LIVE — zasada uploads/ (nienaruszalna)
+
+> **Fizyczna separacja plików: DEV zapisuje pliki w `uploads_dev/`, a LIVE w `uploads/`. Współdzielenie folderów multimediów jest surowo zabronione.**
+> Aby zapewnić "widoczność na krzyż" (np. dla Desktop App wysyłającej na LIVE), serwer po zapisaniu pliku w swoim środowisku, automatycznie tworzy **twarde dowiązanie (hardlink)** w folderze drugiego środowiska (mirroring). 
+> Dzięki temu pliki fizycznie istnieją na dysku tylko raz, ale skrypt czyszczący DEV po 10 minutach bezpiecznie usuwa tylko swoje własne "dowiązania" z `uploads_dev/`, pozostawiając oryginalne pliki LIVE w 100% nienaruszone.
+
 LIVE działa w trybie **single-server**: FastAPI (`:8001`) serwuje jednocześnie:
 - `frontend/build/` → skompilowany frontend React
 - `/uploads/` → pliki wideo, maski różnicowe (.png/.jpg)

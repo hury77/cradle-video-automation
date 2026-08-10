@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        
+        # Override upload_dir based on environment
+        if self.is_development:
+            self.upload_dir = Path("./uploads_dev")
+        else:
+            self.upload_dir = Path("./uploads")
+            
         # Create upload directory if it doesn't exist
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         

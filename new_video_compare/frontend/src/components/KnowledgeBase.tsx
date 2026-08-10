@@ -285,7 +285,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
                           O: {m.overall_similarity ? Math.round(m.overall_similarity * 100) + '%' : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400 font-medium">
-                          {new Date(d.created_at).toLocaleString()}
+                          {new Date(d.created_at.endsWith('Z') ? d.created_at : d.created_at + 'Z').toLocaleString()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center text-xs font-bold">
                           {d.job_id ? (
