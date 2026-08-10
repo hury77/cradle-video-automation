@@ -2005,6 +2005,38 @@ def compare_spoken_text(
     comparison = compare_transcripts(transcript_a, transcript_b)
     similarity = comparison.get("text_similarity", 0)
     
+    # ── ANTI-HALLUCINATION FALLBACK ──
+    # If the first transcription failed to match well, Whisper might have hallucinated 
+    # background singing/music. We conditionally retry transcribing the emission file,
+    # but this time we "force" Whisper to look for the Acceptance text by passing it as initial_prompt.
+    if similarity < 0.95 and transcript_a.get("text"):
+        logger.warning(f"⚠️ Initial similarity is {similarity:.1%}. Trying anti-hallucination fallback for Emission...")
+        fallback_prompt = transcript_a.get("text", "")
+        
+        result_b_fallback = transcribe_single_file(
+            emission_path,
+            language=language,
+            model_name=model_name,
+            use_source_separation=use_separated_vocals,
+            filter_song=filter_song,
+            label="emission_fallback",
+            initial_prompt=fallback_prompt,
+            start_time=start_time_emi,
+            duration=duration
+        )
+        
+        transcript_b_fallback = result_b_fallback.get("transcript", {"text": "", "segments": []})
+        comparison_fallback = compare_transcripts(transcript_a, transcript_b_fallback)
+        similarity_fallback = comparison_fallback.get("text_similarity", 0)
+        
+        if similarity_fallback > similarity:
+            logger.info(f"✅ Fallback improved similarity: {similarity:.1%} -> {similarity_fallback:.1%}. Using fallback results.")
+            result_b = result_b_fallback
+            transcript_b = transcript_b_fallback
+            comparison = comparison_fallback
+            similarity = similarity_fallback
+        else:
+            logger.info(f"❌ Fallback did not improve similarity ({similarity_fallback:.1%} <= {similarity:.1%}). Keeping original results.")
 
     
     result = {
