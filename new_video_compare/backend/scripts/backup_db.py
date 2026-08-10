@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 # Ścieżki
 SCRIPT_DIR = Path(__file__).parent.resolve()
 BACKEND_DIR = SCRIPT_DIR.parent
-DB_PATH = BACKEND_DIR / "new_video_compare.db"
-BACKUPS_DIR = BACKEND_DIR / "backups"
+DB_PATH = Path.home() / ".cradle_data/new_video_compare.db"
+BACKUPS_DIR = Path.home() / ".cradle_data/backups"
 LOG_DIR = BACKEND_DIR / "logs"
 LOG_PATH = LOG_DIR / "backup.log"
 KEEP_DAYS = 30

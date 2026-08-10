@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # DATABASE CONFIGURATION
     # =============================================================================
     database_url: str = Field(
-        default="sqlite:///./new_video_compare.db",
+        default=f"sqlite:///{Path.home()}/.cradle_data/new_video_compare.db",
         env="DATABASE_URL"
     )
     db_host: str = Field(default="localhost", env="DB_HOST")
