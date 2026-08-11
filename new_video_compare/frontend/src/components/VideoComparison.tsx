@@ -827,7 +827,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    <h3 className="text-xs font-black text-brand-cobalt dark:text-white uppercase tracking-wider">
                       {t.acceptanceVideo}
                     </h3>
                   </div>
@@ -936,7 +936,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    <h3 className="text-xs font-black text-brand-cobalt dark:text-white uppercase tracking-wider">
                       {t.emissionVideo}
                     </h3>
                   </div>
@@ -1231,7 +1231,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         document.title = oldTitle;
                       }, 50);
                     }} 
-                    className="flex items-center space-x-1 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold print:hidden shadow-sm transition-colors"
+                    className="flex items-center space-x-1 px-3.5 py-1.5 bg-emerald-500 border border-transparent text-white rounded-xl hover:bg-emerald-600 text-xs font-bold print:hidden shadow-sm transition-colors"
                  >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
