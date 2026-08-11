@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # =============================================================================
     database_url: str = Field(
         default=f"sqlite:///{Path.home()}/.cradle_data/new_video_compare.db",
-        env="DATABASE_URL"
+        env="CRADLE_DATABASE_URL"
     )
     db_host: str = Field(default="localhost", env="DB_HOST")
     db_port: int = Field(default=5432, env="DB_PORT")
