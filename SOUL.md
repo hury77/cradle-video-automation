@@ -191,7 +191,7 @@ npm run build
 
 ## 🔒 Baza Wiedzy (Knowledge Base) — Zasady Ochrony
 
-> **Baza danych `qa_decisions` to biblia systemu. Jest nienaruszalna.**
+> **Baza danych `qa_decisions` to biblia systemu. Jest nienaruszalna.** (Szczegóły ochrony i architektury: patrz plik `knowledge/bulletproof_database.md`)
 
 ### Co to jest KB?
 Tabela `qa_decisions` przechowuje każdą decyzję QA — zarówno automatyczne (AI) jak i ludzkie korekty. Jest to fundament uczenia się per-klient i podstawa do poprawy dokładności agentów.
