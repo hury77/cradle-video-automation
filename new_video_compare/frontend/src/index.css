@@ -11,6 +11,13 @@ html.dark body {
   @apply bg-[#0d0e15] text-slate-100;
 }
 
+/* Global headings color override */
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-brand-cobalt dark:text-white !important;
+  }
+}
+
 /* Video.js custom styling */
 .vjs-default-skin {
   color: #fff;
