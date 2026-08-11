@@ -30,7 +30,17 @@ def test():
                     }
                 }
             }
-        }
+        },
+        "differences": [
+            {
+                "timestamp_seconds": 0.0,
+                "duration_seconds": 30.0,
+                "difference_type": "audio_spectral",
+                "severity": "medium",
+                "confidence": 1.0,
+                "description": "General audio mismatch"
+            }
+        ]
     }
     
     # We dont have an active database for this simple test, so historical_context will be empty
@@ -54,6 +64,11 @@ def test():
         print("✅ Prompt contains strict 2.0 threshold.")
     else:
         print("❌ Prompt MISSING strict 2.0 threshold.")
+
+    if "audio_spectral" in user_prompt:
+        print("✅ Prompt correctly embedded new AUDIO_SPECTRAL difference without JSON errors.")
+    else:
+        print("❌ Prompt MISSING audio_spectral difference!")
 
 if __name__ == "__main__":
     test()

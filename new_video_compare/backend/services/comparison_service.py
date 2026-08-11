@@ -698,13 +698,27 @@ class ComparisonService:
 
             # Save difference timestamps
             diff_timestamps = video_result.get("difference_timestamps")
+            v_sim_score = video_result.get("similarity_score")
+            
+            if v_sim_score is not None:
+                if v_sim_score >= 0.98:
+                    video_sev = SeverityLevel.LOW
+                elif v_sim_score >= 0.90:
+                    video_sev = SeverityLevel.MEDIUM
+                elif v_sim_score >= 0.50:
+                    video_sev = SeverityLevel.HIGH
+                else:
+                    video_sev = SeverityLevel.CRITICAL
+            else:
+                video_sev = SeverityLevel.MEDIUM
+
             if diff_timestamps:
                 for timestamp in diff_timestamps:
                     diff = DifferenceTimestamp(
                         job_id=job.id,
                         timestamp_seconds=float(timestamp),
                         difference_type=DifferenceType.VIDEO_FRAME,
-                        severity=SeverityLevel.MEDIUM,
+                        severity=video_sev,
                     )
                     db.add(diff)
 
@@ -720,6 +734,26 @@ class ComparisonService:
                 audio_analysis_data=audio_result,  # This is already clean_results["audio_result"]
             )
             db.add(audio_db_result)
+
+            # Option B: Add a single general AUDIO_SPECTRAL difference on the timeline
+            if sim_score is not None and sim_score < 0.99:
+                if sim_score >= 0.95:
+                    audio_sev = SeverityLevel.LOW
+                elif sim_score >= 0.85:
+                    audio_sev = SeverityLevel.MEDIUM
+                elif sim_score >= 0.50:
+                    audio_sev = SeverityLevel.HIGH
+                else:
+                    audio_sev = SeverityLevel.CRITICAL
+                    
+                audio_diff = DifferenceTimestamp(
+                    job_id=job.id,
+                    timestamp_seconds=0.0,
+                    duration_seconds=job.asset.duration_seconds if job.asset else 1.0,
+                    difference_type=DifferenceType.AUDIO_SPECTRAL,
+                    severity=audio_sev,
+                )
+                db.add(audio_diff)
 
 
         # --- Phase 2: Analyst Brain (Agent 2) ---

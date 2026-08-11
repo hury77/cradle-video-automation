@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Dashboard from "./components/Dashboard";
 import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
 import KnowledgeBase from "./components/KnowledgeBase";
 import AutomationLogs from "./components/AutomationLogs";
-import { ComparisonJob } from "./types";
 import {
   BellIcon,
   ChartBarIcon,
@@ -14,181 +13,30 @@ import {
   MoonIcon,
 } from "@heroicons/react/24/outline";
 
-import { compareApi } from "./services/api";
-import { translations, Language } from "./utils/translations";
+
+import { useRouting } from "./hooks/useRouting";
+import { useConnection } from "./hooks/useConnection";
+import { useNotifications } from "./hooks/useNotifications";
+import { useSettings } from "./hooks/useSettings";
 
 function App() {
-  const [selectedJob, setSelectedJob] = useState<ComparisonJob | null>(null);
+  const { selectedJob, handleSelectJob } = useRouting();
+  const { backendStatus, wsStatus } = useConnection();
+  const { 
+    unreadNotifications, 
+    recentErrors, 
+    showNotifications, 
+    setShowNotifications, 
+    handleToggleNotifications 
+  } = useNotifications();
   const [showAutoPair, setShowAutoPair] = useState(false);
   const [dashboardView, setDashboardView] = useState<"list" | "stats" | "kb" | "logs">("list");
   
-  // Theme state ('dark' | 'light') - default 'dark' as in VITO/VidiCom brandbook
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    return (localStorage.getItem("cradle_theme") as "dark" | "light") || "dark";
-  });
+  const { theme, setTheme, lang, setLang, t } = useSettings();
 
-  // Language state ('PL' | 'EN') - default 'PL'
-  const [lang, setLang] = useState<Language>(() => {
-    return (localStorage.getItem("cradle_lang") as Language) || "PL";
-  });
 
-  const t = translations[lang];
 
-  useEffect(() => {
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-    localStorage.setItem("cradle_theme", theme);
-  }, [theme]);
 
-  useEffect(() => {
-    localStorage.setItem("cradle_lang", lang);
-  }, [lang]);
-
-  const [backendStatus, setBackendStatus] = useState<
-    "connected" | "disconnected" | "checking"
-  >("checking");
-  const [wsStatus, setWsStatus] = useState<
-    "connected" | "disconnected" | "checking"
-  >("checking");
-
-  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
-  const [recentErrors, setRecentErrors] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState<boolean>(false);
-
-  // Handle initial URL and browser navigation
-  useEffect(() => {
-    const handleLocationChange = async () => {
-      const path = window.location.pathname;
-      const compareMatch = path.match(/^\/compare\/(\d+)$/);
-
-      if (compareMatch) {
-        const jobId = parseInt(compareMatch[1], 10);
-        try {
-          const job = await compareApi.getJob(jobId);
-          setSelectedJob(job);
-        } catch (error) {
-          console.error("Failed to load job from URL", error);
-          window.history.replaceState(null, "", "/");
-          setSelectedJob(null);
-        }
-      } else {
-        setSelectedJob(null);
-      }
-    };
-
-    handleLocationChange();
-
-    window.addEventListener("popstate", handleLocationChange);
-    return () => window.removeEventListener("popstate", handleLocationChange);
-  }, []);
-
-  const handleSelectJob = (job: ComparisonJob | null) => {
-    setSelectedJob(job);
-    if (job) {
-      window.history.pushState(null, "", `/compare/${job.id}`);
-    } else {
-      window.history.pushState(null, "", "/");
-    }
-  };
-
-  useEffect(() => {
-    checkBackendStatus();
-    setupWebSocket();
-  }, []);
-
-  const checkBackendStatus = async () => {
-    try {
-      const response = await fetch("/health");
-      if (response.ok) {
-        setBackendStatus("connected");
-      } else {
-        setBackendStatus("disconnected");
-      }
-    } catch (error) {
-      setBackendStatus("disconnected");
-    }
-  };
-
-  const setupWebSocket = () => {
-    try {
-      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      let wsHost = window.location.host;
-      if (window.location.port === "3000" || window.location.port === "3001") {
-        const backendPort = parseInt(window.location.port) + 5001;
-        wsHost = `127.0.0.1:${backendPort}`;
-      }
-      const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/connect`);
-
-      ws.onopen = () => {
-        setWsStatus("connected");
-        console.log("WebSocket connected");
-      };
-
-      ws.onclose = () => {
-        setWsStatus("disconnected");
-        console.log("WebSocket disconnected");
-      };
-
-      ws.onerror = () => {
-        setWsStatus("disconnected");
-      };
-    } catch (error) {
-      setWsStatus("disconnected");
-    }
-  };
-
-  const fetchRecentErrors = async () => {
-    try {
-      const response = await compareApi.getAutomationLogs(0, 10, undefined, true);
-      if (response && response.results) {
-        setRecentErrors(response.results);
-        
-        const lastReadIdStr = localStorage.getItem("cradle_last_read_error_id");
-        const lastReadId = lastReadIdStr ? parseInt(lastReadIdStr, 10) : 0;
-        
-        const newUnread = response.results.filter((log: any) => log.id > lastReadId).length;
-        setUnreadNotifications(newUnread);
-      }
-    } catch (error) {
-      console.error("Failed to fetch recent errors for notifications:", error);
-    }
-  };
-
-  useEffect(() => {
-    fetchRecentErrors();
-    
-    const interval = setInterval(fetchRecentErrors, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleToggleNotifications = () => {
-    setShowNotifications(prev => {
-      const nextState = !prev;
-      if (nextState && recentErrors.length > 0) {
-        const maxId = Math.max(...recentErrors.map(log => log.id));
-        localStorage.setItem("cradle_last_read_error_id", maxId.toString());
-        setUnreadNotifications(0);
-      }
-      return nextState;
-    });
-  };
-
-  useEffect(() => {
-    if (!showNotifications) return;
-    
-    const handleOutsideClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".notifications-container")) {
-        setShowNotifications(false);
-      }
-    };
-    
-    document.addEventListener("click", handleOutsideClick);
-    return () => document.removeEventListener("click", handleOutsideClick);
-  }, [showNotifications]);
 
   const getStatusDot = (status: string) => {
     switch (status) {
@@ -212,7 +60,7 @@ function App() {
             <div className="flex items-center space-x-4">
               <div
                 className="flex items-center space-x-3.5 cursor-pointer group"
-                onClick={() => { setSelectedJob(null); setDashboardView("list"); }}
+                onClick={() => { handleSelectJob(null); setDashboardView("list"); }}
               >
                 <div className="w-11 h-11 bg-gradient-to-tr from-[#6816B0] via-[#350F9C] to-[#00FFFF] rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(73,96,230,0.45)] border border-white/20 transform group-hover:scale-105 transition-transform duration-200">
                   <svg
@@ -277,7 +125,7 @@ function App() {
               {/* Navigation Tabs */}
               <div className="flex bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-white/10">
                 <button
-                  onClick={() => { setSelectedJob(null); setDashboardView("list"); }}
+                  onClick={() => { handleSelectJob(null); setDashboardView("list"); }}
                   className={`inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     dashboardView === "list"
                       ? 'bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white shadow-md'
@@ -288,7 +136,7 @@ function App() {
                   {t.navJobs}
                 </button>
                 <button
-                  onClick={() => { setSelectedJob(null); setDashboardView("stats"); }}
+                  onClick={() => { handleSelectJob(null); setDashboardView("stats"); }}
                   className={`inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     dashboardView === "stats"
                       ? 'bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white shadow-md'
@@ -299,7 +147,7 @@ function App() {
                   {t.navStats}
                 </button>
                 <button
-                  onClick={() => { setSelectedJob(null); setDashboardView("kb"); }}
+                  onClick={() => { handleSelectJob(null); setDashboardView("kb"); }}
                   className={`inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     dashboardView === "kb"
                       ? 'bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white shadow-md'
@@ -310,7 +158,7 @@ function App() {
                   {t.navKB}
                 </button>
                 <button
-                  onClick={() => { setSelectedJob(null); setDashboardView("logs"); }}
+                  onClick={() => { handleSelectJob(null); setDashboardView("logs"); }}
                   className={`inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     dashboardView === "logs"
                       ? 'bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white shadow-md'
@@ -387,7 +235,7 @@ function App() {
                       </span>
                       {recentErrors.length > 0 && (
                         <button 
-                          onClick={() => { setSelectedJob(null); setDashboardView("logs"); setShowNotifications(false); }}
+                          onClick={() => { handleSelectJob(null); setDashboardView("logs"); setShowNotifications(false); }}
                           className="text-xs text-indigo-600 dark:text-cyan-400 hover:underline font-bold"
                         >
                           {t.viewLogs}
