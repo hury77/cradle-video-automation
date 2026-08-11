@@ -121,6 +121,10 @@ def check_ollama_running():
 def verify_git_hooks():
     try:
         repo_root = Path(__file__).parent.parent.parent
+        if not (repo_root / ".git").is_dir():
+            # Nie jesteśmy w repozytorium gita (np. produkcja po zwykłym skopiowaniu plików)
+            return
+
         result = subprocess.run(["git", "config", "core.hooksPath"], cwd=repo_root, capture_output=True, text=True)
         if ".githooks" not in result.stdout:
             logger.warning("🛡️ Git hooks (core.hooksPath) nie są zainstalowane! Instaluję...")
