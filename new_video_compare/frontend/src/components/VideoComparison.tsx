@@ -771,19 +771,19 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             {/* Cradle ID */}
             <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.cradleId}</span>
+              <span className="text-[10px] font-extrabold text-brand-cobalt uppercase block mb-0.5">{t.cradleId}</span>
               <span className="font-bold text-slate-900 dark:text-white font-mono text-sm">{job.cradle_id || "N/A"}</span>
             </div>
 
             {/* Client */}
             <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.client}</span>
+              <span className="text-[10px] font-extrabold text-brand-cobalt uppercase block mb-0.5">{t.client}</span>
               <span className="font-bold text-slate-900 dark:text-white text-sm truncate block">{job.client_name || "-"}</span>
             </div>
 
             {/* Analysis Date */}
             <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.dateCreated}</span>
+              <span className="text-[10px] font-extrabold text-brand-cobalt uppercase block mb-0.5">{t.dateCreated}</span>
               <span className="font-bold text-slate-900 dark:text-white text-xs">
                 {new Date(job.created_at.endsWith('Z') ? job.created_at : job.created_at + 'Z').toLocaleString(lang === "PL" ? "pl-PL" : "en-US", { dateStyle: "medium", timeStyle: "short" })}
               </span>
@@ -791,7 +791,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
             {/* Commercial Duration */}
             <div className="bg-slate-50 dark:bg-[#12131c] p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase block mb-0.5">{t.durationLabel}</span>
+              <span className="text-[10px] font-extrabold text-brand-cobalt uppercase block mb-0.5">{t.durationLabel}</span>
               <span className="font-bold text-slate-900 dark:text-white font-mono text-sm">{formatTime(displayDuration)}</span>
             </div>
           </div>
