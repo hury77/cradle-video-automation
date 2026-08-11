@@ -1,13 +1,8 @@
-import sys
-import os
+import pytest
 import json
-
-# Add backend to path
-sys.path.append(os.path.join(os.getcwd(), "new_video_compare/backend"))
-
 from services.analyst_service import AnalystService
 
-def test():
+def test_lufs_reasoning_prompt():
     analyst = AnalystService()
     
     # Mock data resembling Job 298
@@ -47,28 +42,7 @@ def test():
     system_prompt = analyst._build_system_prompt([])
     user_prompt = f"Oto wyniki automatycznej analizy:\n{json.dumps(job_data, indent=2)}\n\nNa podstawie tych danych i historii decyzji, jaki jest Twój werdykt?"
     
-    print("--- SYSTEM PROMPT ---")
-    print(system_prompt)
-    print("\n--- USER PROMPT ---")
-    print(user_prompt)
-    
-    # Note: We can't actually call Ollama in this environment without it running.
-    # But we can verify if the prompt contains our new rules.
-    
-    if "GŁOŚNOŚĆ (LUFS — analiza różnicy bezwzględnej |diff|)" in system_prompt:
-        print("\n✅ Prompt contains absolute LUFS logic.")
-    else:
-        print("\n❌ Prompt MISSING absolute LUFS logic.")
-        
-    if "Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA" in system_prompt:
-        print("✅ Prompt contains strict 2.0 threshold.")
-    else:
-        print("❌ Prompt MISSING strict 2.0 threshold.")
-
-    if "audio_spectral" in user_prompt:
-        print("✅ Prompt correctly embedded new AUDIO_SPECTRAL difference without JSON errors.")
-    else:
-        print("❌ Prompt MISSING audio_spectral difference!")
-
-if __name__ == "__main__":
-    test()
+    # Verify if the prompt contains our rules.
+    assert "2. GŁOŚNOŚĆ (LUFS):" in system_prompt, "Prompt MISSING LUFS logic section."
+    assert "Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA" in system_prompt, "Prompt MISSING strict 2.0 threshold."
+    assert "audio_spectral" in user_prompt, "Prompt MISSING audio_spectral difference!"
