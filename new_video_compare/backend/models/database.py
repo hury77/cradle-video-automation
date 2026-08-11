@@ -17,7 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import settings
 
 # Database URL from config
-DATABASE_URL = settings.database_url
+DATABASE_URL = f"sqlite:///{Path.home()}/.cradle_data/new_video_compare.db"
 
 # SQLite requires special handling
 is_sqlite = DATABASE_URL.startswith("sqlite")
