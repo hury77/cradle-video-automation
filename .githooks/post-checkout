@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Git hook: pre-checkout
+# Wykonuje szybki backup bazy przed przełączeniem gałęzi.
+
+./new_video_compare/backend/scripts/git_hook_backup.sh
+exit 0

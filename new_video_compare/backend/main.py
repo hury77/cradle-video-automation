@@ -118,9 +118,21 @@ def check_ollama_running():
     except Exception:
         return False
 
+def verify_git_hooks():
+    try:
+        repo_root = Path(__file__).parent.parent.parent
+        result = subprocess.run(["git", "config", "core.hooksPath"], cwd=repo_root, capture_output=True, text=True)
+        if ".githooks" not in result.stdout:
+            logger.warning("🛡️ Git hooks (core.hooksPath) nie są zainstalowane! Instaluję...")
+            subprocess.run(["./scripts/install_hooks.sh"], cwd=repo_root, check=True)
+            logger.info("✅ Git hooks zostały zainstalowane pomyślnie podczas startu serwera.")
+    except Exception as e:
+        logger.error(f"❌ Błąd weryfikacji Git Hooks podczas startu: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Uruchomienie aplikacji - system WebSocket zainicjalizowany")
+    verify_git_hooks()
     
     # Start Ollama if not running
     ollama_process = None
