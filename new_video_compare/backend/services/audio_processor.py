@@ -11,7 +11,7 @@ import logging
 from .utils.audio_utils import AudioProcessor as AudioUtils
 from .utils.spectral_analysis import SpectralAnalyzer
 from .algorithms.audio_comparison import AudioComparator
-from .exceptions import VideoProcessingError
+from .exceptions import VideoProcessingError, AudioAnalysisError
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class AudioProcessor:
 
         except Exception as e:
             self.stats["errors_encountered"] += 1
-            raise VideoProcessingError(f"Audio extraction and loading failed: {str(e)}")
+            raise VideoProcessingError(f"Audio extraction and loading failed: {str(e)}") from e
 
     def analyze_audio(
         self,
@@ -257,7 +257,7 @@ class AudioProcessor:
             return analysis_results
 
         except Exception as e:
-            raise VideoProcessingError(f"Audio analysis failed: {str(e)}")
+            raise AudioAnalysisError(f"Audio analysis failed: {str(e)}") from e
 
     def compare_audio_files(
         self,
@@ -364,7 +364,7 @@ class AudioProcessor:
 
         except Exception as e:
             self.stats["errors_encountered"] += 1
-            raise VideoProcessingError(f"Audio comparison failed: {str(e)}")
+            raise VideoProcessingError(f"Audio comparison failed: {str(e)}") from e
 
     def batch_compare_audio(
         self,
@@ -428,7 +428,7 @@ class AudioProcessor:
             return results
 
         except Exception as e:
-            raise VideoProcessingError(f"Batch audio comparison failed: {str(e)}")
+            raise VideoProcessingError(f"Batch audio comparison failed: {str(e)}") from e
 
     def get_processing_stats(self) -> Dict[str, Any]:
         """

@@ -9,7 +9,7 @@ from scipy.fft import fft, fftfreq
 from scipy.signal import stft
 from typing import Tuple, Dict, List, Optional, Any
 import logging
-from ..exceptions import VideoProcessingError
+from ..exceptions import VideoProcessingError, AudioAnalysisError
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class SpectralAnalyzer:
             return frequencies, magnitudes
 
         except Exception as e:
-            raise VideoProcessingError(f"FFT computation failed: {str(e)}")
+            raise AudioAnalysisError(f"FFT computation failed: {str(e)}") from e
 
     def compute_spectrogram(
         self,
@@ -119,7 +119,7 @@ class SpectralAnalyzer:
             return frequencies, times, spectrogram
 
         except Exception as e:
-            raise VideoProcessingError(f"Spectrogram computation failed: {str(e)}")
+            raise AudioAnalysisError(f"Spectrogram computation failed: {str(e)}") from e
 
     def compute_power_spectral_density(
         self, audio_data: np.ndarray, nperseg: int = 1024
@@ -147,7 +147,7 @@ class SpectralAnalyzer:
             return frequencies, psd
 
         except Exception as e:
-            raise VideoProcessingError(f"PSD computation failed: {str(e)}")
+            raise AudioAnalysisError(f"PSD computation failed: {str(e)}") from e
 
     def compute_mfcc(
         self,
@@ -189,7 +189,7 @@ class SpectralAnalyzer:
             return mfccs
 
         except Exception as e:
-            raise VideoProcessingError(f"MFCC computation failed: {str(e)}")
+            raise AudioAnalysisError(f"MFCC computation failed: {str(e)}") from e
 
     def _compute_mel_spectrogram(
         self, audio_data: np.ndarray, n_fft: int, hop_length: int, n_mels: int
@@ -347,7 +347,7 @@ class SpectralAnalyzer:
             return peak_frequencies, peak_info
 
         except Exception as e:
-            raise VideoProcessingError(f"Peak detection failed: {str(e)}")
+            raise AudioAnalysisError(f"Peak detection failed: {str(e)}") from e
 
     def compute_spectral_features(
         self, frequencies: np.ndarray, magnitudes: np.ndarray

@@ -62,3 +62,15 @@ class ProcessingTimeoutError(VideoProcessingError):
     """Processing timeout errors"""
 
     pass
+
+
+class AudioAnalysisError(VideoProcessingError):
+    """Errors during spectral and audio feature analysis"""
+
+    pass
+
+
+class TranscriptionError(VideoProcessingError):
+    """Speech-to-text / Whisper transcription errors"""
+
+    pass

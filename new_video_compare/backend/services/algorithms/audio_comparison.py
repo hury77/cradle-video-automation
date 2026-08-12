@@ -10,7 +10,7 @@ from typing import Tuple, Dict, List, Optional, Any
 import logging
 from ..utils.spectral_analysis import SpectralAnalyzer
 from ..utils.audio_utils import AudioProcessor
-from ..exceptions import VideoProcessingError
+from ..exceptions import VideoProcessingError, ComparisonAlgorithmError
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class AudioComparator:
             return best_offset, normalized_strength, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"Cross-correlation sync failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Cross-correlation sync failed: {str(e)}") from e
 
     def spectral_similarity(
         self, audio1: np.ndarray, audio2: np.ndarray
@@ -203,7 +203,7 @@ class AudioComparator:
             return combined_similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(
+            raise ComparisonAlgorithmError(
                 f"Spectral similarity computation failed: {str(e)}"
             )
 
@@ -304,7 +304,7 @@ class AudioComparator:
             return combined_similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"MFCC similarity computation failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"MFCC similarity computation failed: {str(e)}") from e
 
     def perceptual_similarity(
         self, audio1: np.ndarray, audio2: np.ndarray
@@ -384,7 +384,7 @@ class AudioComparator:
             return perceptual_similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(
+            raise ComparisonAlgorithmError(
                 f"Perceptual similarity computation failed: {str(e)}"
             )
 
@@ -638,6 +638,6 @@ class AudioComparator:
             return overall_similarity, comprehensive_metadata
 
         except Exception as e:
-            raise VideoProcessingError(
+            raise ComparisonAlgorithmError(
                 f"Comprehensive audio comparison failed: {str(e)}"
             )

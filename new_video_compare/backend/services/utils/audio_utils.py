@@ -10,7 +10,7 @@ import os
 import tempfile
 from typing import Tuple, Dict, List, Optional, Any
 import logging
-from ..exceptions import VideoProcessingError
+from ..exceptions import VideoProcessingError, FFmpegError, ProcessingTimeoutError, AudioAnalysisError
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +105,12 @@ class AudioProcessor:
             logger.info(f"Audio extracted successfully: {output_path}")
             return output_path
 
-        except subprocess.TimeoutExpired:
-            raise VideoProcessingError("Audio extraction timed out after 5 minutes")
+        except subprocess.TimeoutExpired as e:
+            raise ProcessingTimeoutError("Audio extraction timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise VideoProcessingError(f"FFmpeg audio extraction failed: {e.stderr}")
+            raise FFmpegError(f"FFmpeg audio extraction failed: {e.stderr}") from e
         except Exception as e:
-            raise VideoProcessingError(f"Audio extraction failed: {str(e)}")
+            raise AudioAnalysisError(f"Audio extraction failed: {str(e)}") from e
 
     def load_audio_data(self, audio_path: str) -> Tuple[np.ndarray, int]:
         """
@@ -165,12 +165,12 @@ class AudioProcessor:
             )
             return audio_data, sample_rate
 
-        except subprocess.TimeoutExpired:
-            raise VideoProcessingError("Audio loading timed out")
+        except subprocess.TimeoutExpired as e:
+            raise ProcessingTimeoutError("Audio loading timed out") from e
         except subprocess.CalledProcessError as e:
-            raise VideoProcessingError(f"Audio loading failed: {e.stderr}")
+            raise FFmpegError(f"Audio loading failed: {e.stderr}") from e
         except Exception as e:
-            raise VideoProcessingError(f"Audio data loading failed: {str(e)}")
+            raise AudioAnalysisError(f"Audio data loading failed: {str(e)}") from e
 
     def get_audio_info(self, audio_path: str) -> Dict[str, Any]:
         """
@@ -232,14 +232,14 @@ class AudioProcessor:
 
             return audio_info
 
-        except subprocess.TimeoutExpired:
-            raise VideoProcessingError("Audio info extraction timed out")
+        except subprocess.TimeoutExpired as e:
+            raise ProcessingTimeoutError("Audio info extraction timed out") from e
         except subprocess.CalledProcessError as e:
-            raise VideoProcessingError(f"Audio info extraction failed: {e.stderr}")
+            raise FFmpegError(f"Audio info extraction failed: {e.stderr}") from e
         except json.JSONDecodeError as e:
-            raise VideoProcessingError(f"Failed to parse audio info JSON: {str(e)}")
+            raise AudioAnalysisError(f"Failed to parse audio info JSON: {str(e)}") from e
         except Exception as e:
-            raise VideoProcessingError(f"Audio info extraction failed: {str(e)}")
+            raise AudioAnalysisError(f"Audio info extraction failed: {str(e)}") from e
 
     def normalize_loudness(
         self, audio_data: np.ndarray, target_lufs: float = -23.0
@@ -313,7 +313,7 @@ class AudioProcessor:
             return np.array(rms_values)
 
         except Exception as e:
-            raise VideoProcessingError(f"RMS calculation failed: {str(e)}")
+            raise AudioAnalysisError(f"RMS calculation failed: {str(e)}") from e
 
     def generate_waveform_data(
         self, audio_data: np.ndarray, target_points: int = 1000
@@ -364,4 +364,4 @@ class AudioProcessor:
             }
 
         except Exception as e:
-            raise VideoProcessingError(f"Waveform generation failed: {str(e)}")
+            raise AudioAnalysisError(f"Waveform generation failed: {str(e)}") from e

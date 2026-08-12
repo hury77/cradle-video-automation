@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from typing import Tuple, List, Optional
 import logging
-from ..utils.exceptions import VideoProcessingError
+from ..utils.exceptions import VideoProcessingError, ComparisonAlgorithmError
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class PerceptualHashComparator:
             return hash_hex
 
         except Exception as e:
-            raise VideoProcessingError(f"Failed to compute perceptual hash: {str(e)}")
+            raise ComparisonAlgorithmError(f"Failed to compute perceptual hash: {str(e)}") from e
 
     def compare_hashes(self, hash1: str, hash2: str) -> float:
         """
@@ -100,7 +100,7 @@ class PerceptualHashComparator:
             return similarity
 
         except Exception as e:
-            raise VideoProcessingError(f"Failed to compare hashes: {str(e)}")
+            raise ComparisonAlgorithmError(f"Failed to compare hashes: {str(e)}") from e
 
     def compare_frames(
         self, frame1: np.ndarray, frame2: np.ndarray
@@ -139,7 +139,7 @@ class PerceptualHashComparator:
             return similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"Frame comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Frame comparison failed: {str(e)}") from e
 
     def batch_compare(
         self, frames1: List[np.ndarray], frames2: List[np.ndarray]
@@ -186,7 +186,7 @@ class PerceptualHashComparator:
             return results
 
         except Exception as e:
-            raise VideoProcessingError(f"Batch comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Batch comparison failed: {str(e)}") from e
 
 
 class AdvancedPerceptualHash(PerceptualHashComparator):
@@ -238,7 +238,7 @@ class AdvancedPerceptualHash(PerceptualHashComparator):
             return hash_hex
 
         except Exception as e:
-            raise VideoProcessingError(f"Failed to compute average hash: {str(e)}")
+            raise ComparisonAlgorithmError(f"Failed to compute average hash: {str(e)}") from e
 
     def compute_phash(self, frame: np.ndarray) -> str:
         """
@@ -283,7 +283,7 @@ class AdvancedPerceptualHash(PerceptualHashComparator):
             return hash_hex
 
         except Exception as e:
-            raise VideoProcessingError(f"Failed to compute perceptual hash: {str(e)}")
+            raise ComparisonAlgorithmError(f"Failed to compute perceptual hash: {str(e)}") from e
 
     def compute_combined_hash(self, frame: np.ndarray) -> dict:
         """
@@ -303,7 +303,7 @@ class AdvancedPerceptualHash(PerceptualHashComparator):
             }
 
         except Exception as e:
-            raise VideoProcessingError(f"Failed to compute combined hash: {str(e)}")
+            raise ComparisonAlgorithmError(f"Failed to compute combined hash: {str(e)}") from e
 
     def compare_combined_hashes(
         self, hashes1: dict, hashes2: dict, weights: Optional[dict] = None
@@ -374,4 +374,4 @@ class AdvancedPerceptualHash(PerceptualHashComparator):
             return combined_sim, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"Advanced frame comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Advanced frame comparison failed: {str(e)}") from e

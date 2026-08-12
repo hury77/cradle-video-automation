@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from typing import Tuple, List, Dict, Optional
 import logging
-from ..utils.exceptions import VideoProcessingError
+from ..utils.exceptions import VideoProcessingError, ComparisonAlgorithmError
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class EdgeDetectionComparator:
             return blurred
 
         except Exception as e:
-            raise VideoProcessingError(f"Frame preprocessing failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Frame preprocessing failed: {str(e)}") from e
 
     def detect_edges_canny(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -90,7 +90,7 @@ class EdgeDetectionComparator:
             return edges
 
         except Exception as e:
-            raise VideoProcessingError(f"Canny edge detection failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Canny edge detection failed: {str(e)}") from e
 
     def detect_edges_sobel(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -116,7 +116,7 @@ class EdgeDetectionComparator:
             return magnitude
 
         except Exception as e:
-            raise VideoProcessingError(f"Sobel edge detection failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Sobel edge detection failed: {str(e)}") from e
 
     def detect_edges_laplacian(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -139,7 +139,7 @@ class EdgeDetectionComparator:
             return laplacian
 
         except Exception as e:
-            raise VideoProcessingError(f"Laplacian edge detection failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Laplacian edge detection failed: {str(e)}") from e
 
     def detect_edges(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -168,7 +168,7 @@ class EdgeDetectionComparator:
             return edges
 
         except Exception as e:
-            raise VideoProcessingError(f"Edge detection failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Edge detection failed: {str(e)}") from e
 
     def calculate_edge_statistics(self, edges: np.ndarray) -> Dict[str, float]:
         """
@@ -206,7 +206,7 @@ class EdgeDetectionComparator:
             }
 
         except Exception as e:
-            raise VideoProcessingError(f"Edge statistics calculation failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Edge statistics calculation failed: {str(e)}") from e
 
     def compare_edge_images(
         self, edges1: np.ndarray, edges2: np.ndarray
@@ -289,7 +289,7 @@ class EdgeDetectionComparator:
             return combined_similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"Edge image comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Edge image comparison failed: {str(e)}") from e
 
     def compare_frames(
         self, frame1: np.ndarray, frame2: np.ndarray
@@ -328,7 +328,7 @@ class EdgeDetectionComparator:
             return similarity, metadata
 
         except Exception as e:
-            raise VideoProcessingError(f"Frame comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Frame comparison failed: {str(e)}") from e
 
     def batch_compare(
         self, frames1: List[np.ndarray], frames2: List[np.ndarray]
@@ -371,7 +371,7 @@ class EdgeDetectionComparator:
             return results
 
         except Exception as e:
-            raise VideoProcessingError(f"Batch comparison failed: {str(e)}")
+            raise ComparisonAlgorithmError(f"Batch comparison failed: {str(e)}") from e
 
 
 class MultiEdgeComparator:
