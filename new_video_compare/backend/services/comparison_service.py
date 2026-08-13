@@ -749,7 +749,7 @@ class ComparisonService:
                 audio_diff = DifferenceTimestamp(
                     job_id=job.id,
                     timestamp_seconds=0.0,
-                    duration_seconds=job.asset.duration_seconds if job.asset else 1.0,
+                    duration_seconds=job.acceptance_file.duration if job.acceptance_file and job.acceptance_file.duration else 1.0,
                     difference_type=DifferenceType.AUDIO_SPECTRAL,
                     severity=audio_sev,
                 )
