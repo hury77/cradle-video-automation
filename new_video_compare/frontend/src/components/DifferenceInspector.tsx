@@ -266,7 +266,16 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                                 />
                             ) : (
                                 <div className="text-gray-500 text-sm flex flex-col items-center">
-                                    <span>No difference mask</span>
+                                    <span className="font-medium text-gray-400 mb-1">
+                                        {currentDiff && currentDiff.difference_type && !currentDiff.difference_type.toLowerCase().includes('frame') 
+                                            ? `Visual mask unavailable (${currentDiff.difference_type} difference)`
+                                            : 'No difference mask'}
+                                    </span>
+                                    <span className="text-xs text-gray-600 text-center px-4">
+                                        {currentDiff && currentDiff.difference_type && !currentDiff.difference_type.toLowerCase().includes('frame')
+                                            ? 'This is an audio or metadata difference. The video frames are identical.'
+                                            : 'No visual difference detected for this frame.'}
+                                    </span>
                                 </div>
                             )}
                         </div>
