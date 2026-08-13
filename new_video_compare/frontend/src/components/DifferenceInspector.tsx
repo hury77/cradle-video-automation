@@ -213,14 +213,15 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                     <div className="p-3 bg-gray-900 border-b border-gray-700 flex justify-between items-center">
                         <span className="text-red-400 font-medium text-sm">Difference Layer</span>
                         <div className="flex items-center space-x-2">
-                             <div className="flex items-center space-x-1 bg-gray-800 rounded px-2 py-0.5">
+                             <div className={`flex items-center space-x-1 bg-gray-800 rounded px-2 py-0.5 transition-opacity ${!fullDiffUrl ? 'opacity-40 grayscale cursor-not-allowed' : ''}`}>
                                 <span className="text-[10px] text-gray-400">OPACITY</span>
                                 <input 
                                     type="range" 
                                     min="0" max="1" step="0.1" 
                                     value={heatmapOpacity}
                                     onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
-                                    className="w-16 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-red-500"
+                                    disabled={!fullDiffUrl}
+                                    className={`w-16 h-1 bg-gray-600 rounded-lg appearance-none accent-red-500 ${!fullDiffUrl ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                                 />
                              </div>
                              <button
