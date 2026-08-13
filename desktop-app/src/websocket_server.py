@@ -99,6 +99,10 @@ class WebSocketServer:
                     "🎬 VIDEO_COMPARE_UPLOAD_REQUEST received - hybrid upload..."
                 )
                 await self.handle_video_compare_upload_request(websocket, data)
+                
+            elif action == "RESUME_SCAN":
+                logger.info("🔄 RESUME_SCAN received")
+                await self.handle_resume_scan(websocket, data)
 
             elif action == "TASK_SCAN_REQUEST":
                 logger.info("📋 TASK_SCAN_REQUEST received")
@@ -625,6 +629,94 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"❌ [API] Error: {str(e)}")
             await self.send_error(websocket, f"API Error: {str(e)}", cradle_id=cradle_id)
+
+    async def handle_resume_scan(self, websocket, data):
+        """Handle request to resume tracking an ongoing or finished scan after connection drops"""
+        try:
+            cradle_id = data.get("cradleId")
+            if not cradle_id:
+                await self.send_error(websocket, "No CradleID provided for RESUME_SCAN")
+                return
+
+            logger.info(f"🔄 [RESUME] Checking status of jobs for CradleID: {cradle_id}")
+            
+            try:
+                existing_jobs = await self.api_client.get_jobs_by_cradle_id(cradle_id)
+            except Exception as e:
+                logger.warning(f"⚠️ [RESUME] Failed to fetch existing jobs: {str(e)}")
+                await self.send_error(websocket, f"Cannot resume: API offline ({str(e)})")
+                return
+
+            if not existing_jobs:
+                logger.info(f"⚠️ [RESUME] No jobs found for {cradle_id}. Telling extension to restart process.")
+                await self.send_error(websocket, f"No active job found for {cradle_id}. Please restart automation.", cradle_id=cradle_id)
+                return
+
+            latest_job = sorted(existing_jobs, key=lambda x: x.get("created_at", ""), reverse=True)[0]
+            
+            job_id = latest_job.get("id")
+            status = latest_job.get("status", "").upper()
+            
+            logger.info(f"🔄 [RESUME] Found Job {job_id} with status: {status}")
+            
+            if status in ["COMPLETED", "FAILED", "ERROR"]:
+                logger.info(f"✅ [RESUME] Job {job_id} already finished ({status}). Sending results immediately.")
+                
+                # Omijamy sprawdzanie czy było notified, front-end sobie poradzi. Ważne, żeby wyjść z zawieszenia.
+                await self.send_video_compare_results(websocket, {
+                    "success": status == "COMPLETED",
+                    "job_id": job_id,
+                    "message": f"Recovered job finished with status: {status}",
+                    "api_response": latest_job,
+                    "is_resumed": True
+                })
+                return
+                
+            elif status in ["PENDING", "PROCESSING"]:
+                logger.info(f"⏳ [RESUME] Job {job_id} is still {status}. Resuming polling loop...")
+                await self.send_status_update(websocket, "VIDEO_COMPARE_PROCESSING", {
+                    "cradle_id": cradle_id,
+                    "status": f"Resumed monitoring Job {job_id}...",
+                    "job_id": job_id
+                })
+                
+                job_finished = False
+                final_status = None
+                final_res = None
+                
+                for attempt in range(120): # Max 10 minut
+                    await asyncio.sleep(5)
+                    status_res = await self.api_client.get_job_status(job_id)
+                    
+                    if isinstance(status_res, dict) and "status" in status_res:
+                        current = status_res.get("status").upper()
+                        logger.info(f"⏳ [RESUME] Job {job_id} processing... Status: {current}")
+                        
+                        if current in ["COMPLETED", "FAILED", "ERROR"]:
+                            job_finished = True
+                            final_status = current
+                            final_res = status_res
+                            break
+                        
+                        progress = status_res.get("progress", 0)
+                        msg = f"Processing video... {current} ({attempt*5}s) - {progress}%"
+                        await self.send_status_update(websocket, "PROCESSING", {"message": msg, "progress": progress})
+                
+                if not job_finished:
+                     logger.error(f"❌ [RESUME] Job {job_id} timed out waiting for completion")
+                     raise Exception("Timeout waiting for job completion")
+                     
+                logger.info(f"✅ [RESUME] Job {job_id} finished with status: {final_status}")
+
+                await self.send_video_compare_results(websocket, {
+                    "success": final_status == "COMPLETED",
+                    "job_id": job_id,
+                    "message": f"Job finished with status: {final_status}",
+                    "api_response": final_res
+                })
+        except Exception as e:
+            logger.error(f"❌ [RESUME] Error resuming scan: {str(e)}")
+            await self.send_error(websocket, f"Resume error: {str(e)}", cradle_id=data.get("cradleId"))
 
     async def _find_video_files_with_retry(self, base_path, cradle_id, prefix="", max_retries=150):
         """

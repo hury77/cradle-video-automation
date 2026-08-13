@@ -5,7 +5,6 @@ class DesktopConnection {
   constructor() {
     this.ws = null;
     this.reconnectDelay = 2000;
-    this.maxReconnectAttempts = 5;
     this.reconnectAttempts = 0;
     this.connect();
   }
@@ -20,9 +19,30 @@ class DesktopConnection {
       this.ws.onopen = () => {
         console.log("🔗 Connected to Desktop App");
         this.reconnectAttempts = 0;
+        this.reconnectDelay = 2000;
         this.sendMessage({
           action: "extension_connected",
           timestamp: Date.now(),
+        });
+
+        // Sprawdź czy połączono w trakcie aktywnego oczekiwania na zadanie
+        chrome.storage.local.get(["cradle_auto_video_compare"], (res) => {
+            const scanner = window.cradleScanner;
+            const state = res.cradle_auto_video_compare;
+            const isAuto = scanner?.isAutoComparing || (state && state.active);
+            
+            if (isAuto) {
+                const cradleId = scanner?.currentCradleId || (state && state.cradleId);
+                if (cradleId) {
+                    console.log(`🔄 Reconnected during active scan for ${cradleId}. Requesting RESUME_SCAN...`);
+                    scanner?.showNotification("Wznowiono połączenie. Przywracanie sesji zadania...", "warning");
+                    this.sendMessage({
+                        action: "RESUME_SCAN",
+                        cradleId: cradleId,
+                        timestamp: Date.now()
+                    });
+                }
+            }
         });
       };
 
@@ -51,17 +71,28 @@ class DesktopConnection {
             
             // Trigger auto-compare ONLY when download is fully completed, not for intermediate results
             if (data.action === "DOWNLOAD_COMPLETED") {
-                if (scanner.isAutoComparing || localStorage.getItem("cradle-auto-video-compare") === "true") {
-                  console.log("[CradleScanner] 🔄 Auto-compare: Downloads complete. Triggering Video Compare...");
-                  scanner.isAutoComparing = true; // ensure in-memory flag is also set
-                  setTimeout(() => {
-                    scanner.startVideoCompare({ useApi: true });
-                  }, 2000);
-                }
+                chrome.storage.local.get(["cradle_auto_video_compare"], (res) => {
+                  if (scanner.isAutoComparing || localStorage.getItem("cradle-auto-video-compare") === "true" || (res.cradle_auto_video_compare && res.cradle_auto_video_compare.active)) {
+                    console.log("[CradleScanner] 🔄 Auto-compare: Downloads complete. Triggering Video Compare...");
+                    scanner.isAutoComparing = true; // ensure in-memory flag is also set
+                    setTimeout(() => {
+                      scanner.startVideoCompare({ useApi: true });
+                    }, 2000);
+                  }
+                });
             }
           } else if (data.action === "VIDEO_COMPARE_RESULTS") {
             const resultData = data.data || {};
             console.log("[CradleScanner] 📊 Video Compare Results Received:", resultData);
+            
+            // Idempotency guard: prevent processing the same job twice
+            if (resultData.job_id && scanner.lastProcessedJobId === resultData.job_id) {
+                console.log(`[CradleScanner] 🚫 Ignoring duplicate result for Job ${resultData.job_id}`);
+                return;
+            }
+            if (resultData.job_id) {
+                scanner.lastProcessedJobId = resultData.job_id;
+            }
             
             if (resultData.success !== false && !resultData.error) {
                scanner.showNotification(`✅ Video Compare: Success! (Job ${resultData.job_id || 'new'})`, "success");
@@ -71,7 +102,8 @@ class DesktopConnection {
                
                if (scanner.isAutoComparing) {
                   scanner.isAutoComparing = false;
-                  localStorage.removeItem("cradle-auto-video-compare"); // Clear persistence
+    chrome.storage.local.remove("cradle_auto_video_compare");
+    localStorage.removeItem("cradle-auto-video-compare"); // Clear persistence
                   
                   scanner.showNotification("🤖 Processing complete. Triggering Agent Hand-off...", "info");
                   console.log("[CradleScanner] 🚀 Starting Hand-off process (Agent 2 -> Agent 1)");
@@ -118,7 +150,8 @@ class DesktopConnection {
                
                if (scanner.isAutoComparing) {
                   scanner.isAutoComparing = false;
-                  localStorage.removeItem("cradle-auto-video-compare");
+    chrome.storage.local.remove("cradle_auto_video_compare");
+    localStorage.removeItem("cradle-auto-video-compare");
                   localStorage.setItem("cradle-automation-stopped", "true");
                }
             }
@@ -167,7 +200,8 @@ class DesktopConnection {
                 // Stop any auto-compare state
                 if (scanner.isAutoComparing) {
                     scanner.isAutoComparing = false;
-                    localStorage.removeItem("cradle-auto-video-compare");
+      chrome.storage.local.remove("cradle_auto_video_compare");
+    localStorage.removeItem("cradle-auto-video-compare");
                     localStorage.setItem("cradle-automation-stopped", "true");
                 }
                 // Send kill message to server
@@ -189,6 +223,7 @@ class DesktopConnection {
             // Un-hang the UI if we were auto-comparing
             if (scanner.isAutoComparing) {
                 scanner.isAutoComparing = false;
+                chrome.storage.local.remove("cradle_auto_video_compare");
                 localStorage.removeItem("cradle-auto-video-compare");
                 localStorage.setItem("cradle-automation-stopped", "true");
             }
@@ -224,13 +259,25 @@ class DesktopConnection {
   }
 
   reconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(
-        `🔄 Reconnecting to Desktop App (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-      );
-      setTimeout(() => this.connect(), this.reconnectDelay);
-    }
+    this.reconnectAttempts++;
+    console.log(`🔄 Reconnecting to Desktop App (Attempt ${this.reconnectAttempts}, waiting ${this.reconnectDelay}ms)`);
+    
+    chrome.storage.local.get(["cradle_auto_video_compare"], (res) => {
+        const scanner = window.cradleScanner;
+        const isAuto = scanner?.isAutoComparing || (res.cradle_auto_video_compare && res.cradle_auto_video_compare.active);
+        if (scanner && isAuto) {
+            scanner.showNotification(`⚠️ Utracono połączenie z Desktop App. Trwa wznawianie... (${this.reconnectDelay/1000}s)`, "warning");
+        }
+    });
+
+    setTimeout(() => {
+        this.connect();
+        // Calculate next delay with exponential backoff: 2s -> 5s -> 10s -> 30s -> 60s max
+        if (this.reconnectDelay < 5000) this.reconnectDelay = 5000;
+        else if (this.reconnectDelay < 10000) this.reconnectDelay = 10000;
+        else if (this.reconnectDelay < 30000) this.reconnectDelay = 30000;
+        else this.reconnectDelay = 60000;
+    }, this.reconnectDelay);
   }
 }
 
@@ -300,11 +347,19 @@ class CradleScanner {
       }
     });
 
-    // Restore automation state from localStorage (survives page reloads)
-    if (localStorage.getItem("cradle-auto-video-compare") === "true") {
-      this.isAutoComparing = true;
-      console.log("[CradleScanner] 🔄 Restored isAutoComparing=true from localStorage.");
-    }
+    // Restore automation state from storage (survives page/browser reloads)
+    chrome.storage.local.get(["cradle_auto_video_compare"], (res) => {
+      if (res.cradle_auto_video_compare && res.cradle_auto_video_compare.active) {
+        this.isAutoComparing = true;
+        if (res.cradle_auto_video_compare.cradleId) {
+            this.currentCradleId = res.cradle_auto_video_compare.cradleId;
+        }
+        console.log(`[CradleScanner] 🔄 Restored isAutoComparing=true for cradleId=${this.currentCradleId} from chrome.storage.local.`);
+      } else if (localStorage.getItem("cradle-auto-video-compare") === "true") {
+        this.isAutoComparing = true;
+        console.log("[CradleScanner] 🔄 Restored isAutoComparing=true from localStorage.");
+      }
+    });
 
     console.log("[CradleScanner] Scanner initialized");
   }
@@ -400,6 +455,7 @@ class CradleScanner {
        setTimeout(async () => {
            console.log("[CradleScanner] 🚀 Asset taken! Triggering downloads on reloaded page...");
            this.isAutoComparing = true;
+           chrome.storage.local.set({ cradle_auto_video_compare: { active: true, cradleId: this.currentCradleId } });
            localStorage.setItem("cradle-auto-video-compare", "true");
            await this.downloadFiles();
        }, 2000);
@@ -450,6 +506,7 @@ class CradleScanner {
            
            console.log("[CradleScanner] 🚀 Triggering downloads...");
            this.isAutoComparing = true;
+           chrome.storage.local.set({ cradle_auto_video_compare: { active: true, cradleId: this.currentCradleId } });
            localStorage.setItem("cradle-auto-video-compare", "true");
            await this.downloadFiles();
            // Do not trigger timeout here. We wait for websocket DOWNLOAD_COMPLETED.
@@ -515,6 +572,7 @@ class CradleScanner {
     
     // Zapobiegaj triggerowaniu kolejnych zdarzeń
     localStorage.setItem("cradle-automation-stopped", "true");
+    chrome.storage.local.remove("cradle_auto_video_compare");
     localStorage.removeItem("cradle-auto-video-compare");
     
     this.isAutoComparing = false;
@@ -610,11 +668,52 @@ class CradleScanner {
 
   showNotification(message, type = "info") {
     console.log(`[CradleScanner] ${type.toUpperCase()}: ${message}`);
+    
+    // Dispatch event for any other listeners
     document.dispatchEvent(
       new CustomEvent("extension-notification", {
         detail: { message, type },
       })
     );
+
+    // Create actual UI toast
+    const toast = document.createElement("div");
+    toast.style.position = "fixed";
+    toast.style.bottom = "20px";
+    toast.style.right = "20px";
+    toast.style.padding = "15px 25px";
+    toast.style.borderRadius = "8px";
+    toast.style.color = "white";
+    toast.style.fontFamily = "system-ui, sans-serif";
+    toast.style.fontSize = "14px";
+    toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+    toast.style.zIndex = "9999999";
+    toast.style.transition = "opacity 0.3s ease-in-out";
+    toast.innerHTML = message;
+
+    if (type === "error") {
+      toast.style.backgroundColor = "#d32f2f";
+    } else if (type === "warning") {
+      toast.style.backgroundColor = "#f57c00";
+    } else if (type === "success") {
+      toast.style.backgroundColor = "#388e3c";
+    } else {
+      toast.style.backgroundColor = "#1976d2";
+    }
+
+    document.body.appendChild(toast);
+
+    // Remove old toasts to prevent stacking indefinitely
+    const oldToasts = document.querySelectorAll(".cradle-toast");
+    if (oldToasts.length > 3) {
+      oldToasts[0].remove();
+    }
+    toast.classList.add("cradle-toast");
+
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 300);
+    }, 5000);
   }
 
   async startAutomation() {
