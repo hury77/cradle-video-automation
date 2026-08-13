@@ -47,6 +47,43 @@ pip install -r desktop-app/requirements.txt
 
 ## 🖥️ Uruchamianie środowiska lokalnego
 
+System można łatwo uruchomić za pomocą przygotowanych skryptów automatycznych, które weryfikują poprawność gałęzi oraz sprawdzają, czy porty nie są już zajęte.
+
+### 🚀 Automatyczne Skrypty Startowe (Rekomendowane)
+
+**Wymagane uprawnienia (jednorazowo):**
+```bash
+chmod +x start_live.sh start_dev.sh
+```
+
+**Uruchamianie środowiska produkcyjnego (branch live):**
+```bash
+git checkout live
+./start_live.sh
+```
+
+**Uruchamianie środowiska deweloperskiego (branch dev):**
+```bash
+git checkout dev
+./start_dev.sh
+```
+
+**Co skrypt robi automatycznie?**
+- Sprawdza właściwy branch (zabezpiecza przed pomyłką).
+- Sprawdza zajętość portów (8001/8765 dla `live`, 8002/8765/3001 dla `dev`).
+- Wypisuje jawną ścieżkę do bazy SQLite (`~/.cradle_data/new_video_compare.db`).
+- Uruchamia backend, czeka na poprawny wynik z *healthchecka*, a następnie uruchamia desktop-app (i frontend w wersji dev) w osobnych oknach Terminala.
+
+**Rozwiązywanie problemu zajętych portów:**
+(jeśli poprzednia sesja nie została poprawnie zamknięta i skrypt zgłasza błąd):
+```bash
+kill -9 $(lsof -ti :8001) $(lsof -ti :8765) 2>/dev/null
+```
+
+---
+
+### 🔧 Ręczne uruchamianie (Opcjonalnie)
+
 System działa w dwóch trybach: **LIVE** (produkcja) i **DEV** (development).
 
 ### LIVE — 2 terminale
