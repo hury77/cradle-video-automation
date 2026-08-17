@@ -1661,20 +1661,48 @@ class CradleScanner {
         }
 
         // 3. ACCEPTANCE — pm approval (above qa proofreading)
-        else if (firstCellText.includes("pm approval") && !fileInfo.acceptanceFile) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
+        else if (firstCellText.includes("pm approval")) {
+            if (!fileInfo.acceptanceFile) {
+                this.extractAcceptanceFromRow(row, fileInfo, i);
+            } else if (!fileInfo.emissionFile) {
+                this.extractEmissionFromRow(row, fileInfo, i);
+            }
         }
 
         // 4. ACCEPTANCE — generic file preparation (NOT final/broadcast — excluded above)
         else if (firstCellText.includes("file preparation")) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
+            if (!fileInfo.acceptanceFile) {
+                this.extractAcceptanceFromRow(row, fileInfo, i);
+            } else if (!fileInfo.emissionFile) {
+                this.extractEmissionFromRow(row, fileInfo, i);
+            }
         }
 
         // 5. ACCEPTANCE — QA Proofreading fallback
-        else if (firstCellText.includes("proofreading") && !fileInfo.acceptanceFile) {
-             this.extractAcceptanceFromRow(row, fileInfo, i);
+        else if (firstCellText.includes("proofreading")) {
+             if (!fileInfo.acceptanceFile) {
+                 this.extractAcceptanceFromRow(row, fileInfo, i);
+             } else if (!fileInfo.emissionFile) {
+                 this.extractEmissionFromRow(row, fileInfo, i);
+             }
         }
 
+    }
+
+    // 6. SWAP ZIP LOGIC
+    // Jeśli pobraliśmy 2 pliki z powielonych rzędów, istnieje szansa że PM dodał je w odwrotnej kolejności.
+    // Jeśli acceptanceFile jest zipem, a emissionFile nie jest zipem - zamieniamy je, 
+    // aby zip trafił do emisji (bo akceptacja prawie nigdy nie jest zipem).
+    if (fileInfo.acceptanceFile && fileInfo.emissionFile) {
+         const accName = fileInfo.acceptanceFile.name ? fileInfo.acceptanceFile.name.toLowerCase() : "";
+         const emiName = fileInfo.emissionFile.name ? fileInfo.emissionFile.name.toLowerCase() : "";
+         
+         if (accName.endsWith(".zip") && !emiName.endsWith(".zip")) {
+             console.log("[CradleScanner] 🔄 Swapping acceptance and emission because acceptance is a .zip");
+             const temp = fileInfo.acceptanceFile;
+             fileInfo.acceptanceFile = fileInfo.emissionFile;
+             fileInfo.emissionFile = temp;
+         }
     }
     return fileInfo;
   }
