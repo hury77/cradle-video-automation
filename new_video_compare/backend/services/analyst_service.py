@@ -209,9 +209,10 @@ class AnalystService:
             "   - Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA → REJECT\n"
             "   ⚠️ Pamiętaj: Jeśli lufs_difference wynosi np. -1.46, to jest to POWYŻEJ progu 1.0. To jest REVIEW, a nie APPROVE.\n"
             "3. AUDIO SIMILARITY (MFCC/spectral):\n"
-            "   - >= 0.95: Akceptowalne (kompresja) → OK\n"
-            "   - 0.90 - 0.949: Drobne różnice → REVIEW\n"
-            "   - < 0.90: Poważne różnice → REJECT\n"
+            "   ⚠️ Złota reguła: Drobne różnice spektralne przy w 100% zgodnym tekście i głośności to zazwyczaj nieszkodliwy wynik innej kompresji eksportu.\n"
+            "   - Jeśli stt_is_match = true oraz has_loudness_issue = false: Spadki audio_similarity do 0.75 można ignorować → APPROVE. Poniżej 0.75 → REVIEW.\n"
+            "   - Jeśli tekst mowy lub głośność wykazują błędy: Wtedy wymagany próg podobieństwa wynosi 0.90. Spadek poniżej 0.90 → REVIEW.\n"
+            "   ⚠️ Z samego powodu spadku audio_similarity NIGDY nie odrzucaj pliku (REJECT). Maksymalna reakcja to REVIEW.\n"
             "4. TEKST (Whisper):\n"
             "   - word_count_a = 0 i word_count_b = 0: W uzasadnieniu napisz 'Brak mowy / VO.'\n"
             "   - text_similarity = 1.0 (is_text_match=true): Zgodne → OK\n"
@@ -619,8 +620,46 @@ class AnalystService:
                     elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
                         analysis["verdict"] = "review"
                         analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                        current_reasoning = analysis["reasoning"]
 
-            # 3. Duration Difference Override (Enforce REJECT if length differs > 0.5s and not ARPP)
+            # 3. Audio Similarity Override — reduce false-positives
+            audio_sim_val = self._last_metrics.get("audio_similarity")
+            if audio_sim_val is not None and not is_missing_audio:
+                audio_sim_val = float(audio_sim_val)
+                
+                # Check STT condition
+                stt_data = self._last_metrics.get("audio_transcription", {})
+                stt_skipped = self._last_metrics.get("stt_skipped", False)
+                is_stt_ok = False
+                if stt_skipped:
+                    is_stt_ok = True
+                elif isinstance(stt_data, dict):
+                    if stt_data.get("is_text_match") is True:
+                        is_stt_ok = True
+                    else:
+                        stt_comp = self._last_metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
+                        if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                            is_stt_ok = True
+                            
+                # Check Loudness condition
+                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                is_loudness_ok = not (audio_loudness.get("has_loudness_issue", False) if isinstance(audio_loudness, dict) else False)
+                
+                has_green_flags = is_stt_ok and is_loudness_ok
+                
+                if has_green_flags:
+                    threshold = 0.75
+                    condition_str = "mimo zgodności STT i Loudness"
+                else:
+                    threshold = 0.90
+                    condition_str = "przy braku pełnej zgodności STT/Loudness"
+                    
+                if audio_sim_val < threshold and analysis["verdict"] == "approve":
+                    analysis["verdict"] = "review"
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność audio (spektralna {audio_sim_val:.4f}) spadła poniżej progu {threshold} ({condition_str}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
+
+            # 4. Duration Difference Override (Enforce REJECT if length differs > 0.5s and not ARPP)
             duration_diff = self._last_metrics.get("duration_difference", 0.0)
             is_arpp = self._last_metrics.get("is_arpp_slate", False)
             if duration_diff > 0.5 and not is_arpp and analysis["verdict"] != "reject":

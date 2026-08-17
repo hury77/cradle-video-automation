@@ -125,6 +125,7 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                             <button
                                 key={`${diff.timestamp_seconds}-${idx}`}
                                 onClick={() => setSelectedIndex(idx)}
+                                title={diff.difference_type.replace('_', ' ')}
                                 className={`
                                     w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all
                                     ${selectedIndex === idx 
@@ -139,8 +140,13 @@ const DifferenceInspector: React.FC<DifferenceInspectorProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-4 pl-4 border-l border-gray-700 ml-4">
-                    <div className="text-gray-400 text-sm font-mono">
-                        timestamp: <span className="text-white">{formatTime(timestamp)}</span>
+                    <div className="text-gray-400 text-sm font-mono flex flex-col items-end mr-4">
+                        <div>timestamp: <span className="text-white">{formatTime(timestamp)}</span></div>
+                        {currentDiff && (
+                            <div className="text-[10px] text-red-300 font-bold tracking-wider mt-1 bg-red-900/40 px-2 py-0.5 rounded border border-red-800/50">
+                                {currentDiff.difference_type.replace(/_/g, ' ')}
+                            </div>
+                        )}
                     </div>
                     <button 
                         onClick={onClose}

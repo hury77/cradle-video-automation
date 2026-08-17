@@ -431,7 +431,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const videoDifferences = results?.video_result?.different_frames ?? 0;
   const totalFrames = results?.video_result?.total_frames ?? 0;
   const differences = results?.differences ?? [];
-  const differencesFound = differences.length > 0 || videoDifferences > 0;
+  const videoDiffs = differences.filter(d => d.difference_type.toLowerCase() === 'video_frame');
+  const videoDifferencesFound = videoDiffs.length > 0 || videoDifferences > 0;
 
   // Setup video event listeners
   useEffect(() => {
@@ -752,7 +753,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               </button>
               
               {/* Inspect Button */}
-              {differencesFound && (
+              {videoDifferencesFound && (
                 <button
                     onClick={() => {
                         setShowInspector(true);
@@ -801,7 +802,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         <DifferenceInspector 
             isOpen={showInspector}
             onClose={() => setShowInspector(false)}
-            differences={differences || []}
+            differences={videoDiffs}
             diffFrames={results?.overall_result?.report_data?.video?.diff_frames || {}}
             videoUrls={{
                 acceptance: acceptanceVideoUrl,
@@ -1115,7 +1116,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         Video
                       </span>
                       <div className="relative h-4 flex-grow bg-slate-100 dark:bg-[#12131c] rounded-lg border border-slate-200 dark:border-white/10 flex items-center overflow-hidden">
-                        {displayDuration > 0 && differences.map((diff, index) => {
+                        {displayDuration > 0 && videoDiffs.map((diff, index) => {
                           const position = (diff.timestamp_seconds / displayDuration) * 100;
                           return (
                             <div
@@ -1661,7 +1662,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 })()}
 
                 {/* ======================== INSPECT DIFFERENCES REPORT SECTION ======================== */}
-                {differencesFound && (
+                {videoDifferencesFound && (
                   <div className="hidden print:block mt-8 pt-6 border-t border-slate-200 dark:border-white/10 break-inside-avoid page-break-inside-avoid">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-2">
@@ -1670,7 +1671,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           {t.frameAnalysis || "Frame Differences Analysis (Inspect Differences)"}
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">
-                          {differences.length > 0 ? `${differences.length} diffs` : `${videoDifferences} frames`}
+                          {videoDiffs.length > 0 ? `${videoDiffs.length} diffs` : `${videoDifferences} frames`}
                         </span>
                       </div>
                       
@@ -1685,7 +1686,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {(() => {
-                        const sortedDiffs = [...differences].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
+                        const sortedDiffs = [...videoDiffs].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
                         const diffFrames = results?.overall_result?.report_data?.video?.diff_frames || {};
 
                         return sortedDiffs.map((diff, index) => {

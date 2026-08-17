@@ -46,3 +46,51 @@ def test_lufs_reasoning_prompt():
     assert "2. GŁOŚNOŚĆ (LUFS):" in system_prompt, "Prompt MISSING LUFS logic section."
     assert "Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA" in system_prompt, "Prompt MISSING strict 2.0 threshold."
     assert "audio_spectral" in user_prompt, "Prompt MISSING audio_spectral difference!"
+
+def test_audio_similarity_threshold_green_flags_no_override():
+    analyst = AnalystService()
+    job_data = {
+        "job_id": 992,
+        "overall_similarity": 1.0,
+        "video_similarity": 1.0,
+        "audio_similarity": 0.88,
+        "audio_loudness": {"has_loudness_issue": False},
+        "audio_transcription": {"is_text_match": True, "skipped": False}
+    }
+    dummy_llm_response = '{"verdict": "approve", "reasoning": "OK", "confidence": 0.95}'
+    analyst._last_metrics = job_data
+    result = analyst._parse_response(dummy_llm_response)
+    
+    assert result["verdict"] == "approve", "False positive! Should not override green flags if audio_sim >= 0.75"
+
+def test_audio_similarity_threshold_green_flags_drastic_drop():
+    analyst = AnalystService()
+    job_data = {
+        "overall_similarity": 1.0,
+        "video_similarity": 1.0,
+        "audio_similarity": 0.70,  # Below 0.75
+        "audio_loudness": {"has_loudness_issue": False},
+        "audio_transcription": {"is_text_match": True, "skipped": False}
+    }
+    dummy_llm_response = '{"verdict": "approve", "reasoning": "OK", "confidence": 0.95}'
+    analyst._last_metrics = job_data
+    result = analyst._parse_response(dummy_llm_response)
+    
+    assert result["verdict"] == "review", "Should force REVIEW when audio_sim < 0.75 even with green flags"
+    assert "Zgodność audio" in result["reasoning"]
+
+def test_audio_similarity_threshold_no_green_flags():
+    analyst = AnalystService()
+    job_data = {
+        "overall_similarity": 1.0,
+        "video_similarity": 1.0,
+        "audio_similarity": 0.85,  # Below 0.90
+        "audio_loudness": {"has_loudness_issue": True},  # Red flag
+        "audio_transcription": {"is_text_match": True, "skipped": False}
+    }
+    dummy_llm_response = '{"verdict": "approve", "reasoning": "OK", "confidence": 0.95}'
+    analyst._last_metrics = job_data
+    result = analyst._parse_response(dummy_llm_response)
+    
+    assert result["verdict"] == "review", "Should force REVIEW when audio_sim < 0.90 without green flags"
+    assert "Zgodność audio" in result["reasoning"]
