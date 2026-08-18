@@ -9,6 +9,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
   
+  if (request.action === 'CHECK_DOWNLOAD_STATUS') {
+    checkDownloadStatus(request, sendResponse);
+    return true;
+  }
+  
+  if (request.action === 'RESUME_DOWNLOAD') {
+    resumeDownload(request, sendResponse);
+    return true;
+  }
+  
   if (request.action === 'LOG_TO_DASHBOARD') {
     handleDashboardLog(request.payload).then(() => sendResponse({success: true}));
     return true;
@@ -34,55 +44,24 @@ async function handleDownload(request, sendResponse) {
     
     console.log(`🔽 Starting Chrome download: ${filename}`);
     console.log(`   URL: ${url}`);
-    console.log(`   Type: ${type}`);
     
-    // Use Chrome Downloads API with cookies
     const downloadId = await chrome.downloads.download({
       url: url,
       filename: filename,
-      saveAs: false, // Don't show save dialog
+      saveAs: false,
       conflictAction: 'overwrite'
     });
     
     console.log(`✅ Chrome download started: ID ${downloadId}`);
     
-    // Listen for download completion
-    const downloadListener = (downloadDelta) => {
-      if (downloadDelta.id === downloadId && downloadDelta.state) {
-        if (downloadDelta.state.current === 'complete') {
-          console.log(`✅ Download completed: ${filename}`);
-          chrome.downloads.onChanged.removeListener(downloadListener);
-          sendResponse({ 
-            success: true, 
-            downloadId: downloadId,
-            filename: filename,
-            type: type 
-          });
-        } else if (downloadDelta.state.current === 'interrupted') {
-          console.error(`❌ Download failed: ${filename}`);
-          chrome.downloads.onChanged.removeListener(downloadListener);
-          sendResponse({ 
-            success: false, 
-            error: 'Download interrupted',
-            filename: filename,
-            type: type 
-          });
-        }
-      }
-    };
-    
-    chrome.downloads.onChanged.addListener(downloadListener);
-    
-    // Timeout after 4 minutes
-    setTimeout(() => {
-      chrome.downloads.onChanged.removeListener(downloadListener);
-      sendResponse({ 
-        success: false, 
-        error: 'Download timeout',
-        filename: filename,
-        type: type 
-      });
-    }, 240000);
+    // Zamiast czekać do końca z limitem czasowym, odpowiadamy natychmiast z downloadId
+    sendResponse({ 
+      success: true, 
+      downloadId: downloadId,
+      filename: filename,
+      type: type,
+      status: "started"
+    });
     
   } catch (error) {
     console.error("❌ Download error:", error);
@@ -92,6 +71,32 @@ async function handleDownload(request, sendResponse) {
       filename: request.filename,
       type: request.type 
     });
+  }
+}
+
+async function checkDownloadStatus(request, sendResponse) {
+  try {
+    const results = await chrome.downloads.search({ id: request.downloadId });
+    if (results && results.length > 0) {
+      const item = results[0];
+      console.log(`📊 Status for ${request.downloadId}: state=${item.state}, bytes=${item.bytesReceived}/${item.totalBytes}`);
+      sendResponse({ success: true, state: item.state, error: item.error, bytesReceived: item.bytesReceived, totalBytes: item.totalBytes });
+    } else {
+      sendResponse({ success: false, error: 'Download ID not found' });
+    }
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function resumeDownload(request, sendResponse) {
+  try {
+    console.log(`🔄 Attempting to resume download ID: ${request.downloadId}`);
+    await chrome.downloads.resume(request.downloadId);
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error(`❌ Resume failed:`, error);
+    sendResponse({ success: false, error: error.message });
   }
 }
 

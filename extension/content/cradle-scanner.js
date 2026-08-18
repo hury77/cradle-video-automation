@@ -1963,6 +1963,53 @@ class CradleScanner {
   }
 
   // ✅ UNIVERSAL FILE DOWNLOAD
+  async pollDownloadStatus(downloadId) {
+    return new Promise((resolve) => {
+      let attempts = 0;
+      let resumeRetries = 0;
+      
+      const interval = setInterval(() => {
+        chrome.runtime.sendMessage({ action: "CHECK_DOWNLOAD_STATUS", downloadId }, (response) => {
+          if (chrome.runtime.lastError || !response || !response.success) {
+            console.warn(`[CradleScanner] ⚠️ Polling error for ${downloadId}`);
+            attempts++;
+            if (attempts > 10) { // Fail after 50 seconds of complete unresponsiveness from SW
+               clearInterval(interval);
+               resolve(false);
+            }
+            return;
+          }
+          
+          attempts = 0; // reset on successful ping
+          
+          if (response.state === 'complete') {
+            console.log(`[CradleScanner] ✅ Download ${downloadId} completed successfully!`);
+            clearInterval(interval);
+            resolve(true);
+          } else if (response.state === 'interrupted') {
+            console.warn(`[CradleScanner] ⚠️ Download ${downloadId} INTERRUPTED! Reason: ${response.error || 'unknown'}`);
+            if (resumeRetries < 3) {
+                resumeRetries++;
+                console.log(`[CradleScanner] 🔄 Attempting to resume (${resumeRetries}/3)...`);
+                chrome.runtime.sendMessage({ action: "RESUME_DOWNLOAD", downloadId }, (res) => {
+                    if (res && res.success) {
+                        console.log(`[CradleScanner] ✅ Resume command sent for ${downloadId}`);
+                    } else {
+                        console.error(`[CradleScanner] ❌ Resume command failed for ${downloadId}`);
+                    }
+                });
+            } else {
+                console.error(`[CradleScanner] ❌ Download ${downloadId} permanently interrupted after 3 resume attempts.`);
+                clearInterval(interval);
+                resolve(false);
+            }
+          }
+          // if 'in_progress', just continue polling
+        });
+      }, 5000); // Check every 5 seconds
+    });
+  }
+
   // Tries chrome.downloads first (supports subdirectories), falls back to fetch+blob
   async downloadViaFetch(url, downloadPath) {
     const displayName = downloadPath.split('/').pop();
@@ -1977,16 +2024,22 @@ class CradleScanner {
             (response) => {
               if (chrome.runtime.lastError) {
                 console.warn("[CradleScanner] Chrome API error:", chrome.runtime.lastError.message);
-                resolve(false);
+                resolve(null);
               } else {
-                resolve(response?.success !== false);
+                resolve(response);
               }
             }
           );
         });
-        if (result) {
-          console.log(`[CradleScanner] ✅ Chrome download started: ${downloadPath}`);
-          return true;
+        
+        if (result && result.success && result.downloadId) {
+          console.log(`[CradleScanner] ⏳ Polling status for download ID: ${result.downloadId}...`);
+          const success = await this.pollDownloadStatus(result.downloadId);
+          if (success) {
+             return true;
+          } else {
+             console.warn(`[CradleScanner] ❌ Chrome download failed/timed out during polling.`);
+          }
         }
       }
     } catch (e) {
