@@ -79,7 +79,7 @@ async function checkDownloadStatus(request, sendResponse) {
     const results = await chrome.downloads.search({ id: request.downloadId });
     if (results && results.length > 0) {
       const item = results[0];
-      console.log(`📊 Status for ${request.downloadId}: state=${item.state}, bytes=${item.bytesReceived}/${item.totalBytes}`);
+      // console.log(`📊 Status for ${request.downloadId}: state=${item.state}, bytes=${item.bytesReceived}/${item.totalBytes}`);
       sendResponse({ success: true, state: item.state, error: item.error, bytesReceived: item.bytesReceived, totalBytes: item.totalBytes });
     } else {
       sendResponse({ success: false, error: 'Download ID not found' });

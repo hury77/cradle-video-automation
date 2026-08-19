@@ -1817,8 +1817,9 @@ class CradleScanner {
                        console.log(`[CradleScanner] ✅ Found Emission (nc-download): ${hintFile}`);
                        return;
                    }
-                   console.log(`[CradleScanner] ⛔ Skipping nc-download emission (no type hint): ${fullUrl}`);
-                   continue;
+                   console.log(`[CradleScanner] ⚠️ nc-download emission (no type hint): defaulting to emission.mp4`);
+                   fileInfo.emissionFile = { type: "attachment", url: fullUrl, name: "emission.mp4", row: rowIndex };
+                   return;
                }
 
                // ── Filename extraction (URL is authoritative — do NOT blindly override with textContent) ──
@@ -1981,22 +1982,24 @@ class CradleScanner {
   // ✅ UNIVERSAL FILE DOWNLOAD
   async pollDownloadStatus(downloadId) {
     return new Promise((resolve) => {
-      let attempts = 0;
+      let errorAttempts = 0;
       let resumeRetries = 0;
+      let lastBytesReceived = -1;
+      let stalledAttempts = 0;
       
       const interval = setInterval(() => {
         chrome.runtime.sendMessage({ action: "CHECK_DOWNLOAD_STATUS", downloadId }, (response) => {
           if (chrome.runtime.lastError || !response || !response.success) {
             console.warn(`[CradleScanner] ⚠️ Polling error for ${downloadId}`);
-            attempts++;
-            if (attempts > 10) { // Fail after 50 seconds of complete unresponsiveness from SW
+            errorAttempts++;
+            if (errorAttempts > 10) { // Fail after 50 seconds of complete unresponsiveness from SW
                clearInterval(interval);
                resolve(false);
             }
             return;
           }
           
-          attempts = 0; // reset on successful ping
+          errorAttempts = 0; // reset on successful ping
           
           if (response.state === 'complete') {
             console.log(`[CradleScanner] ✅ Download ${downloadId} completed successfully!`);
@@ -2019,8 +2022,22 @@ class CradleScanner {
                 clearInterval(interval);
                 resolve(false);
             }
+          } else if (response.state === 'in_progress') {
+            // Smart stall detection: track bytes received
+            if (response.bytesReceived !== undefined) {
+                if (response.bytesReceived === lastBytesReceived) {
+                    stalledAttempts++;
+                    if (stalledAttempts > 12) { // 60 seconds (12 * 5s) of no progress
+                        console.error(`[CradleScanner] ❌ Download ${downloadId} stalled (0 bytes received for 60s). Chrome likely blocked it. Aborting native download.`);
+                        clearInterval(interval);
+                        resolve(false); // resolve false to trigger fetch fallback
+                    }
+                } else {
+                    lastBytesReceived = response.bytesReceived;
+                    stalledAttempts = 0; // reset stall counter because download is progressing
+                }
+            }
           }
-          // if 'in_progress', just continue polling
         });
       }, 5000); // Check every 5 seconds
     });
