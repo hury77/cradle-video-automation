@@ -285,7 +285,7 @@ class AnalystService:
             )
 
         output_format = (
-            "Odpowiadaj ZAWSZE w formacie JSON:\n"
+            "Odpowiadaj ZAWSZE w formacie JSON i BEZWZGLĘDNIE W JĘZYKU POLSKIM. Nie używaj języka angielskiego:\n"
             "{\n"
             "  \"verdict\": \"approve\" | \"reject\" | \"review\",\n"
             "  \"reasoning\": \"naturalne, ludzkie uzasadnienie po polsku z KONKRETNYMI LICZBAMI wplecionymi w tekst\",\n"
@@ -677,6 +677,17 @@ class AnalystService:
             if duration_diff > 0.5 and not is_arpp and analysis["verdict"] != "reject":
                 analysis["verdict"] = "reject"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Pliki różnią się długością o {duration_diff:.1f}s i nie jest to format z planszami. Wymuszono status REJECT. [Oryginalna notatka: {analysis.get('reasoning', '')}]"
+                current_reasoning = analysis["reasoning"]
+
+            # 5. STT (Voice Over) Similarity Override — force REJECT if < 0.90
+            if not is_missing_audio and not is_stt_ok:
+                if isinstance(stt_data, dict):
+                    text_sim = stt_data.get("text_similarity")
+                    if text_sim is not None and float(text_sim) < 0.90:
+                        if analysis["verdict"] != "reject":
+                            analysis["verdict"] = "reject"
+                            analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Treść lektora (VO) wykazuje krytyczne różnice (zgodność tekstu {float(text_sim):.2%}). Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
+                            current_reasoning = analysis["reasoning"]
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
