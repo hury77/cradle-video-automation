@@ -205,9 +205,10 @@ class AnalystService:
             "   - Poniżej 0.95: KRYTYCZNY BŁĄD → REJECT\n"
             "2. GŁOŚNOŚĆ (LUFS):\n"
             "   - Różnica <= 1.0 LUFS: OK → APPROVE\n"
-            "   - Różnica 1.1 - 2.0 LUFS: Wyraźna rozbieżność → REVIEW\n"
-            "   - Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA → REJECT\n"
-            "   ⚠️ Pamiętaj: Jeśli lufs_difference wynosi np. -1.46, to jest to POWYŻEJ progu 1.0. To jest REVIEW, a nie APPROVE.\n"
+            "   - Różnica > 1.0 LUFS: Zazwyczaj REVIEW lub REJECT.\n"
+            "   ⚠️ WYJĄTEK DLA SPECYFIKACJI (LUFS OVERRIDE):\n"
+            "   Jeśli ogólne podobieństwo wideo (overall_similarity) wynosi >= 0.98 ORAZ tekst mowy (STT) zgadza się w 100% (is_text_match = true lub brak mowy),\n"
+            "   wtedy zignoruj różnicę w głośności i ZATWIERDŹ plik (APPROVE). W uzasadnieniu musisz zaznaczyć: 'Wykryto różnicę głośności wynikającą ze specyfikacji eksportu, ale ze względu na całkowitą zgodność wideo i ścieżki lektorskiej plik zostaje zaakceptowany.'\n"
             "3. AUDIO SIMILARITY (MFCC/spectral):\n"
             "   ⚠️ Złota reguła: Drobne różnice spektralne przy w 100% zgodnym tekście i głośności to zazwyczaj nieszkodliwy wynik innej kompresji eksportu.\n"
             "   - Jeśli stt_is_match = true oraz has_loudness_issue = false: Spadki audio_similarity do 0.75 można ignorować → APPROVE. Poniżej 0.75 → REVIEW.\n"
@@ -606,41 +607,52 @@ class AnalystService:
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej progu 98%. Wymuszono status REVIEW. [Oryginalna notatka AI: {current_reasoning}]"
                 current_reasoning = analysis["reasoning"]
 
-            # 2. LUFS Override — force REJECT if diff > 2.0, REVIEW if diff > 1.0
+            # 2. Check STT condition early for LUFS override exception
+            stt_data = self._last_metrics.get("audio_transcription", {})
+            stt_skipped = self._last_metrics.get("stt_skipped", False)
+            is_stt_ok = False
+            if stt_skipped:
+                is_stt_ok = True
+            elif isinstance(stt_data, dict):
+                if stt_data.get("is_text_match") is True:
+                    is_stt_ok = True
+                else:
+                    stt_comp = self._last_metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
+                    if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
+                        is_stt_ok = True
+
+            # 3. LUFS Override — force REJECT if diff > 2.0, REVIEW if diff > 1.0
             audio_loudness = self._last_metrics.get("audio_loudness", {})
             if isinstance(audio_loudness, dict):
                 lufs_diff = audio_loudness.get("lufs_difference")
                 if lufs_diff is not None:
                     abs_lufs = abs(float(lufs_diff))
 
-                    if abs_lufs > 2.0 and analysis["verdict"] != "reject":
-                        analysis["verdict"] = "reject"
-                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza próg krytyczny 2.0. Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
-                        current_reasoning = analysis["reasoning"]
-                    elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
-                        analysis["verdict"] = "review"
-                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
-                        current_reasoning = analysis["reasoning"]
+                    video_sim_lufs_check = self._last_metrics.get("overall_similarity", 1.0)
+                    is_lufs_exception = (video_sim_lufs_check >= 0.98 and is_stt_ok)
 
-            # 3. Audio Similarity Override — reduce false-positives
+                    if abs_lufs > 1.0 and is_lufs_exception:
+                        logger.info(f"🔊 Ignorowanie różnicy LUFS ({lufs_diff}) ze względu na pełną zgodność Video i VO.")
+                        # LLM should have already output APPROVE based on prompt, but just in case:
+                        if analysis["verdict"] == "reject" or analysis["verdict"] == "review":
+                            analysis["verdict"] = "approve"
+                            analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zignorowano różnicę głośności ({lufs_diff} LUFS), ponieważ obraz i lektor (VO) w pełni się zgadzają. Wymuszono status APPROVE. [Oryginalna notatka: {current_reasoning}]"
+                            current_reasoning = analysis["reasoning"]
+                    else:
+                        if abs_lufs > 2.0 and analysis["verdict"] != "reject":
+                            analysis["verdict"] = "reject"
+                            analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza próg krytyczny 2.0. Wymuszono status REJECT. [Oryginalna notatka: {current_reasoning}]"
+                            current_reasoning = analysis["reasoning"]
+                        elif abs_lufs > 1.0 and analysis["verdict"] == "approve":
+                            analysis["verdict"] = "review"
+                            analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Różnica głośności ({lufs_diff} LUFS) przekracza dopuszczalny próg 1.0. Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                            current_reasoning = analysis["reasoning"]
+
+            # 4. Audio Similarity Override — reduce false-positives
             audio_sim_val = self._last_metrics.get("audio_similarity")
             if audio_sim_val is not None and not is_missing_audio:
                 audio_sim_val = float(audio_sim_val)
                 
-                # Check STT condition
-                stt_data = self._last_metrics.get("audio_transcription", {})
-                stt_skipped = self._last_metrics.get("stt_skipped", False)
-                is_stt_ok = False
-                if stt_skipped:
-                    is_stt_ok = True
-                elif isinstance(stt_data, dict):
-                    if stt_data.get("is_text_match") is True:
-                        is_stt_ok = True
-                    else:
-                        stt_comp = self._last_metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
-                        if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
-                            is_stt_ok = True
-                            
                 # Check Loudness condition
                 audio_loudness = self._last_metrics.get("audio_loudness", {})
                 is_loudness_ok = not (audio_loudness.get("has_loudness_issue", False) if isinstance(audio_loudness, dict) else False)

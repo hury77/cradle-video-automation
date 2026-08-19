@@ -1657,30 +1657,44 @@ class CradleScanner {
 
         // 2. ACCEPTANCE — video preparation (primary)
         else if (firstCellText.includes("video preparation")) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
+            const hasZip = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+            if (!fileInfo.acceptanceFile || hasZip) {
+                this.extractAcceptanceFromRow(row, fileInfo, i);
+            }
         }
 
-        // 3. ACCEPTANCE — pm approval (above qa proofreading)
+        // 3. ACCEPTANCE — pm qa review (frequent for video acceptance)
+        else if (firstCellText.includes("pm qa review")) {
+            const hasZip = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+            if (!fileInfo.acceptanceFile || hasZip) {
+                this.extractAcceptanceFromRow(row, fileInfo, i);
+            }
+        }
+
+        // 4. ACCEPTANCE — pm approval (above qa proofreading)
         else if (firstCellText.includes("pm approval")) {
-            if (!fileInfo.acceptanceFile) {
+            const hasZip = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+            if (!fileInfo.acceptanceFile || hasZip) {
                 this.extractAcceptanceFromRow(row, fileInfo, i);
             } else if (!fileInfo.emissionFile) {
                 this.extractEmissionFromRow(row, fileInfo, i);
             }
         }
 
-        // 4. ACCEPTANCE — generic file preparation (NOT final/broadcast — excluded above)
+        // 5. ACCEPTANCE — generic file preparation (NOT final/broadcast — excluded above)
         else if (firstCellText.includes("file preparation")) {
-            if (!fileInfo.acceptanceFile) {
+            const hasZip = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+            if (!fileInfo.acceptanceFile || hasZip) {
                 this.extractAcceptanceFromRow(row, fileInfo, i);
             } else if (!fileInfo.emissionFile) {
                 this.extractEmissionFromRow(row, fileInfo, i);
             }
         }
 
-        // 5. ACCEPTANCE — QA Proofreading fallback
+        // 6. ACCEPTANCE — QA Proofreading fallback
         else if (firstCellText.includes("proofreading")) {
-             if (!fileInfo.acceptanceFile) {
+             const hasZip = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+             if (!fileInfo.acceptanceFile || hasZip) {
                  this.extractAcceptanceFromRow(row, fileInfo, i);
              } else if (!fileInfo.emissionFile) {
                  this.extractEmissionFromRow(row, fileInfo, i);
@@ -1862,7 +1876,8 @@ class CradleScanner {
   }
 
   extractAcceptanceFromRow(row, fileInfo, rowIndex) {
-      if (fileInfo.acceptanceFile) return;
+      const hasZipGlobal = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+      if (fileInfo.acceptanceFile && !hasZipGlobal) return;
 
     const cells = row.querySelectorAll("td");
 
@@ -1872,7 +1887,8 @@ class CradleScanner {
 
     // Use for...of to allow breaking
     for (const cell of cells) {
-        if (fileInfo.acceptanceFile) break; // Double check
+        const hasZipCell = fileInfo.acceptanceFile && fileInfo.acceptanceFile.name && fileInfo.acceptanceFile.name.toLowerCase().endsWith(".zip");
+        if (fileInfo.acceptanceFile && !hasZipCell) break; // Double check
 
         const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
                      cell.querySelector('a[href*="/media/cradle/"]') ||
@@ -2210,9 +2226,16 @@ class CradleScanner {
 
     savedStatesButton.click();
 
-    await this.wait(2000);
-
-    const qaOption = this.findQAOption();
+    let qaOption = null;
+    // Retry loop (up to 3 times, waiting 2s each time)
+    for (let i = 0; i < 3; i++) {
+        await this.wait(2000);
+        qaOption = this.findQAOption();
+        if (qaOption) {
+            break;
+        }
+        console.log(`[CradleScanner] 🔄 Retry ${i+1}: QA option not found, waiting...`);
+    }
 
     if (!qaOption) {
       console.warn("[CradleScanner] QA FINAL PROOFREADING option not found (often in Incognito). Proceeding without active filters.");
