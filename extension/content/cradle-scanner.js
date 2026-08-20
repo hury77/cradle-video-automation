@@ -2343,8 +2343,10 @@ class CradleScanner {
     let foundElements = [];
 
     for (const element of allElements) {
-      const text = element.textContent.trim();
-      const isVisible = element.offsetParent !== null;
+      const text = element.textContent.trim().replace(/\s+/g, ' ').toUpperCase();
+      
+      // Check visibility robustly (handles position: fixed which has null offsetParent)
+      const isVisible = element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0;
 
       if (text === "QA FINAL PROOFREADING" && isVisible) {
         foundElements.push(element);
