@@ -158,7 +158,21 @@ class DesktopConnection {
           } else if (data.action === "FILE_MOVED") {
             console.log(`[Desktop] 📦 File moved: ${data.data?.filename}`);
           } else if (data.action === "STATUS_UPDATE") {
-            const statusMsg = data.details?.message || data.status || "Processing...";
+            const innerData = data.data || {};
+            const actualStatus = innerData.status || data.status;
+            
+            if (actualStatus === "RESUME_NOT_FOUND") {
+                console.warn("[CradleScanner] 🔄 Backend lost job context (RESUME_NOT_FOUND). Page probably reloaded during download. Retrying downloadFiles()...");
+                scanner.showNotification("Odzyskiwanie sesji: ponawiam przesyłanie plików...", "warning");
+                if (scanner.isAutoComparing) {
+                    setTimeout(() => {
+                        scanner.downloadFiles();
+                    }, 2000);
+                }
+                return;
+            }
+
+            const statusMsg = innerData.details?.message || data.details?.message || actualStatus || "Processing...";
             console.log(`[Desktop] ℹ️ Status: ${statusMsg}`);
             scanner.showNotification(`System status: ${statusMsg}`, "info");
           } else if (data.action === "UPLOAD_SLOW") {
