@@ -34,6 +34,10 @@ class DesktopConnection {
             if (isAuto) {
                 const cradleId = scanner?.currentCradleId || (state && state.cradleId);
                 if (cradleId) {
+                    if (scanner) {
+                        scanner.isAutoComparing = true;
+                        scanner.currentCradleId = cradleId;
+                    }
                     console.log(`🔄 Reconnected during active scan for ${cradleId}. Requesting RESUME_SCAN...`);
                     scanner?.showNotification("Wznowiono połączenie. Przywracanie sesji zadania...", "warning");
                     this.sendMessage({
