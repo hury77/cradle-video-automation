@@ -48,6 +48,7 @@ class DesktopConnection {
 
       this.ws.onmessage = (event) => {
         try {
+          console.debug("[RAW WS MESSAGE]", event.data);
           const data = JSON.parse(event.data);
           console.log("📨 Message from Desktop App:", data);
 
@@ -157,8 +158,48 @@ class DesktopConnection {
             }
           } else if (data.action === "FILE_MOVED") {
             console.log(`[Desktop] 📦 File moved: ${data.data?.filename}`);
-          } else if (data.action === "STATUS_UPDATE") {
-            const statusMsg = data.details?.message || data.status || "Processing...";
+          } else if (data.action === "STATUS_UPDATE" || data.action === "RESUME_NOT_FOUND") {
+            const innerData = data.data || {};
+            const actualStatus = data.action === "RESUME_NOT_FOUND" ? "RESUME_NOT_FOUND" : (innerData.status || data.status);
+            
+            if (actualStatus === "RESUME_NOT_FOUND") {
+                console.log("[CradleScanner] 🔄 Otrzymano RESUME_NOT_FOUND. Backend lost job context. Page probably reloaded during download. Retrying downloadFiles()...");
+                scanner.showNotification("Odzyskiwanie sesji: ponawiam przesyłanie plików...", "warning");
+                if (scanner.isAutoComparing) {
+                    if (scanner.isResuming) {
+                        console.warn("[CradleScanner] ⚠️ Already resuming, ignoring duplicate RESUME_NOT_FOUND");
+                        return;
+                    }
+                    scanner.isResuming = true;
+                    setTimeout(async () => {
+                        try {
+                            const validation = await scanner.validateDomBeforeDownload();
+                            if (!validation.isValid) {
+                                console.error(`[CradleScanner] ❌ EXTENSION_ERROR: DOM validation failed before retry. Missing: ${validation.missingElements.join(', ')}`, validation);
+                                
+                                this.sendMessage({
+                                    action: "EXTENSION_ERROR",
+                                    error: "DOM validation failed after SPA reload",
+                                    cradleId: scanner.currentCradleId,
+                                    details: { missing_elements: validation.missingElements }
+                                });
+                                
+                                scanner.isAutoComparing = false;
+                                chrome.storage.local.remove("cradle_auto_video_compare");
+                                localStorage.removeItem("cradle-auto-video-compare");
+                                localStorage.setItem("cradle-automation-stopped", "true");
+                                return;
+                            }
+                            await scanner.downloadFiles();
+                        } finally {
+                            scanner.isResuming = false;
+                        }
+                    }, 2000);
+                }
+                return;
+            }
+
+            const statusMsg = innerData.details?.message || data.details?.message || actualStatus || "Processing...";
             console.log(`[Desktop] ℹ️ Status: ${statusMsg}`);
             scanner.showNotification(`System status: ${statusMsg}`, "info");
           } else if (data.action === "UPLOAD_SLOW") {
@@ -231,7 +272,7 @@ class DesktopConnection {
             document.body.classList.remove("cradle-processing");
           }
         } catch (e) {
-          console.error("Failed to parse message:", event.data);
+          console.error("[CradleScanner] ❌ Synchronous error in WebSocket handler:", e, "Payload:", event.data);
         }
       };
 
@@ -1036,7 +1077,7 @@ class CradleScanner {
       
       // Send log to dashboard
       try {
-        chrome.runtime.sendMessage({
+        const p = chrome.runtime.sendMessage({
           action: "LOG_TO_DASHBOARD",
           payload: {
             component: "extension",
@@ -1045,6 +1086,7 @@ class CradleScanner {
             is_error: false
           }
         });
+        if (p && p.catch) p.catch(() => {});
       } catch(e) {}
 
       setTimeout(() => {
@@ -1059,7 +1101,7 @@ class CradleScanner {
 
       // Send log to dashboard
       try {
-        chrome.runtime.sendMessage({
+        const p = chrome.runtime.sendMessage({
           action: "LOG_TO_DASHBOARD",
           payload: {
             component: "extension",
@@ -1068,6 +1110,7 @@ class CradleScanner {
             is_error: true
           }
         });
+        if (p && p.catch) p.catch(() => {});
       } catch(e) {}
 
       // Do not block with alert, wait 2 mins and try again
@@ -1269,6 +1312,54 @@ class CradleScanner {
     }
   }
 
+  async validateDomBeforeDownload() {
+    console.log("[DEBUG] validateDomBeforeDownload() STARTED");
+    console.log("[CradleScanner] 🔍 Validating DOM before download retry...");
+    let missingElements = [];
+    let isValid = false;
+    
+    if (!window.location.href.includes("/assets/deliverable-details/")) {
+       return { isValid: false, missingElements: ["URL does not contain /assets/deliverable-details/"] };
+    }
+
+    const maxOuterAttempts = 15;
+    for (let attempt = 1; attempt <= maxOuterAttempts; attempt++) {
+        console.log(`[CradleScanner] ⏳ Próba ${attempt}/${maxOuterAttempts} - szukanie plików...`);
+        this.showNotification(`Odzyskiwanie: próba ${attempt}/${maxOuterAttempts}...`, "info");
+        missingElements = [];
+        
+        // Use maxAttempts = 1 so we don't stack retries. Outer loop handles the waiting.
+        const tables = await this.findAssetCommentsTables(1);
+        
+        if (!tables || tables.length === 0) {
+            missingElements.push("Asset comments tables (table.asset-comments or similar)");
+        } else {
+            const fileInfo = await this.scanForFiles(tables);
+            let hasAcceptance = !!fileInfo.acceptanceFile;
+            let hasEmission = !!fileInfo.emissionFile;
+            
+            if (!hasAcceptance) missingElements.push("Acceptance file link (akcept)");
+            if (!hasEmission) missingElements.push("Emission file link (emisja)");
+            
+            if (hasAcceptance && hasEmission) {
+                console.log(`[CradleScanner] ✅ DOM Validation successful on attempt ${attempt}`);
+                isValid = true;
+                break;
+            }
+        }
+        
+        if (attempt < maxOuterAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    if (!isValid) {
+        console.error(`[CradleScanner] ❌ DOM validation failed after ${maxOuterAttempts} attempts. Missing:`, missingElements);
+    }
+
+    return { isValid, missingElements };
+  }
+
   async downloadFiles() {
     console.log("=== ROZPOCZYNAM POBIERANIE PLIKÓW ===");
 
@@ -1423,10 +1514,8 @@ class CradleScanner {
     }
   }
 
-  async findAssetCommentsTables() {
+  async findAssetCommentsTables(maxAttempts = 10) {
     console.log("[CradleScanner] 🔍 Looking for Asset comments tables...");
-
-    const maxAttempts = 10;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       console.log(

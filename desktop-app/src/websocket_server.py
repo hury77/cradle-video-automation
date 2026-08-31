@@ -73,13 +73,15 @@ class WebSocketServer:
             elif action == "EXTENSION_ERROR":
                 error_msg = data.get("error", "Unknown extension error")
                 cradle_id = data.get("cradleId")
+                details = data.get("details")
                 logger.error(f"❌ [Extension] Error for {cradle_id}: {error_msg}")
                 asyncio.create_task(self.api_client.log_system_event(
                     component="extension",
                     action="EXTENSION_ERROR",
                     message=error_msg,
                     is_error=True,
-                    cradle_id=cradle_id
+                    cradle_id=cradle_id,
+                    details=details
                 ))
 
             elif action == "VIDEO_COMPARE_REQUEST":
