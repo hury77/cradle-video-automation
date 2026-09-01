@@ -42,9 +42,9 @@ def test_lufs_reasoning_prompt():
     system_prompt = analyst._build_system_prompt([])
     user_prompt = f"Oto wyniki automatycznej analizy:\n{json.dumps(job_data, indent=2)}\n\nNa podstawie tych danych i historii decyzji, jaki jest Twój werdykt?"
     
-    # Verify if the prompt contains our rules.
+    # Verify if the prompt contains our updated rules.
     assert "2. GŁOŚNOŚĆ (LUFS):" in system_prompt, "Prompt MISSING LUFS logic section."
-    assert "Różnica > 2.0 LUFS: KRYTYCZNA RÓŻNICA" in system_prompt, "Prompt MISSING strict 2.0 threshold."
+    assert "WYJĄTEK DLA SPECYFIKACJI (LUFS OVERRIDE)" in system_prompt, "Prompt MISSING LUFS exception rule."
     assert "audio_spectral" in user_prompt, "Prompt MISSING audio_spectral difference!"
 
 def test_audio_similarity_threshold_green_flags_no_override():
