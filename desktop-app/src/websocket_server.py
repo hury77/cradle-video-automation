@@ -650,8 +650,8 @@ class WebSocketServer:
                 return
 
             if not existing_jobs:
-                logger.info(f"⚠️ [RESUME] No jobs found for {cradle_id}. Telling extension to restart process.")
-                await self.send_error(websocket, f"No active job found for {cradle_id}. Please restart automation.", cradle_id=cradle_id)
+                logger.info(f"⚠️ [RESUME] No jobs found for {cradle_id}. Telling extension to ignore or reset.")
+                await self.send_status_update(websocket, "RESUME_NOT_FOUND", {"cradle_id": cradle_id, "message": f"No active job found for {cradle_id}."})
                 return
 
             latest_job = sorted(existing_jobs, key=lambda x: x.get("created_at", ""), reverse=True)[0]

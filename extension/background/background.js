@@ -46,6 +46,35 @@ class BackgroundService {
             sendResponse({ success: true });
             break;
 
+          case 'CHECK_DOWNLOAD_STATUS':
+            chrome.downloads.search({ id: message.downloadId }, (results) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              } else if (results && results.length > 0) {
+                const item = results[0];
+                sendResponse({ 
+                  success: true, 
+                  state: item.state, 
+                  bytesReceived: item.bytesReceived,
+                  totalBytes: item.totalBytes,
+                  error: item.error
+                });
+              } else {
+                sendResponse({ success: false, error: 'Download not found' });
+              }
+            });
+            return; // Return here because chrome.downloads.search is callback-based, sendResponse happens inside
+
+          case 'RESUME_DOWNLOAD':
+            chrome.downloads.resume(message.downloadId, () => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                sendResponse({ success: true });
+              }
+            });
+            return; // Callback based
+
           default:
             sendResponse({ success: false, error: 'Unknown action' });
         }

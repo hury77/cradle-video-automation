@@ -742,6 +742,10 @@ class ComparisonService:
             db.add(audio_db_result)
 
             # Option B: Add a single general AUDIO_SPECTRAL difference on the timeline
+            # UWAGA (QA vs UI): Próg 0.99 służy wyłącznie do wygenerowania wizualnego markera
+            # (znacznika) na osi czasu w interfejsie użytkownika.
+            # Rzeczywisty werdykt QA zapada w AnalystService (Zasady Decyzyjne), gdzie
+            # obowiązują inne progi (REVIEW dla < 0.95, REJECT dla < 0.90).
             if sim_score is not None and sim_score < 0.99:
                 if sim_score >= 0.95:
                     audio_sev = SeverityLevel.LOW
