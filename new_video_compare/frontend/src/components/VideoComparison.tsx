@@ -1342,13 +1342,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   {/* Audio Similarity */}
                   <div className="text-center p-5 bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-2xl">
                     <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">
-                      {audioSimilarity != null ? `${Math.round(audioSimilarity * 100)}%` : "N/A"}
+                      {results.audio_result?.audio_analysis_data?.audio_comparison_skipped ? "N/A" : (audioSimilarity != null ? `${Math.round(audioSimilarity * 100)}%` : "N/A")}
                     </div>
                     <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                       {t.audioDifferences || "Audio Similarity"}
                     </h3>
                     <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                      {audioSimilarity != null ? "Spectral analysis" : (lang === "PL" ? "Brak ścieżki dźwiękowej" : "No audio track")}
+                      {results.audio_result?.audio_analysis_data?.audio_comparison_skipped 
+                        ? (results.audio_result?.audio_analysis_data?.audio_mismatch ? (lang === "PL" ? "Błąd: Brak audio w jednym z plików" : "Error: Audio missing in one file") : (lang === "PL" ? "Plik niemy (Brak audio)" : "Silent file (No audio)"))
+                        : (audioSimilarity != null ? "Spectral analysis" : (lang === "PL" ? "Brak ścieżki dźwiękowej" : "No audio track"))}
                     </p>
                   </div>
                 </div>

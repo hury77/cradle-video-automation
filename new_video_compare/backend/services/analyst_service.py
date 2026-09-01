@@ -332,13 +332,19 @@ class AnalystService:
         similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
         
         is_missing_audio = False
-        if audio_sim is None or (isinstance(audio_data, dict) and (audio_data.get("no_audio_tracks") or audio_data.get("has_audio") is False)):
+        is_mismatch = False
+        
+        if isinstance(audio_data, dict) and audio_data.get("audio_mismatch"):
+            is_mismatch = True
+        elif audio_sim is None or (isinstance(audio_data, dict) and (audio_data.get("no_audio_tracks") or audio_data.get("has_audio") is False)):
             is_missing_audio = True
         elif audio_sim == 0.0:
             if "No audio streams found" in similarity_error or "FFmpeg failed" in similarity_error or "Format not recognised" in similarity_error:
                 is_missing_audio = True
 
-        if is_missing_audio:
+        if is_mismatch:
+            parts.append("Audio: KRYTYCZNA RÓŻNICA — brak ścieżki dźwiękowej w jednym z plików (mismatch).")
+        elif is_missing_audio:
             parts.append("Audio: brak ścieżki dźwiękowej w materiałach (plik niemy / GIF).")
         elif audio_sim is not None:
             audio_sim = float(audio_sim)

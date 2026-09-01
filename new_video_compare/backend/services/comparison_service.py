@@ -352,8 +352,10 @@ class ComparisonService:
                     audio_result = {
                         "has_audio": False,
                         "no_audio_tracks": True,
-                        "similarity_score": None,
-                        "message": "No audio tracks present in source files"
+                        "similarity_score": 1.0,
+                        "audio_comparison_skipped": True,
+                        "skip_reason": "No audio tracks present in both source files",
+                        "message": "Files are identical in audio (both are silent)"
                     }
                     results["audio_result"] = audio_result
                 elif (acc_audio_streams > 0 and emi_audio_streams == 0) or (acc_audio_streams == 0 and emi_audio_streams > 0):
@@ -362,7 +364,8 @@ class ComparisonService:
                         "has_audio": False,
                         "audio_mismatch": True,
                         "similarity_score": 0.0,
-                        "error": "Audio stream mismatch: One file contains audio, but the other has no audio streams."
+                        "audio_comparison_skipped": True,
+                        "skip_reason": "Audio stream mismatch: One file contains audio, but the other has no audio streams."
                     }
                     results["audio_result"] = audio_result
                 else:
@@ -612,7 +615,10 @@ class ComparisonService:
                 has_differences = has_differences or video_result.get("frames_with_differences", 0) > 0
             
         if audio_result and isinstance(audio_result, dict):
-            if audio_result.get("no_audio_tracks") or audio_result.get("has_audio") is False:
+            if audio_result.get("audio_mismatch"):
+                has_differences = True
+                overall_similarity = 0.0
+            elif audio_result.get("no_audio_tracks") or audio_result.get("has_audio") is False:
                 # Source files have no audio streams (silent video / GIF) — DO NOT penalize overall_similarity!
                 pass
             elif "error" in audio_result:
