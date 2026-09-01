@@ -766,6 +766,7 @@ class ComparisonService:
         # Call this BEFORE the main commit to avoid deadlocks in SQLite
         try:
             db.flush() # Push pending results to DB so snapshot can read them
+            clean_results["overall_similarity"] = overall_similarity
             self._run_ai_analyst(db, job.id, clean_results)
         except Exception as ai_e:
             logger.error(f"⚠️ AI Analyst failed: {ai_e}")
@@ -807,12 +808,14 @@ class ComparisonService:
         else:
             computed_video_similarity = 1.0
             video_differences_count = 0
+            
+        penalized_overall = results.get("overall_similarity", computed_video_similarity)
 
         metrics = {
             "job_id": job_id,
             "job_name": job.job_name,
             "client_name": job.client_name,
-            "overall_similarity": computed_video_similarity,
+            "overall_similarity": penalized_overall,
             "video_similarity": computed_video_similarity,
             "video_differences_count": video_differences_count,
             "is_arpp_slate": video_res.get("is_arpp_slate", False) if isinstance(video_res, dict) else getattr(video_res, "is_arpp_slate", False),
@@ -837,6 +840,8 @@ class ComparisonService:
                     } if isinstance(stt, dict) else {}
                 }
             }
+            metrics["audio_mismatch"] = audio_res.get("audio_mismatch", False)
+            metrics["no_audio_tracks"] = audio_res.get("no_audio_tracks", False)
             
             # Build transcript summary for AI (text_diff_preview doesn't exist — use real STT fields)
             stt_similarity = stt.get("text_similarity")

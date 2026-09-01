@@ -601,7 +601,7 @@ class AnalystService:
             current_reasoning = analysis.get("reasoning", "")
 
             # 1. Video Similarity Override — force REJECT if below 0.95, REVIEW if below 0.98
-            video_sim = self._last_metrics.get("overall_similarity", 1.0)
+            video_sim = self._last_metrics.get("video_similarity", self._last_metrics.get("overall_similarity", 1.0))
             if video_sim < 0.95 and analysis["verdict"] != "reject":
                 analysis["verdict"] = "reject"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej krytycznego progu 95%. Wymuszono status REJECT. [Oryginalna notatka AI: {current_reasoning}]"
@@ -632,6 +632,11 @@ class AnalystService:
             if duration_diff > 0.5 and not is_arpp and analysis["verdict"] != "reject":
                 analysis["verdict"] = "reject"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Pliki różnią się długością o {duration_diff:.1f}s i nie jest to format z planszami. Wymuszono status REJECT. [Oryginalna notatka: {analysis.get('reasoning', '')}]"
+
+            # 4. Audio Mismatch Override (Enforce REVIEW)
+            if self._last_metrics.get("audio_mismatch"):
+                analysis["verdict"] = "review"
+                analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: KRYTYCZNA RÓŻNICA — brak ścieżki dźwiękowej w jednym z plików (mismatch). Wymuszono status REVIEW. [Oryginalna notatka AI: {analysis.get('reasoning', '')}]"
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
