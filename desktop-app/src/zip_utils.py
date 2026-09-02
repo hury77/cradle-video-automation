@@ -56,20 +56,12 @@ def unzip_and_cleanup(file_path):
             for zip_file in zip_files:
                 # Sprawdź czy to nie jest folder
                 if not zip_file.endswith('/'):
-                    # Wyciągnij tylko nazwę pliku (bez ścieżki z ZIP)
-                    filename = Path(zip_file).name
+                    # Wyciągnij tylko rozszerzenie pliku (bez ścieżki z ZIP)
+                    original_suffix = Path(zip_file).suffix
                     
-                    # Sprawdź czy oryginalny ZIP miał sufiks _emis
-                    is_emission_zip = "_emis" in file_path.stem.lower()
-                    
-                    if is_emission_zip:
-                        name_parts = filename.rsplit(".", 1)
-                        if len(name_parts) == 2:
-                            if not name_parts[0].endswith("_emis"):
-                                filename = f"{name_parts[0]}_emis.{name_parts[1]}"
-                        else:
-                            if not filename.endswith("_emis"):
-                                filename = f"{filename}_emis"
+                    # Użyj nazwy archiwum ZIP, aby zachować unikalny hash z Cradle
+                    # i zapobiec deduplikacji zupełnie nowych iteracji plików.
+                    filename = f"{file_path.stem}{original_suffix}"
 
                     # Pełna ścieżka docelowa
                     target_path = extract_folder / filename

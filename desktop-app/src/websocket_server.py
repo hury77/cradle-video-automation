@@ -196,9 +196,11 @@ class WebSocketServer:
                                         largest_video = fpath
                         
                         if largest_video:
-                            video_dest = target_dir / largest_video.name
+                            # Use the ZIP stem to retain the unique hash from Cradle and avoid name length collisions
+                            new_video_name = f"{Path(filename).stem}{largest_video.suffix}"
+                            video_dest = target_dir / new_video_name
                             shutil.move(str(largest_video), str(video_dest))
-                            final_filename = largest_video.name
+                            final_filename = new_video_name
                             logger.info(f"✅ Extracted video: {final_filename} ({largest_size:,} bytes)")
                             
                             # Cleanup ZIP and temp folder
