@@ -1718,7 +1718,7 @@ class CradleScanner {
 
   // ✅ Reusable scanner logic (Logic extracted from original scanForFiles)
   scanTableForFiles(table) {
-    console.log("[CradleScanner] 🔍 Scanning table rows...");
+    console.log("[CradleScanner] 🔍 Scanning table rows for candidates...");
     const fileInfo = { emissionFile: null, acceptanceFile: null };
 
     if (!table) return fileInfo;
@@ -1726,56 +1726,73 @@ class CradleScanner {
     const rows = table.querySelectorAll("tbody tr");
     const scanRows = rows.length > 0 ? rows : table.querySelectorAll("tr");
 
+    const emissionCandidates = [];
+    const acceptanceCandidates = [];
+
     for (let i = 0; i < scanRows.length; i++) {
         const row = scanRows[i];
         const cells = row.querySelectorAll("td");
         if (cells.length === 0) continue;
 
         const firstCellText = cells[0].textContent.toLowerCase().trim();
+        
+        let commentDate = 0;
+        if (cells.length > 1) {
+            const dateStr = cells[1].textContent.trim();
+            const parsed = new Date(dateStr).getTime();
+            if (!isNaN(parsed)) {
+                commentDate = parsed;
+            }
+        }
 
         // 1. EMISSION — Broadcast & Final file preparation = delivery/emission files
-        if (firstCellText.includes("broadcast file preparation")) {
-            console.log(`[CradleScanner] 📡 Row ${i}: 'broadcast file preparation' → EMISSION`);
-            this.extractEmissionFromRow(row, fileInfo, i);
+        if (firstCellText.includes("broadcast file preparation") || firstCellText.includes("final file preparation")) {
+            console.log(`[CradleScanner] 📡 Row ${i}: candidate for EMISSION (Date: ${new Date(commentDate).toLocaleString()})`);
+            const fileObj = this.extractEmissionFromRow(row, i);
+            if (fileObj) {
+                fileObj.date = commentDate;
+                emissionCandidates.push(fileObj);
+            }
         }
-
-        else if (firstCellText.includes("final file preparation")) {
-            console.log(`[CradleScanner] 📡 Row ${i}: 'final file preparation' → EMISSION`);
-            this.extractEmissionFromRow(row, fileInfo, i);
+        // 2-5. ACCEPTANCE
+        else if (firstCellText.includes("video preparation") || 
+                 firstCellText.includes("pm approval") || 
+                 firstCellText.includes("file preparation") || 
+                 firstCellText.includes("proofreading")) {
+            console.log(`[CradleScanner] 📥 Row ${i}: candidate for ACCEPTANCE (Date: ${new Date(commentDate).toLocaleString()})`);
+            const fileObj = this.extractAcceptanceFromRow(row, i);
+            if (fileObj) {
+                fileObj.date = commentDate;
+                acceptanceCandidates.push(fileObj);
+            }
         }
-
-        // 2. ACCEPTANCE — video preparation (primary)
-        else if (firstCellText.includes("video preparation")) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
-        }
-
-        // 3. ACCEPTANCE — pm approval (above qa proofreading)
-        else if (firstCellText.includes("pm approval") && !fileInfo.acceptanceFile) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
-        }
-
-        // 4. ACCEPTANCE — generic file preparation (NOT final/broadcast — excluded above)
-        else if (firstCellText.includes("file preparation")) {
-            this.extractAcceptanceFromRow(row, fileInfo, i);
-        }
-
-        // 5. ACCEPTANCE — QA Proofreading fallback
-        else if (firstCellText.includes("proofreading") && !fileInfo.acceptanceFile) {
-             this.extractAcceptanceFromRow(row, fileInfo, i);
-        }
-
     }
+
+    if (emissionCandidates.length > 0) {
+        emissionCandidates.sort((a, b) => b.date - a.date);
+        fileInfo.emissionFile = emissionCandidates[0];
+        console.log(`[CradleScanner] 🥇 Selected NEWEST Emission File: ${fileInfo.emissionFile.name} (Date: ${new Date(fileInfo.emissionFile.date).toLocaleString()})`);
+        console.log(`[CradleScanner] ℹ️ Found ${emissionCandidates.length} emission candidates:`, emissionCandidates);
+    } else {
+        console.log(`[CradleScanner] ⚠️ No valid emission candidates found.`);
+    }
+
+    if (acceptanceCandidates.length > 0) {
+        acceptanceCandidates.sort((a, b) => b.date - a.date);
+        fileInfo.acceptanceFile = acceptanceCandidates[0];
+        console.log(`[CradleScanner] 🥇 Selected NEWEST Acceptance File: ${fileInfo.acceptanceFile.name} (Date: ${new Date(fileInfo.acceptanceFile.date).toLocaleString()})`);
+        console.log(`[CradleScanner] ℹ️ Found ${acceptanceCandidates.length} acceptance candidates:`, acceptanceCandidates);
+    } else {
+        console.log(`[CradleScanner] ⚠️ No valid acceptance candidates found.`);
+    }
+
     return fileInfo;
   }
 
-  extractEmissionFromRow(row, fileInfo, rowIndex) {
-      if (fileInfo.emissionFile) return; // Already found
-
+  extractEmissionFromRow(row, rowIndex) {
       console.log(`[CradleScanner] 🔍 extractEmissionFromRow called for row ${rowIndex}`);
       const cells = row.querySelectorAll("td");
       for (const cell of cells) {
-          if (fileInfo.emissionFile) return; // Already found, stop scanning
-
           const text = cell.textContent.trim();
 
           // Debug: log all href links in cell
@@ -1819,7 +1836,7 @@ class CradleScanner {
               }
 
               if (cleanPath) {
-                  fileInfo.emissionFile = {
+                  const emissionObj = {
                       type: "network_path",
                       path: cleanPath,
                       lucidFilespace: lucidFilespace || null,
@@ -1827,7 +1844,7 @@ class CradleScanner {
                       row: rowIndex
                   };
                   console.log(`[CradleScanner] ✅ Found Network Emission (filespace: ${lucidFilespace || 'direct path'})`);
-                  return;
+                  return emissionObj;
               }
           }
 
@@ -1860,9 +1877,9 @@ class CradleScanner {
                            continue;
                        }
                        console.log(`[CradleScanner] 🔄 nc-download emission: resolved filename from hint: ${hintFile}`);
-                       fileInfo.emissionFile = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
+                       const emissionObj = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
                        console.log(`[CradleScanner] ✅ Found Emission (nc-download): ${hintFile}`);
-                       return;
+                       return emissionObj;
                    }
                    console.log(`[CradleScanner] ⛔ Skipping nc-download emission (no type hint): ${fullUrl}`);
                    continue;
@@ -1909,22 +1926,21 @@ class CradleScanner {
                    continue;
                }
                
-               fileInfo.emissionFile = {
+               const emissionObj = {
                    type: "attachment",
                    url: fullUrl,
                    name: filename,
                    row: rowIndex
                };
-               console.log(`[CradleScanner] ✅ Found Attachment Emission: ${fileInfo.emissionFile.name}`);
-               return; // Stop after first valid match
+               console.log(`[CradleScanner] ✅ Found Attachment Emission: ${emissionObj.name}`);
+               return emissionObj; // Stop after first valid match
           }
 
       }
+      return null;
   }
 
-  extractAcceptanceFromRow(row, fileInfo, rowIndex) {
-      if (fileInfo.acceptanceFile) return;
-
+  extractAcceptanceFromRow(row, rowIndex) {
     const cells = row.querySelectorAll("td");
 
     const VALID_VIDEO_EXTS  = [".mp4", ".mov", ".mxf", ".zip", ".avi", ".mkv", ".prores"];
@@ -1933,8 +1949,6 @@ class CradleScanner {
 
     // Use for...of to allow breaking
     for (const cell of cells) {
-        if (fileInfo.acceptanceFile) break; // Double check
-
         const link = cell.querySelector('a[href^="/media/cradle/comment/"]') || 
                      cell.querySelector('a[href*="/media/cradle/"]') ||
                      cell.querySelector("a i.fa-file")?.parentElement;
@@ -1964,9 +1978,9 @@ class CradleScanner {
                      }
                      // Hint is a video extension — use the hint filename
                      console.log(`[CradleScanner] 🔄 nc-download acceptance: resolved filename from hint: ${hintFile}`);
-                     fileInfo.acceptanceFile = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
+                     const acceptanceObj = { type: "attachment", url: fullUrl, name: hintFile, row: rowIndex };
                      console.log(`[CradleScanner] ✅ Found Acceptance (nc-download): ${hintFile}`);
-                     return;
+                     return acceptanceObj;
                  }
                  // No usable hint → skip this nc-download entirely (can't determine file type)
                  console.log(`[CradleScanner] ⛔ Skipping nc-download acceptance (no type hint): ${fullUrl}`);
@@ -2011,16 +2025,17 @@ class CradleScanner {
                  continue;
              }
 
-             fileInfo.acceptanceFile = {
+             const acceptanceObj = {
                  type: "attachment",
                  url: fullUrl,
                  name: filename,
                  row: rowIndex
              };
-             console.log(`[CradleScanner] ✅ Found Acceptance: ${fileInfo.acceptanceFile.name}`);
-             return; // Stop matching in this row after finding one
+             console.log(`[CradleScanner] ✅ Found Acceptance: ${acceptanceObj.name}`);
+             return acceptanceObj; // Stop matching in this row after finding one
         }
     }
+    return null;
   }
 
   // ✅ UNIVERSAL FILE DOWNLOAD
