@@ -529,14 +529,33 @@ class WebSocketServer:
                         job_emi_orig = job.get("emission_file", {}).get("original_name")
                         
                         if job_acc_orig == acc_name and job_emi_orig == emi_name:
-                            logger.info(f"🚫 [API] Skipping job for {cradle_id} - Identical original files already compared (Job {job['id']})")
-                            await self.send_response(websocket, "VIDEO_COMPARE_RESULTS", {
-                                "success": True,
-                                "job_id": job["id"],
-                                "message": f"Identical comparison for {cradle_id} was already completed. Reusing results.",
-                                "is_duplicate": True
-                            })
-                            return
+                            is_redownload = False
+                            job_created_at_str = job.get("created_at")
+                            if job_created_at_str:
+                                try:
+                                    from datetime import datetime
+                                    normalized_date = job_created_at_str.replace("Z", "")
+                                    if "." in normalized_date:
+                                        normalized_date = normalized_date.split(".")[0]
+                                    job_time = datetime.fromisoformat(normalized_date).timestamp()
+                                    file_mtime = os.path.getmtime(acceptance_path)
+                                    
+                                    # Czas pobrania na dysk nowszy niż utworzenie starego joba = re-download użytkownika
+                                    if file_mtime > job_time + 5:
+                                        is_redownload = True
+                                        logger.info(f"🔄 [API] Świadomy re-download luźnego pliku dla {cradle_id} (mtime {file_mtime} > job time {job_time}). Wymuszam nowy job.")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ [API] Failed to parse dates for deduplication: {e}")
+
+                            if not is_redownload:
+                                logger.info(f"🚫 [API] Skipping job for {cradle_id} - Identical original files already compared (Job {job['id']})")
+                                await self.send_response(websocket, "VIDEO_COMPARE_RESULTS", {
+                                    "success": True,
+                                    "job_id": job["id"],
+                                    "message": f"Identical comparison for {cradle_id} was already completed. Reusing results.",
+                                    "is_duplicate": True
+                                })
+                                return
             except Exception as e:
                 logger.warning(f"⚠️ [API] Failed to check for existing jobs: {str(e)}")
             # ──────────────────────────────────────
