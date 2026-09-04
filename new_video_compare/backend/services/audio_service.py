@@ -834,11 +834,19 @@ def apply_vad_filter(
         # Apply mask: anything outside speech segments becomes 0
         muted_wav = original_wav.copy()
         
+        # Whisper (especially mlx-community/whisper-small-mlx) is notoriously unstable when given perfect zeroed-out 
+        # digital silence (Attention Drift). It tries to attend to nothing, and its attention weights hallucinate ghost words 
+        # like "che che" or repetitive phrases at the end of the transcription!
+        # Fix: Inject very low amplitude noise (dither / room tone) around -60dB (0.001 scale) instead of absolute 0.0.
+        noise_scale = 1e-3
+        
         # Handle multi-channel audio if present
         if len(muted_wav.shape) > 1:
-            muted_wav[~mask, :] = 0.0
+            noise = np.random.normal(0, noise_scale, muted_wav[~mask, :].shape)
+            muted_wav[~mask, :] = noise
         else:
-            muted_wav[~mask] = 0.0
+            noise = np.random.normal(0, noise_scale, muted_wav[~mask].shape)
+            muted_wav[~mask] = noise
             
         # Save output
         sf.write(output_path, muted_wav, orig_sr)
@@ -1214,6 +1222,7 @@ def transcribe_audio(
         Dict with transcription text, segments with timestamps, and metadata
     """
     # 1. Get raw result from transcription engine
+    import os
     _whisper_lock.acquire()
     lock_file = None
     try:
@@ -1227,7 +1236,6 @@ def transcribe_audio(
         # Prefer MLX for M-series Macs
         try:
             mlx_whisper = get_mlx_whisper()
-            import os
             
             # Use full-precision community models for 100% accuracy matching standard Whisper
             model_map = {
