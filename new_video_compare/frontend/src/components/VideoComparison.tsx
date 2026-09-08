@@ -133,6 +133,12 @@ interface ApiResults {
           timeline_data?: {
             acceptance_segments: Array<{ start: number; end: number; text: string }>;
             emission_segments: Array<{ start: number; end: number; text: string }>;
+            aligned_dialog_timeline?: Array<{
+              timestamp: number;
+              acceptance: string;
+              emission: string;
+              has_mismatch: boolean;
+            }>;
           };
         };
         has_loudness_differences: boolean;
@@ -150,6 +156,10 @@ interface ApiResults {
     similarity_score: number | null;
     spectral_similarity: number | null;
     mfcc_similarity: number | null;
+    audio_analysis_data?: {
+      audio_comparison_skipped: boolean;
+      audio_mismatch: boolean;
+    };
   } | null;
   differences: Array<{
     timestamp_seconds: number;
@@ -624,68 +634,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     setShowResults(!showResults);
   };
 
-  // Process Dialog Timeline (Whisper)
-  const dialogTimeline = useMemo(() => {
-    const timelineData = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data;
-    if (!timelineData) return [];
-
-    const segmentsA = timelineData.acceptance_segments || [];
-    const segmentsB = timelineData.emission_segments || [];
-
-    // Sort both by start time
-    const sortedA = [...segmentsA].sort((a: any, b: any) => a.start - b.start);
-    const sortedB = [...segmentsB].sort((a: any, b: any) => a.start - b.start);
-
-    // Distribute emission text according to acceptance segments to avoid visual "missing" gaps
-    // when Whisper chunks the same audio differently.
-    
-    // Reconstruct full emission text words
-    const allEmiWords: string[] = [];
-    sortedB.forEach((seg: any) => {
-       const words = seg.text.trim().split(/\s+/);
-       words.forEach((w: string) => {
-           if (w.length > 0) allEmiWords.push(w);
-       });
-    });
-    
-    const events: Array<{ timestamp: number; acceptance?: string; emission?: string }> = [];
-    
-    // If there are no acceptance segments but there are emission segments
-    if (sortedA.length === 0 && sortedB.length > 0) {
-        sortedB.forEach((seg: any) => {
-            events.push({ timestamp: seg.start, emission: seg.text });
-        });
-        return events;
-    }
-
-    let emiWordIdx = 0;
-    
-    sortedA.forEach((segA: any, index: number) => {
-        const accWords = segA.text.trim().split(/\s+/).filter((w: string) => w.length > 0);
-        let takeCount = accWords.length;
-        
-        // For the last segment, take all remaining emission words to not lose any text
-        if (index === sortedA.length - 1) {
-            takeCount = allEmiWords.length - emiWordIdx;
-        }
-        
-        const segEmiWords = [];
-        for (let i = 0; i < takeCount; i++) {
-            if (emiWordIdx < allEmiWords.length) {
-                segEmiWords.push(allEmiWords[emiWordIdx]);
-                emiWordIdx++;
-            }
-        }
-        
-        events.push({
-            timestamp: segA.start,
-            acceptance: segA.text,
-            emission: segEmiWords.length > 0 ? segEmiWords.join(" ") : "-"
-        });
-    });
-
-    return events;
-  }, [results]);
+  // Process Dialog Timeline from backend
+  const dialogTimeline = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data?.aligned_dialog_timeline;
 
   const getOverallStatus = (similarity: number) => {
     if (similarity >= 0.95)
@@ -1595,65 +1545,69 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                             )}
 
                             {/* Dialog Timeline (Whisper) - Side by Side */}
-                            {dialogTimeline.length > 0 ? (
-                              <div className="mt-4">
-                                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Detected Dialog Timeline</h4>
-                                <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-white/10 rounded-xl">
-                                  <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5 text-xs table-fixed">
-                                    <thead className="bg-slate-100 dark:bg-slate-800/80 sticky top-0 z-10 shadow-sm">
-                                      <tr>
-                                        <th scope="col" className="px-3 py-2 text-left font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24 text-[10px]">Time</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider w-1/2 text-[10px]">
-                                          Acceptance
-                                        </th>
-                                        <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider w-1/2 text-[10px]">
-                                          Emission
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
-                                      {dialogTimeline.map((item, idx) => {
-                                        const normA = (item.acceptance || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
-                                        const normB = (item.emission || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
-                                        const isMismatch = Boolean(item.acceptance && item.emission && normA !== normB);
-
-                                        return (
-                                          <tr 
-                                            key={idx} 
-                                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${isMismatch ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
-                                            onClick={() => jumpToDifference(item.timestamp)}
-                                          >
-                                            <td className="px-3 py-2 whitespace-nowrap font-mono text-xs font-bold text-slate-500 dark:text-slate-400 align-top">
-                                              {formatTime(item.timestamp)}
-                                            </td>
-                                            <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top border-r border-slate-100 dark:border-white/5">
-                                              {item.acceptance ? (
-                                                <div className="bg-indigo-50/60 dark:bg-indigo-950/40 p-1.5 rounded-lg text-xs font-medium">
-                                                  {item.acceptance}
-                                                </div>
-                                              ) : (
-                                                <span className="text-slate-400 italic text-xs">-</span>
-                                              )}
-                                            </td>
-                                            <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
-                                              {item.emission ? (
-                                                <div className={`p-1.5 rounded-lg text-xs font-medium ${isMismatch ? 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-900/50' : 'bg-indigo-50/60 dark:bg-indigo-950/40'}`}>
-                                                  {item.emission}
-                                                </div>
-                                              ) : (
-                                                <span className="text-slate-400 italic text-xs">-</span>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
+                            {dialogTimeline !== undefined ? (
+                              dialogTimeline.length > 0 ? (
+                                <div className="mt-4">
+                                  <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Detected Dialog Timeline</h4>
+                                  <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-white/10 rounded-xl">
+                                    <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5 text-xs table-fixed">
+                                      <thead className="bg-slate-100 dark:bg-slate-800/80 sticky top-0 z-10 shadow-sm">
+                                        <tr>
+                                          <th scope="col" className="px-3 py-2 text-left font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider w-24 text-[10px]">Time</th>
+                                          <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider w-1/2 text-[10px]">
+                                            Acceptance
+                                          </th>
+                                          <th scope="col" className="px-3 py-2 text-left font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider w-1/2 text-[10px]">
+                                            Emission
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
+                                        {(dialogTimeline || []).map((item: any, idx: number) => {
+                                          const isMismatch = Boolean(item.has_mismatch);
+  
+                                          return (
+                                            <tr 
+                                              key={idx} 
+                                              className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${isMismatch ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
+                                              onClick={() => jumpToDifference(item.timestamp)}
+                                            >
+                                              <td className="px-3 py-2 whitespace-nowrap font-mono text-xs font-bold text-slate-500 dark:text-slate-400 align-top">
+                                                {formatTime(item.timestamp)}
+                                              </td>
+                                              <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top border-r border-slate-100 dark:border-white/5">
+                                                {item.acceptance ? (
+                                                  <div className="bg-indigo-50/60 dark:bg-indigo-950/40 p-1.5 rounded-lg text-xs font-medium">
+                                                    {item.acceptance}
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-slate-400 italic text-xs">-</span>
+                                                )}
+                                              </td>
+                                              <td className="px-3 py-2 text-slate-900 dark:text-slate-200 break-words align-top">
+                                                {item.emission ? (
+                                                  <div className={`p-1.5 rounded-lg text-xs font-medium ${isMismatch ? 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-900/50' : 'bg-indigo-50/60 dark:bg-indigo-950/40'}`}>
+                                                    {item.emission}
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-slate-400 italic text-xs">-</span>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
                                 </div>
-                              </div>
+                              ) : (
+                                <div className="text-center p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl text-slate-400 text-xs font-bold italic">
+                                  No dialog timeline available.
+                                </div>
+                              )
                             ) : (
                               <div className="text-center p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl text-slate-400 text-xs font-bold italic">
-                                No dialog timeline available.
+                                Brak danych wyrównania dla tego starszego wyniku. Zrekonstruuj analizę w panelu admina, aby zobaczyć poprawioną tabelę.
                               </div>
                             )}
                           </div>

@@ -1609,6 +1609,78 @@ def compare_transcripts(
     if len(differences) == 0:
         segment_diffs = []
         
+    # --------------------------------------------------------------------------
+    # ALIGNED DIALOG TIMELINE
+    # Reconstruct perfectly aligned emission text for the UI based on word diff
+    # --------------------------------------------------------------------------
+    import re
+    
+    # 1. Map Acceptance words to Acceptance segments
+    acc_seg_word_counts = []
+    for seg in segments_a:
+        norm = normalize_text(seg.get("text", ""))
+        acc_seg_word_counts.append(len(norm.split()))
+
+    def get_acc_segment_for_word(word_idx):
+        current = 0
+        for s_idx, count in enumerate(acc_seg_word_counts):
+            if current <= word_idx < current + count:
+                return s_idx
+            current += count
+        return max(0, len(segments_a) - 1)
+
+    # 2. Map Emission words to Acceptance segments using difflib opcodes
+    emi_word_to_acc_seg = {}
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            for offset in range(j2 - j1):
+                emi_word_to_acc_seg[j1 + offset] = get_acc_segment_for_word(i1 + offset)
+        elif tag in ('replace', 'insert'):
+            s_idx = get_acc_segment_for_word(i1)
+            for j in range(j1, j2):
+                emi_word_to_acc_seg[j] = s_idx
+
+    # 3. Reconstruct Emission text mapped to segments, preserving punctuation
+    aligned_emi_texts = ["" for _ in range(len(segments_a))]
+    word_idx = 0
+    # Use re.split to keep whitespace and punctuation exactly as is
+    for tok in re.split(r'(\s+)', raw_text_b):
+        if not tok: continue
+        if tok.isspace():
+            target_idx = max(0, word_idx - 1)
+        else:
+            norm = normalize_text(tok)
+            if norm:
+                target_idx = word_idx
+                word_idx += 1
+            else:
+                target_idx = max(0, word_idx - 1)
+        
+        # Map this emission token to the correct acceptance segment
+        s_idx = emi_word_to_acc_seg.get(target_idx, len(segments_a) - 1)
+        if 0 <= s_idx < len(aligned_emi_texts):
+            aligned_emi_texts[s_idx] += tok
+
+    # 4. Build aligned timeline
+    aligned_dialog_timeline = []
+    for i, seg_a in enumerate(segments_a):
+        acc_text = seg_a.get("text", "").strip()
+        emi_text = aligned_emi_texts[i].strip()
+        
+        # Determine mismatch properly: Compare normalized strings
+        has_mismatch = normalize_text(acc_text) != normalize_text(emi_text)
+        
+        # Edge case: If acceptance had text but emission is completely empty, it's a mismatch
+        if acc_text and not emi_text:
+            has_mismatch = True
+            
+        aligned_dialog_timeline.append({
+            "timestamp": float(seg_a.get("start", 0.0)),
+            "acceptance": acc_text,
+            "emission": emi_text,
+            "has_mismatch": has_mismatch
+        })
+        
     result = {
         "text_similarity": round(float(similarity), 4),
         "is_text_match": len(differences) == 0,  # Strict: Any word difference = no match
@@ -1622,6 +1694,7 @@ def compare_transcripts(
         "timeline_data": {
             "acceptance_segments": segments_a,
             "emission_segments": segments_b,
+            "aligned_dialog_timeline": aligned_dialog_timeline
         }
     }
     
