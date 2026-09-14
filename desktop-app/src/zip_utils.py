@@ -56,6 +56,13 @@ def unzip_and_cleanup(file_path):
             for zip_file in zip_files:
                 # Sprawdź czy to nie jest folder
                 if not zip_file.endswith('/'):
+                    file_name = Path(zip_file).name
+                    
+                    # FILTR macOS: Ignoruj metadane i ukryte pliki systemowe
+                    if '__MACOSX/' in zip_file or file_name.startswith('._') or file_name == '.DS_Store':
+                        logger.debug(f"📦 Pomijam plik systemowy/metadane: {zip_file}")
+                        continue
+                        
                     # Wyciągnij tylko rozszerzenie pliku (bez ścieżki z ZIP)
                     original_suffix = Path(zip_file).suffix
                     
