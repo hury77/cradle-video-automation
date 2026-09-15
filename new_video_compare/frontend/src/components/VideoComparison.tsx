@@ -635,7 +635,99 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   };
 
   // Process Dialog Timeline from backend
-  const dialogTimeline = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data?.aligned_dialog_timeline;
+  const backendTimeline = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data?.aligned_dialog_timeline;
+  const hasBackendAlignment = backendTimeline !== undefined && backendTimeline.length > 0;
+
+  // Process Dialog Timeline (Legacy Fallback)
+  const legacyTimeline = useMemo(() => {
+    const timelineData = results?.overall_result?.report_data?.audio?.speech_to_text?.timeline_data;
+    if (!timelineData) return [];
+
+    const segmentsA = timelineData.acceptance_segments || [];
+    const segmentsB = timelineData.emission_segments || [];
+
+    // Sort both by start time
+    const sortedA = [...segmentsA].sort((a: any, b: any) => a.start - b.start);
+    const sortedB = [...segmentsB].sort((a: any, b: any) => a.start - b.start);
+
+    // Reconstruct full emission text words
+    const allEmiWords: string[] = [];
+    sortedB.forEach((seg: any) => {
+       const words = seg.text.trim().split(/\s+/);
+       words.forEach((w: string) => {
+           if (w.length > 0) allEmiWords.push(w);
+       });
+    });
+    
+    const events: Array<{ timestamp: number; acceptance?: string; emission?: string }> = [];
+    
+    if (sortedA.length === 0 && sortedB.length > 0) {
+        sortedB.forEach((seg: any) => {
+            events.push({ timestamp: seg.start, emission: seg.text });
+        });
+        return events;
+    }
+
+    let emiWordIdx = 0;
+    
+    sortedA.forEach((segA: any, index: number) => {
+        const accWords = segA.text.trim().split(/\s+/).filter((w: string) => w.length > 0);
+        let takeCount = accWords.length;
+        
+        // For the last segment, take all remaining emission words to not lose any text
+        if (index === sortedA.length - 1) {
+            takeCount = allEmiWords.length - emiWordIdx;
+        }
+        
+        const segEmiWords = [];
+        for (let i = 0; i < takeCount; i++) {
+            if (emiWordIdx < allEmiWords.length) {
+                segEmiWords.push(allEmiWords[emiWordIdx]);
+                emiWordIdx++;
+            }
+        }
+        
+        events.push({
+            timestamp: segA.start,
+            acceptance: segA.text,
+            emission: segEmiWords.length > 0 ? segEmiWords.join(" ") : "-"
+        });
+    });
+
+    return events;
+  }, [results]);
+
+  const activeTimeline = hasBackendAlignment ? backendTimeline : legacyTimeline;
+
+  const exportTimelineToXLSX = async () => {
+    if (!activeTimeline || activeTimeline.length === 0) return;
+    
+    // Dynamic import to avoid bloating the main bundle
+    const XLSX = await import('xlsx');
+
+    // Prepare data
+    const data = activeTimeline.map((item: any) => ({
+      'Time': formatTime(item.timestamp),
+      'Acceptance': item.acceptance || "",
+      'Emission': item.emission || ""
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    
+    // Set auto-width for columns
+    const colWidths = [
+      { wch: 12 }, // Time
+      { wch: 60 }, // Acceptance
+      { wch: 60 }  // Emission
+    ];
+    worksheet['!cols'] = colWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Dialog Timeline');
+
+    const id = job.cradle_id || job.id || 'unknown';
+    XLSX.writeFile(workbook, `dialog_timeline_${id}.xlsx`);
+  };
 
   const getOverallStatus = (similarity: number) => {
     if (similarity >= 0.95)
@@ -1514,41 +1606,28 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </h4>
                           
                           <div className="space-y-4">
-                            {/* Comparison View */}
-                            {audio.speech_to_text.comparison && audio.speech_to_text.comparison.total_differences > 0 ? (
-                              <div className="bg-white dark:bg-[#12131c] p-3 rounded-xl border border-slate-200 dark:border-white/10 max-h-40 overflow-y-auto">
-                                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 font-bold">Word Differences Detected:</div>
-                                {audio.speech_to_text.comparison.word_differences.map((diff, idx) => (
-                                  <div key={idx} className="mb-2 text-xs pl-2 border-l-2 border-rose-300">
-                                    <div className="flex gap-2">
-                                      <span className="text-slate-400 w-16 text-[10px] font-bold uppercase">{diff.type}</span>
-                                      <div className="flex-1 font-mono text-xs">
-                                        {diff.acceptance && (
-                                          <div className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1 rounded inline-block mr-1">
-                                            {diff.acceptance}
-                                          </div>
-                                        )}
-                                        {diff.emission && (
-                                          <div className="text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-1 rounded inline-block decoration-slice">
-                                            {diff.emission}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center">
-                                <span className="mr-2">✓</span> No text differences found
-                              </div>
-                            )}
-
                             {/* Dialog Timeline (Whisper) - Side by Side */}
-                            {dialogTimeline !== undefined ? (
-                              dialogTimeline.length > 0 ? (
+                            {activeTimeline !== undefined ? (
+                              activeTimeline.length > 0 ? (
                                 <div className="mt-4">
-                                  <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Detected Dialog Timeline</h4>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Detected Dialog Timeline</h4>
+                                    <button
+                                      onClick={exportTimelineToXLSX}
+                                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded shadow-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+                                      title="Eksportuj do XLSX"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                        <path d="M8 13h2"></path>
+                                        <path d="M8 17h2"></path>
+                                        <path d="M14 13h2"></path>
+                                        <path d="M14 17h2"></path>
+                                      </svg>
+                                      Excel
+                                    </button>
+                                  </div>
                                   <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-white/10 rounded-xl">
                                     <table className="min-w-full divide-y divide-slate-100 dark:divide-white/5 text-xs table-fixed">
                                       <thead className="bg-slate-100 dark:bg-slate-800/80 sticky top-0 z-10 shadow-sm">
@@ -1563,8 +1642,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                         </tr>
                                       </thead>
                                       <tbody className="bg-white dark:bg-[#161824] divide-y divide-slate-100 dark:divide-white/5">
-                                        {(dialogTimeline || []).map((item: any, idx: number) => {
-                                          const isMismatch = Boolean(item.has_mismatch);
+                                        {(activeTimeline || []).map((item: any, idx: number) => {
+                                          let isMismatch = false;
+                                          if (hasBackendAlignment) {
+                                            isMismatch = Boolean(item.has_mismatch);
+                                          } else {
+                                            const normA = (item.acceptance || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
+                                            const normB = (item.emission || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
+                                            isMismatch = Boolean(item.acceptance && item.emission && normA !== normB);
+                                          }
   
                                           return (
                                             <tr 
@@ -1599,17 +1685,18 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                       </tbody>
                                     </table>
                                   </div>
+                                  {!hasBackendAlignment && (
+                                    <div className="mt-2 text-center text-[10px] text-slate-500 dark:text-slate-400 italic">
+                                      Uwaga: Wyświetlasz starszy wynik ze zgrubnym dopasowaniem tekstu. Uruchom "Reanalyze", aby wygenerować dokładniejszą tabelę.
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="text-center p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl text-slate-400 text-xs font-bold italic">
                                   No dialog timeline available.
                                 </div>
                               )
-                            ) : (
-                              <div className="text-center p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl text-slate-400 text-xs font-bold italic">
-                                Brak danych wyrównania dla tego starszego wyniku. Zrekonstruuj analizę w panelu admina, aby zobaczyć poprawioną tabelę.
-                              </div>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                       )}
