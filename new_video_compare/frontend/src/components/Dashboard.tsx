@@ -84,6 +84,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
   const [cleaningUp, setCleaningUp] = useState(false);
   
   // Filters
+  const [chartRange, setChartRange] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [cradleIdFilter, setCradleIdFilter] = useState<string>("");
   const [clientFilter, setClientFilter] = useState<string>("");
@@ -93,7 +94,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
     fetchJobs();
     const interval = setInterval(() => fetchJobs(true), 30000); // Background refresh
     return () => clearInterval(interval);
-  }, [statusFilter, cradleIdFilter, clientFilter, typeFilter]);
+  }, [statusFilter, cradleIdFilter, clientFilter, typeFilter, chartRange]);
 
   const fetchJobs = async (isBackground = false) => {
     try {
@@ -107,7 +108,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
           comparisonType: typeFilter || undefined,
           limit: 50
         }),
-        compareApi.getDashboardStats().catch(err => null)
+        compareApi.getDashboardStats(chartRange).catch(err => null)
       ]);
       
       setJobs(jobsResponse);
@@ -324,15 +325,35 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectJob, viewMode, lang = "PL
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                 {/* Trend Chart (Last 7 Days) */}
                 <div className="lg:col-span-2 bg-white dark:bg-[#161824] rounded-2xl shadow-lg border border-slate-200 dark:border-white/10 p-6 transition-colors">
-                     <div className="flex items-center gap-2 mb-6">
-                        <ChartBarIcon className="w-5 h-5 text-slate-400" />
-                        <h3 className="font-extrabold text-slate-900 dark:text-white">Job Trend (Last 7 Days)</h3>
+                     <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2">
+                           <ChartBarIcon className="w-5 h-5 text-slate-400" />
+                           <h3 className="font-extrabold text-slate-900 dark:text-white">
+                              Job Trend {chartRange === 'all' ? '(All Time)' : `(Last ${chartRange.replace('d', '')} Days)`}
+                           </h3>
+                        </div>
+                        <select 
+                           value={chartRange}
+                           onChange={(e) => setChartRange(e.target.value)}
+                           className="text-xs font-bold bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1 text-slate-700 dark:text-slate-200 focus:ring-0 shadow-sm"
+                        >
+                           <option value="7d">Last 7 Days</option>
+                           <option value="30d">Last 30 Days</option>
+                           <option value="90d">Last 90 Days</option>
+                           <option value="all">All Time</option>
+                        </select>
                      </div>
                      <div className="h-64 w-full">
                         {dashboardStats?.chart_data ? (
                             <Line
                                 data={{
                                     labels: dashboardStats.chart_data.map(d => {
+                                        if (d.date.length === 7) {
+                                            // YYYY-MM
+                                            const [y, m] = d.date.split('-');
+                                            const date = new Date(parseInt(y), parseInt(m) - 1, 1);
+                                            return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+                                        }
                                         const dateStr = d.date.endsWith('Z') || d.date.includes('+') ? d.date : `${d.date}Z`;
                                         const date = new Date(dateStr);
                                         return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });

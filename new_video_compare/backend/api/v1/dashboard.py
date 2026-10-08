@@ -7,7 +7,9 @@ import csv
 import io
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
+import builtins
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -41,10 +43,15 @@ def get_dir_size(path: str) -> int:
         pass
     return total
 
+class ChartRange(str, Enum):
+    DAY_7 = "7d"
+    DAY_30 = "30d"
+    DAY_90 = "90d"
+    ALL = "all"
+
 @router.get("/stats")
-async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def get_dashboard_stats(range: ChartRange = ChartRange.ALL, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Get advanced dashboard statistics"""
-    from datetime import datetime, timedelta
     
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
@@ -72,22 +79,65 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     # Throughput (24h)
     jobs_24h = total_query.filter(ComparisonJob.created_at >= last_24h).count()
     
-    # Chart Data (Last 7 Days)
+    # Chart Data (Aggregation)
     chart_data = []
-    for i in range(6, -1, -1):
-        day_start = now - timedelta(days=i)
-        day_start = day_start.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
+    
+    if range in [ChartRange.DAY_7, ChartRange.DAY_30, ChartRange.DAY_90]:
+        days_map = {"7d": 7, "30d": 30, "90d": 90}
+        days_limit = days_map[range.value]
+        # range 7d means today + 6 previous days (so cutoff is now - 6 days at midnight)
+        start_date = (now - timedelta(days=days_limit - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
         
-        count = total_query.filter(
-            ComparisonJob.created_at >= day_start,
-            ComparisonJob.created_at < day_end
-        ).count()
+        aggregated = db.query(
+            func.date(ComparisonJob.created_at).label('date_str'),
+            func.count(ComparisonJob.id).label('cnt')
+        ).filter(
+            ComparisonJob.created_at.isnot(None),
+            ComparisonJob.created_at >= start_date
+        ).group_by(func.date(ComparisonJob.created_at)).order_by(func.date(ComparisonJob.created_at)).all()
         
-        chart_data.append({
-            "date": day_start.strftime("%Y-%m-%d"),
-            "count": count
-        })
+        counts_dict = {row.date_str: row.cnt for row in aggregated if row.date_str}
+        
+        for i in builtins.range(days_limit - 1, -1, -1):
+            day = now - timedelta(days=i)
+            d_str = day.strftime("%Y-%m-%d")
+            chart_data.append({
+                "date": d_str,
+                "count": counts_dict.get(d_str, 0)
+            })
+            
+    else:
+        # ALL - Monthly aggregation
+        aggregated = db.query(
+            func.strftime('%Y-%m', ComparisonJob.created_at).label('month_str'),
+            func.count(ComparisonJob.id).label('cnt')
+        ).filter(
+            ComparisonJob.created_at.isnot(None)
+        ).group_by(func.strftime('%Y-%m', ComparisonJob.created_at)).order_by(func.strftime('%Y-%m', ComparisonJob.created_at)).all()
+        
+        counts_dict = {row.month_str: row.cnt for row in aggregated if row.month_str}
+        
+        if counts_dict:
+            first_month_str = aggregated[0].month_str
+            first_y, first_m = map(int, first_month_str.split('-'))
+            curr_y, curr_m = now.year, now.month
+            
+            y, m = first_y, first_m
+            while y < curr_y or (y == curr_y and m <= curr_m):
+                m_str = f"{y}-{m:02d}"
+                chart_data.append({
+                    "date": m_str,
+                    "count": counts_dict.get(m_str, 0)
+                })
+                m += 1
+                if m > 12:
+                    m = 1
+                    y += 1
+        else:
+            chart_data.append({
+                "date": now.strftime("%Y-%m"),
+                "count": 0
+            })
     
     # 3. Client Breakdown & Formatting
     # Assuming Job Name format: "Client - Campaign - ..." or just parsing logic

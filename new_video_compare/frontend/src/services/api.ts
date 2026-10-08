@@ -234,8 +234,8 @@ class CompareAPI {
     return response.json();
   }
 
-  async getDashboardStats(): Promise<DashboardStats> {
-    const response = await fetch(`${API_BASE_URL}/dashboard/stats`);
+  async getDashboardStats(range: string = 'all'): Promise<DashboardStats> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/stats?range=${range}`);
     if (!response.ok) {
         throw new Error("Failed to fetch dashboard stats");
     }
