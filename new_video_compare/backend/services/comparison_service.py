@@ -428,8 +428,10 @@ class ComparisonService:
                 # NOTE: FULL+HIGH was added in bdf5231 but caused OOM crashes on 16 GB M4
                 # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
                 # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
-                should_run_stt = audio_result.get("has_audio", True) and not audio_result.get("no_audio_tracks", False) and check_comp_type(
-                    job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT]
+                loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
+                should_run_stt = audio_result.get("has_audio", True) and not audio_result.get("no_audio_tracks", False) and (
+                    check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT])
+                    or loudness_match_issue
                 )
                 if should_run_stt:
                     mode_label = "VO_TRANSCRIPT" if check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT) else ("AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper())
@@ -444,7 +446,6 @@ class ComparisonService:
                         should_filter_song = effective_sensitivity in ["high", "automation"]
                         
                         # Fix: Force STT if loudness differences were detected, even if spectral similarity is high
-                        loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
                         force_stt = loudness_match_issue or check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT)
                         
                         stt_result = compare_spoken_text(
@@ -482,8 +483,9 @@ class ComparisonService:
                                 "acceptance_segments": stt_result.get("transcript_acceptance", {}).get("segments", []),
                                 "emission_segments": stt_result.get("transcript_emission", {}).get("segments", []),
                             },
-                            "skipped": pipeline_info.get("skipped", False),
+                            "status": stt_result.get("status", "completed"),
                             "skipped_reason": stt_result.get("skipped_reason"),
+                            "error_message": stt_result.get("error_message"),
                         }
                         audio_result["voiceover"] = stt_result.get("voiceover")
                         
@@ -854,21 +856,20 @@ class ComparisonService:
             comparison_data = stt.get("comparison", {})
             word_diffs = comparison_data.get("word_differences", [])
             
-            if stt_similarity is not None:
-                metrics["audio_transcription"] = {
-                    "text_similarity": stt_similarity,
-                    "is_text_match": stt.get("is_text_match", True),
-                    "acceptance_text": acceptance_text[:300] if acceptance_text else "",
-                    "emission_text": emission_text[:300] if emission_text else "",
-                    "word_differences_count": len(word_diffs),
-                    "word_differences_sample": word_diffs[:5],  # First 5 differences for context
-                    "skipped": stt.get("skipped", False),
-                    "skipped_reason": stt.get("skipped_reason"),
-                }
-            else:
-                metrics["audio_transcription"] = {"status": "not_run"}
+            stt_status = stt.get("status", "completed")
+            metrics["audio_transcription"] = {
+                "status": stt_status,
+                "text_similarity": stt_similarity,
+                "is_text_match": stt.get("is_text_match", True),
+                "acceptance_text": acceptance_text[:300] if acceptance_text else "",
+                "emission_text": emission_text[:300] if emission_text else "",
+                "word_differences_count": len(word_diffs),
+                "word_differences_sample": word_diffs[:5],
+                "skipped_reason": stt.get("skipped_reason"),
+                "error_message": stt.get("error_message"),
+            }
             
-            metrics["stt_skipped"] = stt.get("skipped", False)
+            metrics["stt_skipped"] = (stt_status == "skipped")
             metrics["stt_skipped_reason"] = stt.get("skipped_reason")
             
             # Pass loudness metrics to AI
@@ -896,6 +897,16 @@ class ComparisonService:
                 verdict = DecisionVerdict.APPROVE
             elif verdict_str == "reject":
                 verdict = DecisionVerdict.REJECT
+                
+            stt_status = metrics.get("audio_transcription", {}).get("status")
+            if stt_status == "failed" and verdict == DecisionVerdict.APPROVE:
+                verdict = DecisionVerdict.REVIEW
+                error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
+                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono aprobatę AI. Moduł STT uległ awarii technicznej i weryfikacja głosu nie została ukończona. Zgłoszony błąd: {error_msg}\n\nOryginalna odpowiedź AI: {ai_result.get('reasoning', '')}"
+            elif stt_status == "failed" and verdict == DecisionVerdict.REJECT:
+                error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
+                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono (REJECT). Dodatkowo, moduł STT napotkał awarię technicznego: {error_msg}.\n\n" + ai_result.get("reasoning", "")
+
 
             # Build knowledge snapshot — full audit trail for post-job-deletion review
             knowledge_snapshot = self._build_knowledge_snapshot(db, job_id, job, results)

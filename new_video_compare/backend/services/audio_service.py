@@ -1223,21 +1223,20 @@ def transcribe_audio(
     """
     # 1. Get raw result from transcription engine
     import os
+    import subprocess
+    import tempfile
+    import json
+    import sys
     _whisper_lock.acquire()
     lock_file = None
     try:
-        # Acquire system-wide process lock to prevent concurrent Metal GPU driver buffer collisions (e.g. across DEV and LIVE backends)
         try:
             lock_file = open('/tmp/mlx_whisper_gpu.lock', 'w')
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         except Exception as lock_err:
             logger.warning(f"⚠️ Could not acquire system-wide file lock: {lock_err}. Proceeding with thread lock only.")
 
-        # Prefer MLX for M-series Macs
         try:
-            mlx_whisper = get_mlx_whisper()
-            
-            # Use full-precision community models for 100% accuracy matching standard Whisper
             model_map = {
                 "tiny": "mlx-community/whisper-tiny-mlx",
                 "base": "mlx-community/whisper-base-mlx",
@@ -1245,67 +1244,66 @@ def transcribe_audio(
                 "medium": "mlx-community/whisper-medium-mlx",
                 "large": "mlx-community/whisper-large-v3-mlx"
             }
-            
             config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
             target_model_key = config_model if model_name == "base" else model_name
             target_model = model_map.get(target_model_key, "mlx-community/whisper-small-mlx")
             
-            logger.info(f"📝 MLX Transcribing (M4): {Path(audio_path).name} using {target_model}")
+            logger.info(f"📝 MLX Transcribing (M4 via Subprocess): {Path(audio_path).name} using {target_model}")
             
             options = {
                 "word_timestamps": True,
-                # Anti-hallucination: do NOT feed previous tokens back as context.
-                # Without this, Whisper enters a self-reinforcing "loop" and generates
-                # repetitive gibberish (e.g. Welsh-like text) on music-only audio.
                 "condition_on_previous_text": False,
-                # Segments with no-speech probability above this are discarded by the model.
-                # Default is 0.6. Previously lowered to 0.45 but caused false negatives (discarded real VO).
                 "no_speech_threshold": 0.6,
             }
             if language:
                 options["language"] = language
             if initial_prompt:
                 options["initial_prompt"] = initial_prompt
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_out:
+                tmp_out_path = tmp_out.name
                 
-            result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=target_model, **options)
-            
-        except Exception as mlx_err:
-            logger.warning(f"⚠️ MLX Whisper failed: {mlx_err}. Attempting PyTorch MPS fallback...")
-            
-            # Additional GC before heavy model load
-            import gc
-            gc.collect()
+            script_code = f"""
+import mlx_whisper
+import json
+
+options = {repr(options)}
+result = mlx_whisper.transcribe('{str(audio_path)}', path_or_hf_repo='{target_model}', **options)
+with open('{tmp_out_path}', 'w') as f:
+    json.dump(result, f)
+"""
             
             try:
-                whisper = get_whisper()
-                import torch
+                proc = subprocess.run(
+                    [sys.executable, "-c", script_code],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    check=True
+                )
+                if proc.stderr:
+                    logger.debug(f"MLX stderr (first 2000 chars): {proc.stderr[:2000]}")
                 
-                # Determine device
-                device = "mps" if torch.backends.mps.is_available() else "cpu"
-                
-                # Retrieve model keys outside try block fallback
-                config_model_fallback = os.getenv("WHISPER_MODEL_SIZE", "small")
-                target_model_key_fallback = config_model_fallback if model_name == "base" else model_name
-                
-                logger.info(f"🤖 Loading standard Whisper on {device}: {target_model_key_fallback}")
-                
-                model = whisper.load_model(target_model_key_fallback, device=device)
-                
-                options = {
-                    "fp16": device == "mps", # FP16 supported on MPS
-                    "beam_size": 5,
-                    "condition_on_previous_text": False,
-                    "no_speech_threshold": 0.45,
-                }
-                if language:
-                    options["language"] = language
-                if initial_prompt:
-                    options["initial_prompt"] = initial_prompt
+                with open(tmp_out_path, 'r') as f:
+                    result = json.load(f)
                     
-                result = model.transcribe(str(audio_path), **options)
-            except Exception as torch_err:
-                logger.error(f"❌ Both MLX and PyTorch fallback failed: {torch_err}")
-                return {"error": f"Transcription engines failed: {mlx_err} | {torch_err}", "text": "", "segments": []}
+            except subprocess.TimeoutExpired:
+                raise Exception("TimeoutExpired: Subprocess exceeded 300s limit.")
+            except subprocess.CalledProcessError as e:
+                err_msg = e.stderr[:2000] if e.stderr else "No stderr"
+                if e.returncode == -9:
+                    raise Exception(f"Process killed by OS (OOM/SIGKILL). stderr: {err_msg}")
+                raise Exception(f"Subprocess failed with code {e.returncode}. stderr: {err_msg}")
+            except json.JSONDecodeError:
+                raise Exception("JSONDecodeError: Could not parse subprocess output file.")
+            finally:
+                if os.path.exists(tmp_out_path):
+                    os.unlink(tmp_out_path)
+            
+        except Exception as mlx_err:
+            logger.error(f"❌ MLX Transcribe (Subprocess) failed: {mlx_err}")
+            return {"error": str(mlx_err), "text": "", "segments": []}
+
 
         # 2. Process engine results (Common Logic)
         segments = []
@@ -1983,8 +1981,9 @@ def compare_spoken_text(
                 "acceptance_text": "",
                 "emission_text": "",
             },
-            "text_similarity": 1.0,
-            "is_text_match": True,
+            "status": "skipped",
+            "text_similarity": None,
+            "is_text_match": None,
             "skipped_reason": (
                 f"Audio similarity {audio_similarity_score:.4f} >= 0.98. "
                 "STT skipped to avoid false positives from source separation non-determinism."
@@ -2031,8 +2030,9 @@ def compare_spoken_text(
                     "emission_segments": [],
                 },
             },
-            "text_similarity": 1.0,
-            "is_text_match": True,
+            "status": "skipped",
+            "text_similarity": None,
+            "is_text_match": None,
             "skipped_reason": f"No audio streams in {missing_label}. STT skipped to prevent hallucinations.",
             "pipeline_info": {"skipped": True},
             "detected_language": language or "unknown",
