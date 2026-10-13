@@ -530,37 +530,26 @@ class AnalystService:
                 word_diffs = stt_data.get("word_differences_count", 0) if isinstance(stt_data, dict) else 0
 
                 # DOOH pattern: no LUFS data, audio_sim=0.0, text perfectly matches (both empty)
-                # OR asymmetric audio (one file has no audio streams) where we intentionally skip STT
-                stt_skipped_reason = metrics.get("stt_skipped_reason", "")
-                is_asymmetric_audio = stt_skipped_reason and "No audio streams in" in stt_skipped_reason
-
+                # Strictly requires both files to lack audio tracks. Asymmetric audio must NEVER auto-approve as DOOH!
                 is_no_audio = (
-                    (
-                        lufs_diff is None
-                        and not has_loudness_issue
-                        and audio_sim is not None and float(audio_sim) == 0.0
-                        and (text_sim is None or text_sim == 1.0)
-                        and word_diffs == 0
-                    )
-                    or is_asymmetric_audio
+                    lufs_diff is None
+                    and not has_loudness_issue
+                    and audio_sim is not None and float(audio_sim) == 0.0
+                    and (text_sim is None or text_sim == 1.0)
+                    and word_diffs == 0
+                    and metrics.get("no_audio_tracks") is True
+                    and not metrics.get("audio_mismatch")
                 )
 
                 if is_no_audio and float(video_sim) >= 0.98:
                     analysis["verdict"] = "approve"
-                    
                     reason_msg = "brak ścieżek dźwiękowych w obu plikach"
-                    if is_asymmetric_audio:
-                        if "acceptance" in stt_skipped_reason.lower():
-                            reason_msg = "brak ścieżki dźwiękowej w pliku acceptance (oczekiwane w digital)"
-                        else:
-                            reason_msg = "brak ścieżki dźwiękowej w pliku emisji (oczekiwane w digital)"
-                            
                     analysis["reasoning"] = (
                         f"Obraz: idealnie zgodny (similarity={video_sim:.4f}, 0 różnych klatek). "
                         f"Audio: {reason_msg} (DOOH — poprawny stan). "
                         "Brak różnic w treści. Końcowy werdykt: APPROVE."
                     )
-                    logger.info(f"🔧 Post-processing: DOOH detected ({reason_msg}) — overriding to APPROVE.")
+                    logger.info("🔧 Post-processing: DOOH detected (brak ścieżek dźwiękowych w obu plikach) — overriding to APPROVE.")
 
             # ── Deterministic Post-Processing for Minor Audio Differences ───
             # If everything else is perfect, allow audio similarity down to 0.85 as compression artifacts
@@ -619,7 +608,12 @@ class AnalystService:
             if stt_skipped:
                 is_stt_ok = True
             elif isinstance(stt_data, dict):
-                if stt_data.get("is_text_match") is True:
+                stt_status = stt_data.get("status")
+                if stt_status == "completed_no_speech":
+                    is_stt_ok = True
+                elif stt_status == "failed":
+                    is_stt_ok = False
+                elif stt_data.get("is_text_match") is True:
                     is_stt_ok = True
                 else:
                     stt_comp = metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
@@ -698,6 +692,23 @@ class AnalystService:
             if metrics.get("audio_mismatch"):
                 analysis["verdict"] = "review"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: KRYTYCZNA RÓŻNICA — brak ścieżki dźwiękowej w jednym z plików (mismatch). Wymuszono status REVIEW. [Oryginalna notatka AI: {analysis.get('reasoning', '')}]"
+
+            # 6. STT Failure / Uncertainty / DUPLICATE_INPUT Overrides (Enforce REVIEW on APPROVE, preserve hard REJECT)
+            if isinstance(stt_data, dict):
+                if "DUPLICATE_INPUT" in str(stt_data.get("skipped_reason", "")) or "DUPLICATE_INPUT" in str(stt_data.get("uncertainty_reason", "")):
+                    analysis["verdict"] = "review"
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT). Podejrzenie błędu pobrania (duplikat). Wymuszono status REVIEW do weryfikacji przez człowieka. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
+                elif stt_data.get("status") == "failed" and analysis["verdict"] == "approve":
+                    analysis["verdict"] = "review"
+                    err = stt_data.get("error_message", "Awaria modułu STT")
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Moduł STT uległ awarii ({err}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
+                elif stt_data.get("is_uncertain") and analysis["verdict"] == "approve":
+                    analysis["verdict"] = "review"
+                    unc = stt_data.get("uncertainty_reason", "wykryto zapętlenie lub niepewność lektora")
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wynik STT oznaczono jako niepewny ({unc}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)

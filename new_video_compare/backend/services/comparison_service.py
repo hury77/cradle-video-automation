@@ -39,6 +39,161 @@ from config import get_sensitivity_config
 logger = logging.getLogger(__name__)
 
 
+ALLOWLIST_EXPLICIT_SKIPS = {
+    "FAST_PATH_IDENTICAL_AUDIO",
+    "NO_AUDIO_STREAMS",
+    "FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH",
+    "DUPLICATE_INPUT",
+}
+
+
+def extract_normalized_skip_code(raw_skip_reason: Any) -> Optional[str]:
+    """
+    Extracts and validates the normalized skip reason code against the allowlist.
+    Strictly checks the exact token or canonical prefix before ':' or ' -'.
+    Rejects loose substrings or unverified prefixes.
+    """
+    if not raw_skip_reason or not isinstance(raw_skip_reason, str):
+        return None
+    s = raw_skip_reason.strip()
+    if s in ALLOWLIST_EXPLICIT_SKIPS:
+        return s
+    for sep in (":", " -"):
+        if sep in s:
+            prefix = s.split(sep, 1)[0].strip()
+            if prefix in ALLOWLIST_EXPLICIT_SKIPS:
+                return prefix
+    if s.startswith("Audio similarity ") and "STT skipped to avoid false positives" in s:
+        return "FAST_PATH_IDENTICAL_AUDIO"
+    return None
+
+
+def is_trusted_stt_skip_reason(raw_skip_reason: Any) -> bool:
+    """Validates whether an STT skip reason strictly matches an allowlisted canonical reason."""
+    return extract_normalized_skip_code(raw_skip_reason) is not None
+
+def check_comp_type(job_type, target_types):
+    """Helper to check comparison type robustly (handles String vs Enum vs Mock mismatch)"""
+    if not isinstance(target_types, (list, tuple, set)):
+        target_types = [target_types]
+    if job_type is None:
+        return False
+    
+    def _extract_type_str(x):
+        if hasattr(x, "_mock_name") and x._mock_name:
+            return str(x._mock_name).lower()
+        if hasattr(x, "value") and not hasattr(x.value, "_mock_name"):
+            return str(x.value).lower()
+        if hasattr(x, "name") and not hasattr(x.name, "_mock_name"):
+            return str(x.name).lower()
+        return str(x).lower()
+
+    job_str = _extract_type_str(job_type)
+    for t in target_types:
+        if job_type is t:
+            return True
+        t_str = _extract_type_str(t)
+        if job_str == t_str:
+            return True
+        for canonical in ("full", "audio_only", "video_only", "vo_transcript", "automation"):
+            if canonical in job_str and canonical in t_str:
+                return True
+    return False
+
+
+def is_valid_no_audio_streams_skip(audio_res: dict) -> bool:
+    """
+    Validates whether NO_AUDIO_STREAMS skip is strictly legitimate:
+    Both files must have zero audio tracks. Audio mismatch or any audio stream strictly disqualifies skip.
+    """
+    if not isinstance(audio_res, dict):
+        return False
+    if audio_res.get("audio_mismatch") is True:
+        return False
+    if audio_res.get("has_audio_any") is True:
+        return False
+    if audio_res.get("acc_has_audio") is True or audio_res.get("emi_has_audio") is True:
+        return False
+    return bool(audio_res.get("no_audio_tracks"))
+
+
+def is_valid_fast_path_audio_skip(comp_type, audio_res: dict) -> bool:
+    """
+    Strict validation for FAST_PATH_IDENTICAL_AUDIO:
+    Must NOT be VO_TRANSCRIPT mode, must NOT have audio_mismatch,
+    must have actual audio similarity score >= 0.98, and no loudness differences.
+    """
+    if not isinstance(audio_res, dict):
+        return False
+    if check_comp_type(comp_type, ComparisonType.VO_TRANSCRIPT):
+        return False
+    if audio_res.get("audio_mismatch") is True:
+        return False
+    if audio_res.get("no_audio_tracks") is True:
+        return False
+    sim_score = audio_res.get("similarity_score")
+    if sim_score is None:
+        return False
+    try:
+        if float(sim_score) < 0.98:
+            return False
+    except (ValueError, TypeError):
+        return False
+    if audio_res.get("loudness", {}).get("has_loudness_differences", False):
+        return False
+    return True
+
+
+def is_valid_full_stt_skip(comp_type, audio_res: dict) -> bool:
+    """
+    Strict validation for FULL mode STT skip:
+    Requires matching LUFS, music_proportion <= 0.55, explicit raw_vad_status == 'no_speech',
+    complete metrics for both files, no VAD errors/uncertainty, and no audio mismatch.
+    """
+    if not isinstance(audio_res, dict):
+        return False
+    if not check_comp_type(comp_type, ComparisonType.FULL):
+        return False
+    if audio_res.get("audio_mismatch") is True:
+        return False
+    if audio_res.get("loudness", {}).get("has_loudness_differences", False):
+        return False
+    if audio_res.get("music_proportion", 0.0) > 0.55:
+        return False
+    if audio_res.get("raw_vad_status") != "no_speech":
+        return False
+    if audio_res.get("raw_vad_speech") is not False:
+        return False
+    if audio_res.get("raw_vad_inconclusive") is True:
+        return False
+    if audio_res.get("raw_vad_error") is not None:
+        return False
+
+    vad_a = audio_res.get("raw_vad_a")
+    vad_b = audio_res.get("raw_vad_b")
+    metrics_complete = audio_res.get("raw_vad_metrics_complete")
+
+    if vad_a is not None and vad_b is not None:
+        a_ok = (
+            isinstance(vad_a, dict)
+            and vad_a.get("status") == "no_speech"
+            and vad_a.get("has_speech") is False
+            and vad_a.get("error") is None
+            and isinstance(vad_a.get("speech_duration_s"), (int, float))
+            and isinstance(vad_a.get("segments_count"), int)
+        )
+        b_ok = (
+            isinstance(vad_b, dict)
+            and vad_b.get("status") == "no_speech"
+            and vad_b.get("has_speech") is False
+            and vad_b.get("error") is None
+            and isinstance(vad_b.get("speech_duration_s"), (int, float))
+            and isinstance(vad_b.get("segments_count"), int)
+        )
+        return a_ok and b_ok and (metrics_complete is not False)
+    return metrics_complete is True
+
+
 class ComparisonService:
     """
     Main comparison service that orchestrates video and audio comparison
@@ -337,36 +492,70 @@ class ComparisonService:
 
                 audio_result = {}
                 
-                # Probe audio streams before running audio comparison (silent files / GIFs support)
+                # ── PRIORITY 1: Check binary identity (DUPLICATE_INPUT) ──
+                from services.audio_service import get_audio_stream_count, compute_file_sha256, detect_raw_audio_speech
+                is_binary_duplicate = False
+                try:
+                    sha_acc = compute_file_sha256(Path(acceptance_path))
+                    sha_emi = compute_file_sha256(Path(emission_path))
+                    if sha_acc == sha_emi:
+                        is_binary_duplicate = True
+                        logger.warning(f"🚨 DUPLICATE_INPUT detected in comparison: Acceptance and Emission have identical SHA256 ({sha_acc[:16]}...)")
+                except Exception as sha_err:
+                    logger.warning(f"Could not compute input SHA256: {sha_err}")
+
+                # Probe audio streams
                 acc_audio_streams = 0
                 emi_audio_streams = 0
                 try:
-                    from services.audio_service import get_audio_stream_count
                     acc_audio_streams = get_audio_stream_count(Path(acceptance_path))
                     emi_audio_streams = get_audio_stream_count(Path(emission_path))
                 except Exception as probe_audio_e:
                     logger.warning(f"Could not probe audio streams: {probe_audio_e}")
 
-                if acc_audio_streams == 0 and emi_audio_streams == 0:
-                    logger.info("🔇 No audio streams found in both files (silent video / GIF). Skipping audio comparison.")
-                    audio_result = {
-                        "has_audio": False,
-                        "no_audio_tracks": True,
-                        "similarity_score": 1.0,
-                        "audio_comparison_skipped": True,
-                        "skip_reason": "No audio tracks present in both source files",
-                        "message": "Files are identical in audio (both are silent)"
+                acc_has_audio = acc_audio_streams > 0
+                emi_has_audio = emi_audio_streams > 0
+                has_audio_any = acc_has_audio or emi_has_audio
+                audio_pair_comparable = acc_has_audio and emi_has_audio
+                no_audio_tracks = not has_audio_any
+                audio_mismatch = acc_has_audio != emi_has_audio
+
+                audio_result["acc_has_audio"] = acc_has_audio
+                audio_result["emi_has_audio"] = emi_has_audio
+                audio_result["has_audio_any"] = has_audio_any
+                audio_result["audio_pair_comparable"] = audio_pair_comparable
+                audio_result["no_audio_tracks"] = no_audio_tracks
+                audio_result["audio_mismatch"] = audio_mismatch
+                audio_result["is_binary_duplicate"] = is_binary_duplicate
+
+                if is_binary_duplicate and check_comp_type(job.comparison_type, ComparisonType.FULL):
+                    # FULL mode: binary duplicate inputs MUST trigger DUPLICATE_INPUT, skip STT, and force REVIEW
+                    logger.warning("🚨 FULL mode duplicate inputs: Setting DUPLICATE_INPUT status and forcing REVIEW.")
+                    audio_result["has_audio"] = audio_pair_comparable
+                    audio_result["similarity_score"] = 1.0
+                    audio_result["speech_to_text"] = {
+                        "status": "skipped",
+                        "text_similarity": None,
+                        "is_text_match": None,
+                        "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
+                        "is_uncertain": True,
+                        "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
                     }
                     results["audio_result"] = audio_result
-                elif (acc_audio_streams > 0 and emi_audio_streams == 0) or (acc_audio_streams == 0 and emi_audio_streams > 0):
+                elif no_audio_tracks:
+                    logger.info("🔇 No audio streams found in both files (silent video / GIF). Skipping audio comparison.")
+                    audio_result["has_audio"] = False
+                    audio_result["similarity_score"] = 1.0
+                    audio_result["audio_comparison_skipped"] = True
+                    audio_result["skip_reason"] = "NO_AUDIO_STREAMS: No audio tracks present in both source files"
+                    audio_result["message"] = "Files are identical in audio (both are silent)"
+                    results["audio_result"] = audio_result
+                elif audio_mismatch:
                     logger.warning("⚠️ Audio stream mismatch: One file has audio tracks, the other has none.")
-                    audio_result = {
-                        "has_audio": False,
-                        "audio_mismatch": True,
-                        "similarity_score": 0.0,
-                        "audio_comparison_skipped": True,
-                        "skip_reason": "Audio stream mismatch: One file contains audio, but the other has no audio streams."
-                    }
+                    audio_result["has_audio"] = False
+                    audio_result["similarity_score"] = 0.0
+                    audio_result["audio_comparison_skipped"] = True
+                    audio_result["skip_reason"] = "AUDIO_MISMATCH: One file contains audio, but the other has no audio streams."
                     results["audio_result"] = audio_result
                 else:
                     audio_result["has_audio"] = True
@@ -428,11 +617,92 @@ class ComparisonService:
                 # NOTE: FULL+HIGH was added in bdf5231 but caused OOM crashes on 16 GB M4
                 # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
                 # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
+                # Check Raw VAD on mixed audio if both files have audio and mode is FULL
+                raw_vad_speech = False
+                raw_vad_inconclusive = False
+                raw_vad_status = None
+                raw_vad_metrics_complete = False
+                vad_a = None
+                vad_b = None
+
+                if check_comp_type(job.comparison_type, ComparisonType.FULL) and audio_result.get("audio_pair_comparable"):
+                    try:
+                        vad_a = detect_raw_audio_speech(acceptance_path)
+                        vad_b = detect_raw_audio_speech(emission_path)
+                        audio_result["raw_vad_a"] = vad_a
+                        audio_result["raw_vad_b"] = vad_b
+
+                        def _is_valid_vad_dict(v: Any) -> Tuple[bool, bool, bool]:
+                            if not isinstance(v, dict):
+                                return False, False, False
+                            st = v.get("status")
+                            err = v.get("error")
+                            has_sp = v.get("has_speech")
+                            dur = v.get("speech_duration_s")
+                            segs = v.get("segments_count")
+                            if err is not None:
+                                return False, False, False
+                            if not isinstance(dur, (int, float)) or not isinstance(segs, int):
+                                return False, False, False
+                            if st == "speech_detected" and has_sp is True:
+                                return True, True, False
+                            if st == "no_speech" and has_sp is False:
+                                return True, False, True
+                            return False, False, False
+
+                        valid_a, sp_a, no_sp_a = _is_valid_vad_dict(vad_a)
+                        valid_b, sp_b, no_sp_b = _is_valid_vad_dict(vad_b)
+
+                        if not valid_a or not valid_b:
+                            raw_vad_inconclusive = True
+                            raw_vad_metrics_complete = False
+                            if (isinstance(vad_a, dict) and vad_a.get("status") == "error") or (isinstance(vad_b, dict) and vad_b.get("status") == "error"):
+                                raw_vad_status = "error"
+                            elif (isinstance(vad_a, dict) and vad_a.get("status") == "uncertain") or (isinstance(vad_b, dict) and vad_b.get("status") == "uncertain"):
+                                raw_vad_status = "uncertain"
+                            else:
+                                raw_vad_status = "uncertain"
+                        else:
+                            raw_vad_metrics_complete = True
+                            if sp_a or sp_b:
+                                raw_vad_speech = True
+                                raw_vad_status = "speech_detected"
+                            elif no_sp_a and no_sp_b:
+                                raw_vad_speech = False
+                                raw_vad_status = "no_speech"
+                    except Exception as vad_err:
+                        logger.warning(f"Raw VAD check encountered error: {vad_err}")
+                        raw_vad_inconclusive = True
+                        raw_vad_metrics_complete = False
+                        raw_vad_status = "error"
+                        audio_result["raw_vad_error"] = str(vad_err)
+
+                audio_result["raw_vad_speech"] = raw_vad_speech
+                audio_result["raw_vad_inconclusive"] = raw_vad_inconclusive
+                audio_result["raw_vad_status"] = raw_vad_status
+                audio_result["raw_vad_metrics_complete"] = raw_vad_metrics_complete
+
                 loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
-                should_run_stt = audio_result.get("has_audio", True) and not audio_result.get("no_audio_tracks", False) and (
-                    check_comp_type(job.comparison_type, [ComparisonType.AUDIO_ONLY, ComparisonType.AUTOMATION, ComparisonType.VO_TRANSCRIPT])
-                    or loudness_match_issue
-                )
+                audio_mismatch_issue = audio_result.get("audio_mismatch", False)
+                has_duplicate_skip = (audio_result.get("is_binary_duplicate") and check_comp_type(job.comparison_type, ComparisonType.FULL))
+
+                # STT Decision Gate
+                is_vo_mode = check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT)
+                is_auto_mode = check_comp_type(job.comparison_type, ComparisonType.AUTOMATION)
+                is_audio_mode = check_comp_type(job.comparison_type, ComparisonType.AUDIO_ONLY)
+                is_full_mode = check_comp_type(job.comparison_type, ComparisonType.FULL)
+
+                if has_duplicate_skip and not is_vo_mode:
+                    should_run_stt = False
+                else:
+                    music_dominance = audio_result.get("music_proportion", 0.0) > 0.55
+                    should_run_stt = audio_result.get("has_audio_any", True) and not audio_result.get("no_audio_tracks", False) and (
+                        is_audio_mode
+                        or is_auto_mode
+                        or is_vo_mode
+                        or audio_mismatch_issue
+                        or (is_full_mode and (loudness_match_issue or raw_vad_speech or raw_vad_inconclusive or music_dominance))
+                    )
                 if should_run_stt:
                     mode_label = "VO_TRANSCRIPT" if check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT) else ("AUTOMATION" if check_comp_type(job.comparison_type, ComparisonType.AUTOMATION) else effective_sensitivity.upper())
                     logger.info(f"🎧 {mode_label} Mode: Running enhanced analysis (Demucs + Whisper)...")
@@ -785,20 +1055,17 @@ class ComparisonService:
         db.commit()
         logger.info(f"💾 Saved comparison results for job {job.id}")
 
-    def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
+    @classmethod
+    def _build_ai_metrics(cls, job: ComparisonJob, results: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Orchestrates the AI analyst brain for a given job.
-        
-        Args:
-            db: Database session
-            job_id: ID of the job to analyze
-            results: Results dictionary from comparison
+        Extracts and validates metrics dictionary from job results for AI Analyst.
+        Enforces strict fail-closed allowlist for STT skip scenarios.
         """
-        job = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first()
-        if not job:
-            return
+        job_id = getattr(job, "id", None)
+        job_name = getattr(job, "job_name", "")
+        client_name = getattr(job, "client_name", "")
+        comparison_type = getattr(job, "comparison_type", None)
 
-        # Prepare metrics for AI
         video_res = results.get("video_result")
         audio_res = results.get("audio_result")
 
@@ -819,8 +1086,8 @@ class ComparisonService:
 
         metrics = {
             "job_id": job_id,
-            "job_name": job.job_name,
-            "client_name": job.client_name,
+            "job_name": job_name,
+            "client_name": client_name,
             "overall_similarity": penalized_overall,
             "video_similarity": computed_video_similarity,
             "video_differences_count": video_differences_count,
@@ -831,9 +1098,7 @@ class ComparisonService:
         if audio_res and isinstance(audio_res, dict):
             metrics["audio_similarity"] = float(audio_res.get("similarity_score", 0.0))
             
-            # Prune massive float arrays from audio_analysis_data to align with SOUL.md:
-            # "Bądź ekonomiczny. Nie wysyłaj do LLM więcej danych niż potrzeba. Optymalizuj tokeny."
-            # Only keep minimal attributes that analyst_service uses.
+            # Prune massive float arrays from audio_analysis_data to align with SOUL.md
             stt = audio_res.get("speech_to_text", {})
             metrics["audio_analysis_data"] = {
                 "similarity": {
@@ -848,32 +1113,136 @@ class ComparisonService:
             }
             metrics["audio_mismatch"] = audio_res.get("audio_mismatch", False)
             metrics["no_audio_tracks"] = audio_res.get("no_audio_tracks", False)
+
+            if not stt or not isinstance(stt, dict):
+                # Unregistered missing STT payload: protect against silent failure (Fail-Closed)
+                # An empty/missing STT dictionary can ONLY be recognized as skipped if the job state
+                # strictly proves a verified, allowlisted skip condition:
+                is_legit_skip = False
+                legit_reason = None
+                if is_valid_no_audio_streams_skip(audio_res):
+                    is_legit_skip = True
+                    legit_reason = "NO_AUDIO_STREAMS"
+                elif is_valid_full_stt_skip(comparison_type, audio_res):
+                    is_legit_skip = True
+                    legit_reason = "FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH"
+
+                if is_legit_skip:
+                    stt_status = "skipped"
+                    metrics["audio_transcription"] = {
+                        "status": "skipped",
+                        "text_similarity": None,
+                        "is_text_match": None,
+                        "acceptance_text": "",
+                        "emission_text": "",
+                        "word_differences_count": 0,
+                        "word_differences_sample": [],
+                        "skipped_reason": legit_reason,
+                        "error_message": None,
+                        "is_uncertain": False,
+                        "uncertainty_reason": None,
+                    }
+                    metrics["stt_skipped"] = True
+                    metrics["stt_skipped_reason"] = legit_reason
+                else:
+                    stt_status = "failed"
+                    metrics["audio_transcription"] = {
+                        "status": "failed",
+                        "text_similarity": None,
+                        "is_text_match": None,
+                        "acceptance_text": "",
+                        "emission_text": "",
+                        "word_differences_count": 0,
+                        "word_differences_sample": [],
+                        "skipped_reason": None,
+                        "error_message": "Unexpected missing STT payload without allowlisted skip reason",
+                        "is_uncertain": True,
+                        "uncertainty_reason": "Unregistered missing STT payload",
+                    }
+                    metrics["stt_skipped"] = False
+                    metrics["stt_skipped_reason"] = None
+            else:
+                stt_similarity = stt.get("text_similarity")
+                acceptance_text = stt.get("acceptance_text", "")
+                emission_text = stt.get("emission_text", "")
+                comparison_data = stt.get("comparison", {})
+                word_diffs = comparison_data.get("word_differences", [])
+                raw_stt_status = stt.get("status")
+                raw_skip_reason = stt.get("skipped_reason")
+
+                is_uncertain = stt.get("is_uncertain", False)
+                uncertainty_reason = stt.get("uncertainty_reason")
+
+                if raw_stt_status == "skipped":
+                    skip_code = extract_normalized_skip_code(raw_skip_reason)
+                    if not skip_code:
+                        stt_status = "failed"
+                        is_uncertain = True
+                        uncertainty_reason = f"Unverified STT skip reason: {raw_skip_reason}"
+                    else:
+                        # Strict code dispatch - verified against actual job state
+                        if skip_code == "NO_AUDIO_STREAMS":
+                            if not is_valid_no_audio_streams_skip(audio_res):
+                                stt_status = "failed"
+                                is_uncertain = True
+                                uncertainty_reason = "NO_AUDIO_STREAMS skip invalid: audio stream present or audio mismatch detected"
+                            else:
+                                stt_status = "skipped"
+                        elif skip_code == "FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH":
+                            if not is_valid_full_stt_skip(comparison_type, audio_res):
+                                stt_status = "failed"
+                                is_uncertain = True
+                                uncertainty_reason = "FULL_MODE skip invalid: Raw VAD, LUFS, music proportion or audio mismatch criteria not met"
+                            else:
+                                stt_status = "skipped"
+                        elif skip_code == "FAST_PATH_IDENTICAL_AUDIO":
+                            if not is_valid_fast_path_audio_skip(comparison_type, audio_res):
+                                stt_status = "failed"
+                                is_uncertain = True
+                                uncertainty_reason = "FAST_PATH audio skip invalid: similarity < 0.98, mismatch, or loudness differences detected"
+                            else:
+                                stt_status = "skipped"
+                        elif skip_code == "DUPLICATE_INPUT":
+                            if not (check_comp_type(comparison_type, ComparisonType.FULL) and audio_res.get("is_binary_duplicate") is True):
+                                stt_status = "failed"
+                                is_uncertain = True
+                                uncertainty_reason = "DUPLICATE_INPUT skip invalid: inputs are not verified binary duplicates in FULL mode"
+                            else:
+                                stt_status = "skipped"
+                                is_uncertain = True
+                                uncertainty_reason = uncertainty_reason or "DUPLICATE_INPUT: Identical binary files detected; requires verification"
+                        else:
+                            stt_status = "failed"
+                            is_uncertain = True
+                            uncertainty_reason = f"Unknown skip code: {skip_code}"
+                elif not raw_stt_status:
+                    if "error" in stt:
+                        stt_status = "failed"
+                        is_uncertain = True
+                        uncertainty_reason = f"STT error: {stt.get('error')}"
+                    else:
+                        stt_status = "failed"
+                        is_uncertain = True
+                        uncertainty_reason = "STT payload missing status field"
+                else:
+                    stt_status = raw_stt_status
+
+                metrics["audio_transcription"] = {
+                    "status": stt_status,
+                    "text_similarity": stt_similarity,
+                    "is_text_match": stt.get("is_text_match"),
+                    "acceptance_text": acceptance_text[:300] if acceptance_text else "",
+                    "emission_text": emission_text[:300] if emission_text else "",
+                    "word_differences_count": len(word_diffs),
+                    "word_differences_sample": word_diffs[:5],
+                    "skipped_reason": stt.get("skipped_reason"),
+                    "error_message": stt.get("error_message"),
+                    "is_uncertain": is_uncertain,
+                    "uncertainty_reason": uncertainty_reason,
+                }
+                metrics["stt_skipped"] = (stt_status == "skipped")
+                metrics["stt_skipped_reason"] = stt.get("skipped_reason")
             
-            # Build transcript summary for AI (text_diff_preview doesn't exist — use real STT fields)
-            stt_similarity = stt.get("text_similarity")
-            acceptance_text = stt.get("acceptance_text", "")
-            emission_text = stt.get("emission_text", "")
-            comparison_data = stt.get("comparison", {})
-            word_diffs = comparison_data.get("word_differences", [])
-            
-            stt_status = stt.get("status", "completed")
-            metrics["audio_transcription"] = {
-                "status": stt_status,
-                "text_similarity": stt_similarity,
-                "is_text_match": stt.get("is_text_match", True),
-                "acceptance_text": acceptance_text[:300] if acceptance_text else "",
-                "emission_text": emission_text[:300] if emission_text else "",
-                "word_differences_count": len(word_diffs),
-                "word_differences_sample": word_diffs[:5],
-                "skipped_reason": stt.get("skipped_reason"),
-                "error_message": stt.get("error_message"),
-            }
-            
-            metrics["stt_skipped"] = (stt_status == "skipped")
-            metrics["stt_skipped_reason"] = stt.get("skipped_reason")
-            
-            # Pass loudness metrics to AI
-            # Note: compare_loudness() stores differences under "comparison" key (not "difference")
             loudness = audio_res.get("loudness", {})
             loudness_comparison = loudness.get("comparison", {})
             metrics["audio_loudness"] = {
@@ -884,6 +1253,23 @@ class ComparisonService:
                 "has_loudness_issue": loudness.get("has_loudness_differences", False)
             }
             
+        return metrics
+
+    def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
+        """
+        Orchestrates the AI analyst brain for a given job.
+        
+        Args:
+            db: Database session
+            job_id: ID of the job to analyze
+            results: Results dictionary from comparison
+        """
+        job = db.query(ComparisonJob).filter(ComparisonJob.id == job_id).first()
+        if not job:
+            return
+
+        metrics = self._build_ai_metrics(job, results)
+
         # Call AI Analyst — pass db session so it can load per-client KB context (SOUL.md)
         from .analyst_service import get_analyst
         ai_result = get_analyst().analyze_job_results(metrics, db=db)
@@ -899,13 +1285,18 @@ class ComparisonService:
                 verdict = DecisionVerdict.REJECT
                 
             stt_status = metrics.get("audio_transcription", {}).get("status")
+            is_stt_uncertain = metrics.get("audio_transcription", {}).get("is_uncertain", False)
             if stt_status == "failed" and verdict == DecisionVerdict.APPROVE:
                 verdict = DecisionVerdict.REVIEW
                 error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
                 ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono aprobatę AI. Moduł STT uległ awarii technicznej i weryfikacja głosu nie została ukończona. Zgłoszony błąd: {error_msg}\n\nOryginalna odpowiedź AI: {ai_result.get('reasoning', '')}"
             elif stt_status == "failed" and verdict == DecisionVerdict.REJECT:
                 error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
-                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono (REJECT). Dodatkowo, moduł STT napotkał awarię technicznego: {error_msg}.\n\n" + ai_result.get("reasoning", "")
+                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono (REJECT). Dodatkowo, moduł STT napotkał awarię techniczną: {error_msg}.\n\n" + ai_result.get("reasoning", "")
+            elif is_stt_uncertain and verdict == DecisionVerdict.APPROVE:
+                verdict = DecisionVerdict.REVIEW
+                unc_msg = metrics.get("audio_transcription", {}).get("uncertainty_reason", "wykryto zapętlenie lektora")
+                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono aprobatę AI. Wynik STT oznaczono jako niepewny ({unc_msg}). Wymuszono status REVIEW do weryfikacji przez człowieka.\n\nOryginalna odpowiedź AI: {ai_result.get('reasoning', '')}"
 
 
             # Build knowledge snapshot — full audit trail for post-job-deletion review
@@ -1020,8 +1411,10 @@ class ComparisonService:
                     "stt_emission_text": (stt.get("emission_text") or "")[:500],
                     "stt_word_differences": (stt.get("comparison") or {}).get("word_differences", [])[:10],
                     "stt_segment_differences": (stt.get("comparison") or {}).get("segment_differences", [])[:10],
-                    "stt_skipped": stt.get("skipped", False),
-                    "stt_skipped_reason": stt.get("skipped_reason"),
+                    "stt_status": stt.get("status") or ("skipped" if not stt else "completed"),
+                    "stt_skipped": (stt.get("status") == "skipped") if stt.get("status") else (stt.get("skipped", True) if stt else True),
+                    "stt_skipped_reason": stt.get("skipped_reason") or ("STT was not executed for this job" if not stt else None),
+                    "is_uncertain": stt.get("is_uncertain", False),
                 }
 
             return snapshot

@@ -14,8 +14,112 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Global threading lock for MLX/Whisper GPU accesses to prevent parallel Metal driver buffer collisions
-_whisper_lock = threading.Lock()
+from contextlib import contextmanager
+import hashlib
+
+# Global threading lock and system-wide file lock for heavy MPS/MLX processes (Demucs and MLX Whisper)
+_heavy_model_lock = threading.Lock()
+_whisper_lock = _heavy_model_lock  # Backwards compatibility alias
+
+class HeavyModelLockError(Exception):
+    """Raised when system-wide hardware lock for heavy MPS models (Demucs/Whisper) fails to acquire."""
+    pass
+
+@contextmanager
+def heavy_mps_model_lock(lock_path: str = "/tmp/nvc_heavy_model_mps.lock"):
+    """
+    Unified cross-thread and cross-process lock for heavy MPS models (Demucs & MLX Whisper).
+    Ensures that at most one heavy model runs on GPU/Neural Engine at any given time.
+    FAIL-CLOSED: If system-wide file lock cannot be acquired, execution is blocked
+    and HeavyModelLockError is raised to prevent concurrency breaches and OOM crashes.
+    """
+    _heavy_model_lock.acquire()
+    lock_file = None
+    acquired_flock = False
+    try:
+        try:
+            lock_file = open(lock_path, "w")
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            acquired_flock = True
+        except Exception as lock_err:
+            logger.error(f"🛑 System-wide heavy model lock failed ({lock_path}): {lock_err}")
+            if lock_file is not None:
+                try:
+                    lock_file.close()
+                except Exception:
+                    pass
+                lock_file = None
+            raise HeavyModelLockError(f"Failed to acquire system-wide heavy model lock {lock_path}: {lock_err}")
+        yield
+    finally:
+        if lock_file is not None:
+            try:
+                if acquired_flock:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as close_err:
+                logger.warning(f"⚠️ Error releasing heavy model file lock: {close_err}")
+        _heavy_model_lock.release()
+
+def compute_file_sha256(file_path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Compute full streaming SHA256 of file without loading entire content into memory."""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+def detect_raw_audio_speech(
+    audio_path: str,
+    threshold: float = 0.5,
+    min_silence_duration_ms: int = 400,
+    speech_pad_ms: int = 200
+) -> Dict[str, Any]:
+    """
+    Inspect raw, unseparated mixed audio for speech activity using Silero VAD.
+    Returns:
+        Dict with status ('speech_detected', 'no_speech', 'error', 'uncertain'),
+        speech_timestamps, and total_speech_duration_s.
+    """
+    try:
+        model, utils = get_silero_vad()
+        (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+        wav = read_audio(audio_path, sampling_rate=16000)
+        timestamps = get_speech_timestamps(
+            wav,
+            model,
+            sampling_rate=16000,
+            threshold=threshold,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms
+        )
+        if not timestamps:
+            return {
+                "status": "no_speech",
+                "has_speech": False,
+                "speech_duration_s": 0.0,
+                "segments_count": 0,
+                "error": None
+            }
+        
+        total_samples = sum(ts["end"] - ts["start"] for ts in timestamps)
+        speech_dur = round(total_samples / 16000.0, 2)
+        return {
+            "status": "speech_detected",
+            "has_speech": True,
+            "speech_duration_s": speech_dur,
+            "segments_count": len(timestamps),
+            "error": None
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ Raw audio VAD check failed on {Path(audio_path).name}: {e}")
+        return {
+            "status": "error",
+            "has_speech": None,
+            "speech_duration_s": 0.0,
+            "segments_count": 0,
+            "error": str(e)
+        }
 
 # Lazy load expensive libraries
 _pyloudnorm = None
@@ -598,14 +702,15 @@ def separate_sources(
 
         logger.info(f"🚀 Running Demucs: {' '.join(cmd)}")
         
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL, # Prevent TTY read
-            env=env, # Disable progress bars
-            timeout=600 # 10 minutes max
-        )
+        with heavy_mps_model_lock():
+            process = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL, # Prevent TTY read
+                env=env, # Disable progress bars
+                timeout=600 # 10 minutes max
+            )
         
         if process.returncode != 0:
             logger.error(f"Demucs CLI failed: {process.stderr}")
@@ -1079,34 +1184,23 @@ def _strip_consecutive_repetitions(text: str) -> str:
     return " ".join(cleaned_words)
 
 
-def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> str:
+def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_repeats: int = 4) -> Tuple[str, bool]:
     """
     Detects Whisper loop hallucinations: repetitive n-gram patterns and Unicode garbage.
-
-    Includes detection for:
-    - DETECTOR 0: Unicode garbage — egzotyczne znaki niełacińskie >70% tokenów
-      (Whisper halucynuje znakami koreańskimi, syngaleskimi, hebrajskimi przy muzyce bez lektora)
-    - DETECTOR 1: Token loop — pojedynczy krótki token (≤4 znaki) stanowi >50% tekstu przy ≥8
-      wystąpieniach (np. "כ כ כ כ" lub "removing removing removing removing removing removing")
-    - DETECTOR 2: Intra-word syllable loops (e.g., 'te-te-te' or 'tetetete')
-    - DETECTOR 3: N-gram word loops (standard) + Single-word excessive repetition
+    Returns:
+        Tuple[str, bool]: (cleaned_text, is_uncertain_or_stripped)
     """
     if not text or len(text) < 10:
-        return text
+        return text, False
 
     text_lower = text.lower()
     words = text_lower.split()
+    orig_words = text.split()
 
     # ── DETECTOR 0: Unicode garbage (egzotyczne znaki) ─────────────────────
-    # Whisper na audio muzycznym bez lektora produkuje ciągi znaków z niełacińskich
-    # alfabetów: koreańskiego (U+AC00+), syngaleskiego (U+0D80+), hebrajskiego (U+0590+),
-    # arabskiego (U+0600+), etc. Jeśli >70% tokenów jest zdominowane przez takie znaki
-    # — to jest halucynacja, nie prawdziwy tekst.
     if len(words) >= 3:
         non_latin_tokens = 0
         for word in words:
-            # Liczmy znaki spoza Basic Latin + Latin Extended A/B (U+0000–U+024F)
-            # Ignorujemy cyfry i znaki interpunkcji ASCII
             total_chars = sum(1 for c in word if not c.isspace())
             non_latin_chars = sum(
                 1 for c in word
@@ -1122,12 +1216,9 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
                 f"{non_latin_ratio:.1%} tokenów to znaki niełacińskie. "
                 f"Próbka: '{text[:80]}'. Discarding."
             )
-            return ""
+            return "", True
 
     # ── DETECTOR 1: Token loop (krótkie tokeny w pętli) ────────────────────
-    # Łapie pętle krótkich tokenów które nie są wykrywane przez n-gramy.
-    # Przykład: "כ כ כ כ כ כ כ כ" (token 1-znakowy, 100% tekstu)
-    # lub "removing removing removing..." (już łapane przez detektor 3, ale wcześniej)
     if len(words) >= 8:
         from collections import Counter
         token_counts = Counter(words)
@@ -1135,55 +1226,63 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
         top_ratio = top_count / len(words)
 
         if len(top_token) <= 9 and top_ratio > 0.5:
-            logger.warning(
-                f"⚠️ [DETECTOR 1] Short-token loop hallucination! "
-                f"Token '{top_token}' to {top_ratio:.1%} tekstu ({top_count}/{len(words)} wystąpień). "
-                f"Discarding."
-            )
-            return ""
+            first_idx = next((i for i, w in enumerate(words) if w == top_token), 0)
+            if first_idx >= 3:
+                logger.warning(
+                    f"⚠️ [DETECTOR 1] Short-token suffix loop! Token '{top_token}' to {top_ratio:.1%} tekstu. "
+                    f"Preserving valid prefix ({first_idx} words), stripping suffix loop."
+                )
+                return " ".join(orig_words[:first_idx]), True
+            else:
+                logger.warning(
+                    f"⚠️ [DETECTOR 1] Short-token loop hallucination! "
+                    f"Token '{top_token}' to {top_ratio:.1%} tekstu ({top_count}/{len(words)} wystąpień). "
+                    f"Discarding."
+                )
+                return "", True
 
     # ── DETECTOR 2: Intra-word syllable loops (e.g. te-te-te-te) ──────────
     import re
-    # Check if any "word" contains too many repetitive fragments or hyphens
     for word in words:
         if len(word) >= 6:
-            # Check for hyphen-separated repetitions (e.g. te-te-te-te)
             if word.count('-') > 4:
                  logger.warning(f"⚠️ [DETECTOR 2] Syllable loop detected in word: '{word[:50]}...'. Discarding.")
-                 return ""
+                 return "", True
 
-            # Check for non-hyphenated dense repetition (e.g. tetetete, liedliedliedlied)
-            # Regex: any 2-6 char sequence repeating at least 2 times after first (3 total)
             if re.search(r'(.{2,6})\1{2,}', word):
                  logger.warning(f"⚠️ [DETECTOR 2] Character loop detected in word: '{word[:50]}...'. Discarding.")
-                 return ""
+                 return "", True
 
     # ── DETECTOR 3: N-gram and Single-word loops ───────────────────────────
     from collections import Counter
 
-    # Check 1-grams (single word loops)
     if len(words) >= 3:
         one_grams = Counter(words)
         if one_grams:
             mc_word, count = one_grams.most_common(1)[0]
-            # Absolute loop for short texts
             if len(words) <= 5 and count == len(words):
                 logger.warning(
                     f"⚠️ [DETECTOR 3] Single-word absolute loop! '{mc_word}' repeated {count}x. Discarding."
                 )
-                return ""
-            # Percentage loop for longer texts
+                return "", True
             elif len(words) > 5 and count > len(words) * 0.6:
-                logger.warning(
-                    f"⚠️ [DETECTOR 3] Single-word loop! '{mc_word}' to {count/len(words):.1%} tekstu. Discarding."
-                )
-                return ""
+                first_idx = next((i for i, w in enumerate(words) if w == mc_word), 0)
+                if first_idx >= 3:
+                    logger.warning(
+                        f"⚠️ [DETECTOR 3] Single-word suffix loop! '{mc_word}' to {count/len(words):.1%} tekstu. "
+                        f"Preserving valid prefix ({first_idx} words), stripping suffix loop."
+                    )
+                    return " ".join(orig_words[:first_idx]), True
+                else:
+                    logger.warning(
+                        f"⚠️ [DETECTOR 3] Single-word loop! '{mc_word}' to {count/len(words):.1%} tekstu without valid prefix. Discarding."
+                    )
+                    return "", True
 
     if len(words) < 5:
-        return text
+        return text, False
 
-    # Check N-grams (e.g., 3-grams and 5-grams)
-    for n_size, threshold in [(ngram_size, max_repeats), (5, 2)]:
+    for n_size, threshold in [(ngram_size, max_repeats), (2, 2), (5, 2)]:
         if len(words) >= n_size * (threshold + 1):
             ngrams = [
                 " ".join(words[i:i + n_size])
@@ -1195,13 +1294,55 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
             most_common_ngram, most_common_count = counts.most_common(1)[0]
 
             if most_common_count > threshold:
-                logger.warning(
-                    f"⚠️ [DETECTOR 3] N-gram ({n_size}-gram) loop! '{most_common_ngram}' "
-                    f"powtórzony {most_common_count}x. Discarding."
-                )
-                return ""
+                ngram_tokens = most_common_ngram.split()
+                occ = [i for i in range(len(words) - n_size + 1) if words[i:i + n_size] == ngram_tokens]
+                
+                # Check for contiguous repetitions forming a loop at the end of the text
+                # We require at least 2 consecutive repetitions reaching the end of the text
+                is_suffix_loop = False
+                loop_start_token = None
+                
+                if len(occ) >= 2:
+                    # Check contiguous occurrences back-to-back from the end
+                    contiguous_chain = [occ[-1]]
+                    for prev_idx in reversed(occ[:-1]):
+                        # Interval between occurrences should be approximately n_size (+- 1 token)
+                        if contiguous_chain[-1] - prev_idx <= n_size + 1:
+                            contiguous_chain.append(prev_idx)
+                        else:
+                            break
+                    
+                    # Does the chain end near the very end of the text?
+                    ends_at_tail = (len(words) - (contiguous_chain[0] + n_size)) <= 3
+                    
+                    if len(contiguous_chain) >= 2 and ends_at_tail:
+                        is_suffix_loop = True
+                        # The start of the repetitive suffix loop is the start of the second occurrence in chain
+                        # Or earliest occurrence of the contiguous tail loop
+                        loop_start_token = contiguous_chain[-1]
+                
+                if is_suffix_loop and loop_start_token is not None:
+                    if loop_start_token >= 3:
+                        logger.warning(
+                            f"⚠️ [DETECTOR 3] N-gram ({n_size}-gram) contiguous suffix loop! '{most_common_ngram}' "
+                            f"repeated at tail. Preserving valid prefix ({loop_start_token} words), stripping suffix loop."
+                        )
+                        return " ".join(orig_words[:loop_start_token]), True
+                    else:
+                        logger.warning(
+                            f"⚠️ [DETECTOR 3] N-gram ({n_size}-gram) full loop! '{most_common_ngram}' "
+                            f"without valid prefix. Discarding."
+                        )
+                        return "", True
+                else:
+                    # Non-contiguous repetitions: do not destroy text; preserve all and mark uncertain
+                    logger.warning(
+                        f"⚠️ [DETECTOR 3] Repetitive n-gram '{most_common_ngram}' ({most_common_count}x) detected "
+                        f"but not a contiguous tail suffix. Preserving text and marking uncertain."
+                    )
+                    return text, True
 
-    return text
+    return text, False
 
 
 def transcribe_audio(
@@ -1227,82 +1368,112 @@ def transcribe_audio(
     import tempfile
     import json
     import sys
-    _whisper_lock.acquire()
-    lock_file = None
     try:
-        try:
-            lock_file = open('/tmp/mlx_whisper_gpu.lock', 'w')
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        except Exception as lock_err:
-            logger.warning(f"⚠️ Could not acquire system-wide file lock: {lock_err}. Proceeding with thread lock only.")
-
-        try:
-            model_map = {
-                "tiny": "mlx-community/whisper-tiny-mlx",
-                "base": "mlx-community/whisper-base-mlx",
-                "small": "mlx-community/whisper-small-mlx",
-                "medium": "mlx-community/whisper-medium-mlx",
-                "large": "mlx-community/whisper-large-v3-mlx"
-            }
-            config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
-            target_model_key = config_model if model_name == "base" else model_name
-            target_model = model_map.get(target_model_key, "mlx-community/whisper-small-mlx")
-            
-            logger.info(f"📝 MLX Transcribing (M4 via Subprocess): {Path(audio_path).name} using {target_model}")
-            
-            options = {
-                "word_timestamps": True,
-                "condition_on_previous_text": False,
-                "no_speech_threshold": 0.6,
-            }
-            if language:
-                options["language"] = language
-            if initial_prompt:
-                options["initial_prompt"] = initial_prompt
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_out:
-                tmp_out_path = tmp_out.name
-                
-            script_code = f"""
-import mlx_whisper
-import json
-
-options = {repr(options)}
-result = mlx_whisper.transcribe('{str(audio_path)}', path_or_hf_repo='{target_model}', **options)
-with open('{tmp_out_path}', 'w') as f:
-    json.dump(result, f)
-"""
-            
+        with heavy_mps_model_lock():
             try:
-                proc = subprocess.run(
-                    [sys.executable, "-c", script_code],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    check=True
+                model_map = {
+                    "tiny": "mlx-community/whisper-tiny-mlx",
+                    "base": "mlx-community/whisper-base-mlx",
+                    "small": "mlx-community/whisper-small-mlx",
+                    "medium": "mlx-community/whisper-medium-mlx",
+                    "large": "mlx-community/whisper-large-v3-mlx"
+                }
+                config_model = os.getenv("WHISPER_MODEL_SIZE", "small")
+                target_model_key = config_model if model_name == "base" else model_name
+                target_model = model_map.get(target_model_key, "mlx-community/whisper-small-mlx")
+
+                logger.info(f"📝 MLX Transcribing (M4 via Subprocess): {Path(audio_path).name} using {target_model}")
+
+                options = {
+                    "word_timestamps": True,
+                    "condition_on_previous_text": False,
+                    "no_speech_threshold": 0.6,
+                }
+                if language:
+                    options["language"] = language
+                if initial_prompt:
+                    options["initial_prompt"] = initial_prompt
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix="_whisper_out.json") as tmp_out:
+                    tmp_out_path = tmp_out.name
+                with tempfile.NamedTemporaryFile(delete=False, suffix="_whisper_cfg.json", mode="w") as tmp_cfg:
+                    tmp_cfg_path = tmp_cfg.name
+                    json.dump({
+                        "audio_path": str(audio_path),
+                        "model": target_model,
+                        "options": options,
+                        "output_path": tmp_out_path
+                    }, tmp_cfg)
+                with tempfile.NamedTemporaryFile(delete=False, suffix="_whisper_stderr.log") as tmp_stderr:
+                    tmp_stderr_path = tmp_stderr.name
+
+                worker_script = (
+                    "import sys, json, mlx_whisper\n"
+                    "with open(sys.argv[1], 'r') as f:\n"
+                    "    cfg = json.load(f)\n"
+                    "result = mlx_whisper.transcribe(\n"
+                    "    cfg['audio_path'],\n"
+                    "    path_or_hf_repo=cfg['model'],\n"
+                    "    **cfg.get('options', {})\n"
+                    ")\n"
+                    "with open(cfg['output_path'], 'w') as f:\n"
+                    "    json.dump(result, f)\n"
                 )
-                if proc.stderr:
-                    logger.debug(f"MLX stderr (first 2000 chars): {proc.stderr[:2000]}")
-                
-                with open(tmp_out_path, 'r') as f:
-                    result = json.load(f)
-                    
-            except subprocess.TimeoutExpired:
-                raise Exception("TimeoutExpired: Subprocess exceeded 300s limit.")
-            except subprocess.CalledProcessError as e:
-                err_msg = e.stderr[:2000] if e.stderr else "No stderr"
-                if e.returncode == -9:
-                    raise Exception(f"Process killed by OS (OOM/SIGKILL). stderr: {err_msg}")
-                raise Exception(f"Subprocess failed with code {e.returncode}. stderr: {err_msg}")
-            except json.JSONDecodeError:
-                raise Exception("JSONDecodeError: Could not parse subprocess output file.")
-            finally:
-                if os.path.exists(tmp_out_path):
-                    os.unlink(tmp_out_path)
-            
-        except Exception as mlx_err:
-            logger.error(f"❌ MLX Transcribe (Subprocess) failed: {mlx_err}")
-            return {"error": str(mlx_err), "text": "", "segments": []}
+
+                def _read_stderr_tail(path: str, max_bytes: int = 4096) -> str:
+                    try:
+                        if not os.path.exists(path):
+                            return "No stderr file"
+                        size = os.path.getsize(path)
+                        with open(path, "rb") as f:
+                            if size > max_bytes:
+                                f.seek(size - max_bytes)
+                            return f.read().decode("utf-8", errors="replace")
+                    except Exception as err:
+                        return f"Error reading stderr: {err}"
+
+                try:
+                    with open(tmp_stderr_path, "wb") as stderr_f:
+                        proc = subprocess.run(
+                            [sys.executable, "-c", worker_script, tmp_cfg_path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=stderr_f,
+                            timeout=300
+                        )
+
+                    err_tail = _read_stderr_tail(tmp_stderr_path)
+                    if proc.returncode == -9 or proc.returncode == 137:
+                        raise Exception(f"Process killed by OS (OOM/SIGKILL). stderr tail: {err_tail}")
+                    elif proc.returncode != 0:
+                        raise Exception(f"Subprocess failed with code {proc.returncode}. stderr tail: {err_tail}")
+
+                    if not os.path.exists(tmp_out_path) or os.path.getsize(tmp_out_path) == 0:
+                        raise Exception(f"Missing or empty output file from Whisper subprocess. stderr tail: {err_tail}")
+
+                    with open(tmp_out_path, 'r') as f:
+                        result = json.load(f)
+
+                except subprocess.TimeoutExpired:
+                    err_tail = _read_stderr_tail(tmp_stderr_path)
+                    raise Exception(f"TimeoutExpired: Subprocess exceeded 300s limit. stderr tail: {err_tail}")
+                except subprocess.CalledProcessError as e:
+                    err_tail = _read_stderr_tail(tmp_stderr_path)
+                    if e.returncode == -9 or e.returncode == 137:
+                        raise Exception(f"Process killed by OS (OOM/SIGKILL). stderr tail: {err_tail}")
+                    raise Exception(f"Subprocess failed with code {e.returncode}. stderr tail: {err_tail}")
+                except json.JSONDecodeError:
+                    err_tail = _read_stderr_tail(tmp_stderr_path)
+                    raise Exception(f"JSONDecodeError: Could not parse subprocess output file. stderr tail: {err_tail}")
+                finally:
+                    for p in (tmp_cfg_path, tmp_out_path, tmp_stderr_path):
+                        if p and os.path.exists(p):
+                            try:
+                                os.unlink(p)
+                            except Exception:
+                                pass
+            except Exception as mlx_err:
+                logger.error(f"❌ MLX Transcribe (Subprocess) failed: {mlx_err}")
+                return {"error": str(mlx_err), "text": "", "segments": []}
 
 
         # 2. Process engine results (Common Logic)
@@ -1357,7 +1528,8 @@ with open('{tmp_out_path}', 'w') as f:
                 continue
                 
             # Segment-level loop hallucination filter
-            if not _detect_and_strip_loop_hallucination(text):
+            clean_seg, _ = _detect_and_strip_loop_hallucination(text)
+            if not clean_seg:
                 logger.warning(f"⚠️ Filtered loop/hallucination segment: '{text}'")
                 continue
                 
@@ -1382,26 +1554,32 @@ with open('{tmp_out_path}', 'w') as f:
         # subtle repetition loops. Detect: if any 3-word n-gram repeats > 4x
         # in the full transcript, the entire text is likely a hallucination.
         full_text_before = full_text
-        full_text = _detect_and_strip_loop_hallucination(full_text)
+        full_text, loop_detected = _detect_and_strip_loop_hallucination(full_text)
+        is_uncertain = loop_detected
+        uncertainty_reason = "Detector 3 loop detected (repetitive suffix stripped or flagged)" if loop_detected else None
         
-        # If the detector stripped the hallucinated loop, also clear the segments
-        # so they don't pollute the UI timeline.
-        if full_text == "" and full_text_before != "":
-            segments = []
+        if loop_detected:
+            if full_text == "":
+                segments = []
+            else:
+                cleaned_lower = full_text.lower()
+                segments = [s for s in segments if s.get("text", "").strip().lower() in cleaned_lower]
             
         # ── Single-word brand hallucination filter ────────────────────────────
-        # When there is no real VO, Whisper often hallucinates a single brand name 
-        # (like "Electrolux") from music/silence. A real VO is never just 1 word.
         if len(full_text.split()) == 1:
             logger.warning(f"🧹 Single-word hallucination detected ('{full_text.strip()}'). Clearing transcript.")
             full_text = ""
             segments = []
+            is_uncertain = True
+            uncertainty_reason = "Single-word brand hallucination cleared"
 
         transcription = {
             "text": full_text,
             "language": result.get("language", "unknown"),
             "segments": segments,
             "word_count": len(full_text.split()),
+            "is_uncertain": is_uncertain,
+            "uncertainty_reason": uncertainty_reason,
         }
         
         logger.info(f"✅ Transcribed: {len(segments)} segments, {transcription['word_count']} words")
@@ -1411,14 +1589,7 @@ with open('{tmp_out_path}', 'w') as f:
         logger.error(f"❌ Transcription failed (Engine/Processing): {e}")
         return {"error": str(e), "text": "", "segments": []}
     finally:
-        # Release system-wide file lock
-        if lock_file is not None:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                lock_file.close()
-            except Exception as close_err:
-                logger.warning(f"⚠️ Error releasing file lock: {close_err}")
-        _whisper_lock.release()
+        pass
 
 
 def normalize_text(text: str) -> str:
@@ -1790,6 +1961,15 @@ def transcribe_single_file(
             sep_result = separate_sources(audio_path, sep_dir)
             
             if "error" in sep_result:
+                if "HeavyModelLockError" in sep_result["error"] or "Failed to acquire system-wide heavy model lock" in sep_result["error"]:
+                    # Fail-closed: do not fallback to heavy whisper on hardware lock failure!
+                    logger.error(f"🛑 [{label.upper()}] Hardware lock failed in Demucs. Aborting transcription to prevent concurrency breaches.")
+                    return {
+                        "transcript": {"error": f"Hardware lock failure: {sep_result['error']}", "text": "", "segments": []},
+                        "source_separation": {"status": "failed", "error": sep_result["error"]},
+                        "input_file": str(file_path),
+                        "used_vocals": False
+                    }
                 logger.warning(f"  [{label.upper()}] Demucs failed: {sep_result['error']}. Using mixed audio.")
                 separation_stats = {"status": "failed", "error": sep_result["error"]}
             else:
@@ -1971,8 +2151,8 @@ def compare_spoken_text(
             "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
             "transcript_emission": {"text": "", "segments": [], "word_count": 0},
             "comparison": {
-                "text_similarity": 1.0,
-                "is_text_match": True,
+                "text_similarity": None,
+                "is_text_match": None,
                 "word_count_a": 0,
                 "word_count_b": 0,
                 "word_differences": [],
@@ -1993,31 +2173,18 @@ def compare_spoken_text(
             "voiceover": None,
         }
     
-    # ── NO-AUDIO GUARD: Skip STT when files lack audio streams ────────────────
-    # When audio_similarity = 0.0 due to missing streams (not quality differences),
-    # the Fast Path above won't catch it (0.0 < 0.98). Running Whisper on silent
-    # or absent audio causes hallucinations (e.g. initial_prompt echoed back as text).
+    # ── AUDIO STREAM PROBE: Handle no-audio vs asymmetric audio ────────────────
     acc_streams = get_audio_stream_count(Path(acceptance_path))
     emi_streams = get_audio_stream_count(Path(emission_path))
 
-    if acc_streams == 0 or emi_streams == 0:
-        missing = []
-        if acc_streams == 0:
-            missing.append("acceptance")
-        if emi_streams == 0:
-            missing.append("emission")
-        missing_label = " and ".join(missing)
-
-        logger.info(
-            f"🔇 NO-AUDIO GUARD: No audio streams in {missing_label}. "
-            f"Skipping STT to prevent hallucinations."
-        )
+    if acc_streams == 0 and emi_streams == 0:
+        logger.info("🔇 NO-AUDIO GUARD: Neither file contains audio streams. Skipping STT.")
         return {
-            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0},
-            "transcript_emission": {"text": "", "segments": [], "word_count": 0},
+            "transcript_acceptance": {"text": "", "segments": [], "word_count": 0, "has_audio_stream": False},
+            "transcript_emission": {"text": "", "segments": [], "word_count": 0, "has_audio_stream": False},
             "comparison": {
-                "text_similarity": 1.0,
-                "is_text_match": True,
+                "text_similarity": None,
+                "is_text_match": None,
                 "word_count_a": 0,
                 "word_count_b": 0,
                 "word_differences": [],
@@ -2025,18 +2192,61 @@ def compare_spoken_text(
                 "total_differences": 0,
                 "acceptance_text": "",
                 "emission_text": "",
-                "timeline_data": {
-                    "acceptance_segments": [],
-                    "emission_segments": [],
-                },
+                "timeline_data": {"acceptance_segments": [], "emission_segments": []},
             },
             "status": "skipped",
             "text_similarity": None,
             "is_text_match": None,
-            "skipped_reason": f"No audio streams in {missing_label}. STT skipped to prevent hallucinations.",
+            "skipped_reason": "NO_AUDIO_STREAMS: Both files lack audio streams.",
             "pipeline_info": {"skipped": True},
             "detected_language": language or "unknown",
             "voiceover": None,
+        }
+
+    # Handle asymmetric audio (one file has audio, the other is silent)
+    if (acc_streams > 0 and emi_streams == 0) or (acc_streams == 0 and emi_streams > 0):
+        logger.warning("⚠️ AUDIO MISMATCH: Asymmetric audio streams. Transcribing the audio-bearing file only.")
+        if acc_streams > 0:
+            result_a = transcribe_single_file(
+                acceptance_path, language=language, model_name=model_name,
+                use_source_separation=use_separated_vocals, filter_song=filter_song,
+                label="acceptance", initial_prompt=initial_prompt,
+                start_time=start_time_acc, duration=duration
+            )
+            transcript_a = result_a.get("transcript", {"text": "", "segments": []})
+            transcript_b = {"text": "", "segments": [], "word_count": 0, "has_audio_stream": False, "stream_status": "NO_AUDIO_STREAM_IN_FILE"}
+        else:
+            result_b = transcribe_single_file(
+                emission_path, language=language, model_name=model_name,
+                use_source_separation=use_separated_vocals, filter_song=filter_song,
+                label="emission", initial_prompt=initial_prompt,
+                start_time=start_time_emi, duration=duration
+            )
+            transcript_a = {"text": "", "segments": [], "word_count": 0, "has_audio_stream": False, "stream_status": "NO_AUDIO_STREAM_IN_FILE"}
+            transcript_b = result_b.get("transcript", {"text": "", "segments": []})
+
+        return {
+            "status": "completed",
+            "transcript_acceptance": transcript_a,
+            "transcript_emission": transcript_b,
+            "comparison": {
+                "text_similarity": 0.0,
+                "is_text_match": False,
+                "word_count_a": transcript_a.get("word_count", 0),
+                "word_count_b": transcript_b.get("word_count", 0),
+                "word_differences": [{"acceptance": transcript_a.get("text", ""), "emission": "(missing audio stream)"}],
+                "segment_differences": [],
+                "total_differences": 1,
+                "acceptance_text": transcript_a.get("text", ""),
+                "emission_text": transcript_b.get("text", ""),
+            },
+            "text_similarity": 0.0,
+            "is_text_match": False,
+            "is_uncertain": True,
+            "uncertainty_reason": "AUDIO_MISMATCH: One file contains audio, the other has no audio streams.",
+            "audio_mismatch": True,
+            "pipeline_info": {"asymmetric_audio": True},
+            "detected_language": transcript_a.get("language") or transcript_b.get("language"),
         }
 
     logger.info("🎙️ Starting full spoken text comparison (audio similarity below threshold)...")
@@ -2120,12 +2330,47 @@ def compare_spoken_text(
             logger.info(f"❌ Fallback did not improve similarity ({similarity_fallback:.1%} <= {similarity:.1%}). Keeping original results.")
 
     
+    err_a = transcript_a.get("error")
+    err_b = transcript_b.get("error")
+    if err_a or err_b:
+        status = "failed"
+        err_msg = err_a or err_b
+        text_similarity = None
+        is_text_match = None
+    else:
+        wc_a = transcript_a.get("word_count", 0)
+        wc_b = transcript_b.get("word_count", 0)
+        if wc_a == 0 and wc_b == 0:
+            status = "completed_no_speech"
+            text_similarity = None
+            is_text_match = None
+        else:
+            status = "completed"
+            text_similarity = comparison.get("text_similarity")
+            is_text_match = comparison.get("is_text_match", False)
+
+    is_uncertain = transcript_a.get("is_uncertain", False) or transcript_b.get("is_uncertain", False)
+    uncertainty_reasons = []
+    if transcript_a.get("is_uncertain"):
+        uncertainty_reasons.append(f"acceptance: {transcript_a.get('uncertainty_reason', 'repetition loop stripped')}")
+    if transcript_b.get("is_uncertain"):
+        uncertainty_reasons.append(f"emission: {transcript_b.get('uncertainty_reason', 'repetition loop stripped')}")
+    uncertainty_reason = "; ".join(uncertainty_reasons) if uncertainty_reasons else None
+
+    if status in ("completed_no_speech", "failed"):
+        comparison["text_similarity"] = None
+        comparison["is_text_match"] = None
+
     result = {
+        "status": status,
         "transcript_acceptance": transcript_a,
         "transcript_emission": transcript_b,
         "comparison": comparison,
-        "text_similarity": comparison.get("text_similarity", 0),
-        "is_text_match": comparison.get("is_text_match", False),
+        "text_similarity": text_similarity,
+        "is_text_match": is_text_match,
+        "is_uncertain": is_uncertain,
+        "uncertainty_reason": uncertainty_reason,
+        "error_message": (err_a or err_b) if (err_a or err_b) else None,
         "pipeline_info": {
             "acceptance_used_vocals": result_a.get("used_vocals", False),
             "emission_used_vocals": result_b.get("used_vocals", False),
