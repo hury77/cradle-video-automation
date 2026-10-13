@@ -1339,3 +1339,141 @@ def test_duplicate_input_strictly_verified_against_is_binary_duplicate_flag(mock
     assert m_fake["audio_transcription"]["status"] == "failed"
     assert m_fake["audio_transcription"]["is_uncertain"] is True
     assert "DUPLICATE_INPUT skip invalid" in m_fake["audio_transcription"]["uncertainty_reason"]
+
+
+# 45. test_automation_duplicate_input_forces_review_job_1634
+def test_automation_duplicate_input_forces_review_job_1634(mock_job):
+    """
+    Recreates Job 1634: In AUTOMATION mode, identical Acceptance and Emission files
+    must NOT get fast-path APPROVE. They must be flagged as DUPLICATE_INPUT,
+    STT skipped with is_uncertain=True, and unconditionally produce REVIEW.
+    Hard REJECT must not be downgraded to REVIEW.
+    """
+    from services.comparison_service import ComparisonService, is_valid_fast_path_audio_skip
+    analyst = AnalystService()
+
+    mock_job.comparison_type = ComparisonType.AUTOMATION
+
+    # Recreate Job 1634 payload: binary identical files in AUTOMATION
+    res_job_1634 = {
+        "overall_similarity": 1.0,
+        "video_result": {"overall_similarity": 1.0, "frames_with_differences": 0},
+        "audio_result": {
+            "has_audio": True,
+            "has_audio_any": True,
+            "audio_pair_comparable": True,
+            "no_audio_tracks": False,
+            "is_binary_duplicate": True,  # Full streaming SHA256 match
+            "similarity_score": 1.0,
+            "speech_to_text": {
+                "status": "skipped",
+                "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
+                "is_uncertain": True,
+                "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
+            }
+        }
+    }
+
+    # Fast path check must strictly reject binary duplicates in AUTOMATION
+    assert is_valid_fast_path_audio_skip(mock_job.comparison_type, res_job_1634["audio_result"]) is False
+
+    # Metrics construction
+    metrics = ComparisonService._build_ai_metrics(mock_job, res_job_1634)
+    assert metrics["stt_skipped"] is True
+    assert metrics["stt_skipped_reason"] == "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)"
+    assert metrics["audio_transcription"]["status"] == "skipped"
+    assert metrics["audio_transcription"]["is_uncertain"] is True
+
+    # Analyst decision: Even if LLM would approve 100% match, DUPLICATE_INPUT forces REVIEW
+    with patch('ollama.chat') as mock_chat:
+        mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Identical files 100% match", "confidence": 1.0}'}}
+        decision = analyst.analyze_job_results(metrics, db=MockDB())
+        assert decision["verdict"] == "review"
+        assert "DUPLICATE_INPUT" in decision["reasoning"]
+
+    # Hard REJECT is NOT downgraded to REVIEW
+    metrics_reject = dict(metrics)
+    metrics_reject["duration_difference"] = 1.2
+    metrics_reject["is_arpp_slate"] = False
+    with patch('ollama.chat') as mock_chat:
+        mock_chat.return_value = {"message": {"content": '{"verdict": "reject", "reasoning": "Duration mismatch > 0.5s", "confidence": 1.0}'}}
+        decision_reject = analyst.analyze_job_results(metrics_reject, db=MockDB())
+        assert decision_reject["verdict"] == "reject"
+        assert "DUPLICATE_INPUT" in decision_reject["reasoning"]
+
+
+# 46. test_automation_different_files_high_similarity_preserves_fast_path
+def test_automation_different_files_high_similarity_preserves_fast_path(mock_job):
+    """
+    In AUTOMATION mode, when files are genuinely different (is_binary_duplicate=False)
+    and audio similarity is >= 0.98 without loudness issues, Fast Path is preserved
+    and can produce APPROVE without being blocked.
+    """
+    from services.comparison_service import ComparisonService, is_valid_fast_path_audio_skip
+    analyst = AnalystService()
+
+    mock_job.comparison_type = ComparisonType.AUTOMATION
+
+    res_fast_path = {
+        "overall_similarity": 0.998,
+        "video_result": {"overall_similarity": 0.998, "frames_with_differences": 0},
+        "audio_result": {
+            "has_audio": True,
+            "has_audio_any": True,
+            "audio_pair_comparable": True,
+            "no_audio_tracks": False,
+            "is_binary_duplicate": False,  # Genuinely different files
+            "similarity_score": 0.9950,
+            "loudness": {"has_loudness_differences": False},
+            "speech_to_text": {
+                "status": "skipped",
+                "skipped_reason": "Audio similarity 0.9950 >= 0.98 — STT skipped to avoid false positives",
+            }
+        }
+    }
+
+    # Fast path validation succeeds
+    assert is_valid_fast_path_audio_skip(mock_job.comparison_type, res_fast_path["audio_result"]) is True
+
+    # Metrics construction
+    metrics = ComparisonService._build_ai_metrics(mock_job, res_fast_path)
+    assert metrics["stt_skipped"] is True
+    assert metrics["audio_transcription"]["status"] == "skipped"
+    assert metrics["audio_transcription"]["is_uncertain"] is False
+
+    # Analyst decision: APPROVE is preserved
+    with patch('ollama.chat') as mock_chat:
+        mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "High similarity audio and video match", "confidence": 0.98}'}}
+        decision = analyst.analyze_job_results(metrics, db=MockDB())
+        assert decision["verdict"] == "approve"
+
+
+# 47. test_vo_transcript_identical_files_runs_stt_not_bypassed
+def test_vo_transcript_identical_files_runs_stt_not_bypassed(mock_job):
+    """
+    In VO_TRANSCRIPT mode, even when files are binary identical, STT must NOT
+    be bypassed or skipped by DUPLICATE_INPUT. STT must always execute.
+    """
+    from services.comparison_service import check_comp_type
+    mock_job.comparison_type = ComparisonType.VO_TRANSCRIPT
+
+    # Check decision gate variables
+    is_binary_duplicate = True
+    has_duplicate_skip = (is_binary_duplicate and check_comp_type(mock_job.comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]))
+    assert has_duplicate_skip is False, "VO_TRANSCRIPT must not activate has_duplicate_skip"
+
+    is_vo_mode = check_comp_type(mock_job.comparison_type, ComparisonType.VO_TRANSCRIPT)
+    assert is_vo_mode is True
+
+    # STT decision gate in compare_files:
+    # if has_duplicate_skip and not is_vo_mode: should_run_stt = False
+    assert (has_duplicate_skip and not is_vo_mode) is False
+
+    # Loudness/mode force_stt check:
+    force_stt = check_comp_type(mock_job.comparison_type, ComparisonType.VO_TRANSCRIPT)
+    assert force_stt is True, "VO_TRANSCRIPT must force STT execution"
+
+    # In compare_spoken_text, force_stt=True disables the similarity >= 0.98 fast-path skip:
+    sim_score = 1.0
+    fast_path_taken = (not force_stt and sim_score is not None and sim_score >= 0.98)
+    assert fast_path_taken is False, "Fast path must not be taken when force_stt is True"

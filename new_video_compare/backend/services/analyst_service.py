@@ -696,8 +696,11 @@ class AnalystService:
             # 6. STT Failure / Uncertainty / DUPLICATE_INPUT Overrides (Enforce REVIEW on APPROVE, preserve hard REJECT)
             if isinstance(stt_data, dict):
                 if "DUPLICATE_INPUT" in str(stt_data.get("skipped_reason", "")) or "DUPLICATE_INPUT" in str(stt_data.get("uncertainty_reason", "")):
-                    analysis["verdict"] = "review"
-                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT). Podejrzenie błędu pobrania (duplikat). Wymuszono status REVIEW do weryfikacji przez człowieka. [Oryginalna notatka: {current_reasoning}]"
+                    if analysis["verdict"] != "reject":
+                        analysis["verdict"] = "review"
+                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT). Podejrzenie błędu pobrania (duplikat). Wymuszono status REVIEW do weryfikacji przez człowieka. [Oryginalna notatka: {current_reasoning}]"
+                    else:
+                        analysis["reasoning"] = f"🚨 SYSTEM WARNING: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT), lecz zachowano twardy status REJECT. [Oryginalna notatka: {current_reasoning}]"
                     current_reasoning = analysis["reasoning"]
                 elif stt_data.get("status") == "failed" and analysis["verdict"] == "approve":
                     analysis["verdict"] = "review"

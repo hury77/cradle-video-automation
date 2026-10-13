@@ -121,11 +121,14 @@ def is_valid_fast_path_audio_skip(comp_type, audio_res: dict) -> bool:
     """
     Strict validation for FAST_PATH_IDENTICAL_AUDIO:
     Must NOT be VO_TRANSCRIPT mode, must NOT have audio_mismatch,
+    must NOT be DUPLICATE_INPUT in FULL or AUTOMATION mode,
     must have actual audio similarity score >= 0.98, and no loudness differences.
     """
     if not isinstance(audio_res, dict):
         return False
     if check_comp_type(comp_type, ComparisonType.VO_TRANSCRIPT):
+        return False
+    if audio_res.get("is_binary_duplicate") is True and check_comp_type(comp_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]):
         return False
     if audio_res.get("audio_mismatch") is True:
         return False
@@ -528,9 +531,9 @@ class ComparisonService:
                 audio_result["audio_mismatch"] = audio_mismatch
                 audio_result["is_binary_duplicate"] = is_binary_duplicate
 
-                if is_binary_duplicate and check_comp_type(job.comparison_type, ComparisonType.FULL):
-                    # FULL mode: binary duplicate inputs MUST trigger DUPLICATE_INPUT, skip STT, and force REVIEW
-                    logger.warning("🚨 FULL mode duplicate inputs: Setting DUPLICATE_INPUT status and forcing REVIEW.")
+                if is_binary_duplicate and check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]):
+                    # FULL and AUTOMATION modes: binary duplicate inputs MUST trigger DUPLICATE_INPUT, skip STT, and force REVIEW
+                    logger.warning(f"🚨 {job.comparison_type} mode duplicate inputs: Setting DUPLICATE_INPUT status and forcing REVIEW.")
                     audio_result["has_audio"] = audio_pair_comparable
                     audio_result["similarity_score"] = 1.0
                     audio_result["speech_to_text"] = {
@@ -684,7 +687,7 @@ class ComparisonService:
 
                 loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
                 audio_mismatch_issue = audio_result.get("audio_mismatch", False)
-                has_duplicate_skip = (audio_result.get("is_binary_duplicate") and check_comp_type(job.comparison_type, ComparisonType.FULL))
+                has_duplicate_skip = (audio_result.get("is_binary_duplicate") and check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]))
 
                 # STT Decision Gate
                 is_vo_mode = check_comp_type(job.comparison_type, ComparisonType.VO_TRANSCRIPT)
@@ -1203,10 +1206,10 @@ class ComparisonService:
                             else:
                                 stt_status = "skipped"
                         elif skip_code == "DUPLICATE_INPUT":
-                            if not (check_comp_type(comparison_type, ComparisonType.FULL) and audio_res.get("is_binary_duplicate") is True):
+                            if not (check_comp_type(comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]) and audio_res.get("is_binary_duplicate") is True):
                                 stt_status = "failed"
                                 is_uncertain = True
-                                uncertainty_reason = "DUPLICATE_INPUT skip invalid: inputs are not verified binary duplicates in FULL mode"
+                                uncertainty_reason = "DUPLICATE_INPUT skip invalid: inputs are not verified binary duplicates in FULL or AUTOMATION mode"
                             else:
                                 stt_status = "skipped"
                                 is_uncertain = True
