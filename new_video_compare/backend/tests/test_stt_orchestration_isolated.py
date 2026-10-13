@@ -1448,32 +1448,158 @@ def test_automation_different_files_high_similarity_preserves_fast_path(mock_job
         assert decision["verdict"] == "approve"
 
 
-# 47. test_vo_transcript_identical_files_runs_stt_not_bypassed
-def test_vo_transcript_identical_files_runs_stt_not_bypassed(mock_job):
+# 47. test_compare_files_real_gate_orchestration_all_modes
+def test_compare_files_real_gate_orchestration_all_modes():
     """
-    In VO_TRANSCRIPT mode, even when files are binary identical, STT must NOT
-    be bypassed or skipped by DUPLICATE_INPUT. STT must always execute.
+    Directly exercises the real gate code in ComparisonService.compare_files (process_job)
+    with mocks for get_audio_stream_count and compute_file_sha256:
+    - AUTOMATION + identical hash => DUPLICATE_INPUT, STT skipped, Fast Path not used;
+    - VO_TRANSCRIPT + identical hash => compare_spoken_text IS called with force_stt=True;
+    - AUTOMATION + different files (high similarity) => Fast Path preserved.
+    Does NOT duplicate gate decision logic in the test body.
     """
-    from services.comparison_service import check_comp_type
-    mock_job.comparison_type = ComparisonType.VO_TRANSCRIPT
+    with patch('services.comparison_service.VideoProcessor'), \
+         patch('services.comparison_service.AudioProcessor'):
+        svc = comp_svc.ComparisonService()
 
-    # Check decision gate variables
-    is_binary_duplicate = True
-    has_duplicate_skip = (is_binary_duplicate and check_comp_type(mock_job.comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]))
-    assert has_duplicate_skip is False, "VO_TRANSCRIPT must not activate has_duplicate_skip"
+    svc.video_processor = MagicMock()
+    v_res = MagicMock()
+    v_res.error_message = None
+    v_res.overall_similarity = 1.0
+    v_res.frames_with_differences = 0
+    v_res.acceptance_metadata = MagicMock(duration=10.0)
+    v_res.emission_metadata = MagicMock(duration=10.0)
+    svc.video_processor.process_comparison.return_value = v_res
+    svc.audio_processor = MagicMock()
+    svc._save_results = MagicMock()
 
-    is_vo_mode = check_comp_type(mock_job.comparison_type, ComparisonType.VO_TRANSCRIPT)
-    assert is_vo_mode is True
+    class MockJobModel:
+        def __init__(self, comp_type):
+            self.id = 1
+            self.job_name = "test_gate_job"
+            self.cradle_id = "test_cradle_gate"
+            self.client_name = "test_client"
+            self.comparison_type = comp_type
+            self.sensitivity_level = MagicMock(value="automation")
+            self.processing_config = {}
+            self.progress = 0.0
+            self.status = MagicMock()
+            self.started_at = None
+            self.completed_at = None
+            self.processing_duration = None
+            self.acceptance_file = MagicMock(file_path="/tmp/mock_acc.mp4")
+            self.emission_file = MagicMock(file_path="/tmp/mock_emi.mp4")
 
-    # STT decision gate in compare_files:
-    # if has_duplicate_skip and not is_vo_mode: should_run_stt = False
-    assert (has_duplicate_skip and not is_vo_mode) is False
+    # Scenario 1: AUTOMATION + identical hash => DUPLICATE_INPUT, STT skipped, Fast Path not used
+    job1 = MockJobModel(ComparisonType.AUTOMATION)
+    mock_db1 = MagicMock()
+    mock_db1.query.return_value.filter.return_value.first.return_value = job1
 
-    # Loudness/mode force_stt check:
-    force_stt = check_comp_type(mock_job.comparison_type, ComparisonType.VO_TRANSCRIPT)
-    assert force_stt is True, "VO_TRANSCRIPT must force STT execution"
+    with patch('services.comparison_service.SessionLocal', return_value=mock_db1), \
+         patch('services.comparison_service.log_automation_event'), \
+         patch('services.audio_service.compute_file_sha256', return_value="identical_hash_12345"), \
+         patch('services.audio_service.get_audio_stream_count', return_value=1), \
+         patch('services.comparison_service.compare_loudness', return_value={"has_loudness_differences": False}), \
+         patch('services.comparison_service.compare_audio_similarity', return_value={"overall_audio_similarity": 1.0}), \
+         patch('services.comparison_service.compare_spoken_text') as mock_stt_1:
 
-    # In compare_spoken_text, force_stt=True disables the similarity >= 0.98 fast-path skip:
-    sim_score = 1.0
-    fast_path_taken = (not force_stt and sim_score is not None and sim_score >= 0.98)
-    assert fast_path_taken is False, "Fast path must not be taken when force_stt is True"
+        res1 = svc.compare_files(job_id=1)
+        mock_stt_1.assert_not_called()
+        assert res1["audio_result"]["is_binary_duplicate"] is True
+        assert res1["audio_result"]["speech_to_text"]["status"] == "skipped"
+        assert "DUPLICATE_INPUT" in res1["audio_result"]["speech_to_text"]["skipped_reason"]
+        assert res1["audio_result"]["speech_to_text"]["is_uncertain"] is True
+
+    # Scenario 2: VO_TRANSCRIPT + identical hash => compare_spoken_text IS called with force_stt=True
+    job2 = MockJobModel(ComparisonType.VO_TRANSCRIPT)
+    mock_db2 = MagicMock()
+    mock_db2.query.return_value.filter.return_value.first.return_value = job2
+
+    with patch('services.comparison_service.SessionLocal', return_value=mock_db2), \
+         patch('services.comparison_service.log_automation_event'), \
+         patch('services.audio_service.compute_file_sha256', return_value="identical_hash_12345"), \
+         patch('services.audio_service.get_audio_stream_count', return_value=1), \
+         patch('services.comparison_service.compare_loudness', return_value={"has_loudness_differences": False}), \
+         patch('services.comparison_service.compare_audio_similarity', return_value={"overall_audio_similarity": 1.0}), \
+         patch('services.comparison_service.compare_spoken_text') as mock_stt_2:
+
+        mock_stt_2.return_value = {
+            "status": "completed",
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "pipeline_info": {},
+            "transcript_acceptance": {"text": "hello"},
+            "transcript_emission": {"text": "hello"},
+        }
+        res2 = svc.compare_files(job_id=1)
+        mock_stt_2.assert_called_once()
+        call_kwargs = mock_stt_2.call_args.kwargs
+        assert call_kwargs.get("force_stt") is True
+        assert res2["audio_result"]["speech_to_text"]["status"] == "completed"
+
+    # Scenario 3: AUTOMATION + different files (high similarity >= 0.98) => Fast Path preserved
+    job3 = MockJobModel(ComparisonType.AUTOMATION)
+    mock_db3 = MagicMock()
+    mock_db3.query.return_value.filter.return_value.first.return_value = job3
+
+    with patch('services.comparison_service.SessionLocal', return_value=mock_db3), \
+         patch('services.comparison_service.log_automation_event'), \
+         patch('services.audio_service.compute_file_sha256', side_effect=["hash_acc_111", "hash_emi_222"]), \
+         patch('services.audio_service.get_audio_stream_count', return_value=1), \
+         patch('services.comparison_service.compare_loudness', return_value={"has_loudness_differences": False}), \
+         patch('services.comparison_service.compare_audio_similarity', return_value={"overall_audio_similarity": 0.9950}), \
+         patch('services.comparison_service.compare_spoken_text') as mock_stt_3:
+
+        mock_stt_3.return_value = {
+            "status": "skipped",
+            "skipped_reason": "Audio similarity 0.9950 >= 0.98 — STT skipped to avoid false positives",
+            "pipeline_info": {},
+            "text_similarity": None,
+            "is_text_match": None,
+        }
+        res3 = svc.compare_files(job_id=1)
+        mock_stt_3.assert_called_once()
+        call_kwargs3 = mock_stt_3.call_args.kwargs
+        assert call_kwargs3.get("force_stt") is False
+        assert call_kwargs3.get("audio_similarity_score") == 0.9950
+        assert res3["audio_result"]["is_binary_duplicate"] is False
+        assert res3["audio_result"]["speech_to_text"]["status"] == "skipped"
+        assert "Audio similarity" in res3["audio_result"]["speech_to_text"]["skipped_reason"]
+
+
+# 48. test_analyst_service_strict_skip_code_normalization
+def test_analyst_service_strict_skip_code_normalization():
+    """
+    Verifies that AnalystService uses strict normalization:
+    - Canonical DUPLICATE_INPUT triggers REVIEW override (or preserves REJECT)
+    - Spoofed/unauthorized reason containing substring DUPLICATE_INPUT is rejected and does not trigger override
+    """
+    analyst = AnalystService()
+
+    # Case A: Spoofed reason 'UNAUTHORIZED_DUPLICATE_INPUT: fake' does not trigger override
+    spoofed_metrics = {
+        "audio_transcription": {
+            "status": "skipped",
+            "skipped_reason": "UNAUTHORIZED_DUPLICATE_INPUT: fake",
+            "is_uncertain": False,
+        }
+    }
+    with patch('ollama.chat') as mock_chat:
+        mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Looks good", "confidence": 0.95}'}}
+        decision = analyst.analyze_job_results(spoofed_metrics, db=MockDB())
+        assert decision["verdict"] == "approve"
+        assert "DUPLICATE_INPUT" not in decision["reasoning"]
+
+    # Case B: Canonical 'DUPLICATE_INPUT: Identical SHA256' triggers REVIEW override
+    canonical_metrics = {
+        "audio_transcription": {
+            "status": "skipped",
+            "skipped_reason": "DUPLICATE_INPUT: Identical SHA256",
+            "is_uncertain": True,
+        }
+    }
+    with patch('ollama.chat') as mock_chat:
+        mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Looks good", "confidence": 0.95}'}}
+        decision_canon = analyst.analyze_job_results(canonical_metrics, db=MockDB())
+        assert decision_canon["verdict"] == "review"
+        assert "DUPLICATE_INPUT" in decision_canon["reasoning"]

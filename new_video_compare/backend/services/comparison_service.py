@@ -208,6 +208,8 @@ class ComparisonService:
         self.audio_processor = AudioProcessor()
         logger.info("🔧 ComparisonService initialized")
 
+    compare_files = None  # Alias set below
+
     def process_job(self, job_id: int) -> Dict[str, Any]:
         """
         Process a comparison job (synchronous for prototype)
@@ -284,25 +286,7 @@ class ComparisonService:
             sensitivity = job.sensitivity_level.value if job.sensitivity_level else "medium"
             logger.info(f"🎚️ Sensitivity Level: {sensitivity}")
 
-            # Helper to check comparison type robustly (handles String vs Enum mismatch)
-            def check_comp_type(job_type, target_types):
-                # If it's a single type, make it a list
-                if not isinstance(target_types, list):
-                    target_types = [target_types]
-                
-                # Normalize job_type to string lower
-                job_type_str = ""
-                if hasattr(job_type, "value"):
-                     job_type_str = str(job_type.value).lower()
-                else:
-                     job_type_str = str(job_type).lower()
-                
-                # Check against targets
-                for t in target_types:
-                    t_str = t.value.lower() if hasattr(t, "value") else str(t).lower()
-                    if job_type_str == t_str:
-                        return True
-                return False
+            # Use robust module-level check_comp_type helper
 
             results = {
                 "video_result": None,
@@ -762,7 +746,9 @@ class ComparisonService:
                         }
                         audio_result["voiceover"] = stt_result.get("voiceover")
                         
-                        logger.info(f"✅ Speech-to-Text complete: {stt_result.get('text_similarity', 0):.1%} match")
+                        _sim_disp = stt_result.get('text_similarity')
+                        _sim_disp_str = f"{_sim_disp:.1%}" if isinstance(_sim_disp, (int, float)) else "N/A"
+                        logger.info(f"✅ Speech-to-Text complete: {_sim_disp_str} match")
                         
                         log_automation_event(
                             db=db,
@@ -1484,3 +1470,6 @@ async def process_comparison_job(job_id: int) -> Dict[str, Any]:
         result = await loop.run_in_executor(pool, _run_job_in_process, job_id)
 
     return result
+
+
+ComparisonService.compare_files = ComparisonService.process_job
