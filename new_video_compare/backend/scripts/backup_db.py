@@ -21,7 +21,8 @@ ARCHITEKTURA I ZASADY BEZPIECZEŃSTWA:
    last_failure_reason.
 6. Powiadomienia macOS (osascript): Przy blokadzie przez resztki .tmp oraz po >= 3
    kolejnych awariach (consecutive_failures >= 3) skrypt wysyła powiadomienie OS.
-   Wywołanie to jest całkowicie nieblokujące i nie wpływa na kod wyjścia.
+   Wywołanie to jest synchroniczne, lecz ograniczone czasowo (timeout 5 s);
+   jego błąd lub timeout nie zmienia wyniku backupu ani kodu wyjścia.
 7. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
 8. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
 9. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzana osobnym procesem retencji).
@@ -58,14 +59,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def send_macos_notification(title: str, message: str):
-    """Wysyła powiadomienie macOS przez osascript. Błąd powiadomienia nie może przerwać działania."""
+def send_macos_notification(title: str, message: str, timeout: int = 5):
+    """
+    Wysyła powiadomienie macOS przez osascript.
+    Wywołanie jest synchroniczne, ograniczone czasowo (timeout 5 s);
+    jego błąd lub timeout nie zmienia wyniku backupu ani kodu wyjścia.
+    """
     try:
         # Bezpieczne oczyszczenie cudzysłowów
-        safe_title = title.replace('"', '\"')
-        safe_msg = message.replace('"', '\"')
+        safe_title = title.replace('"', '\\"')
+        safe_msg = message.replace('"', '\\"')
         script = f'display notification "{safe_msg}" with title "{safe_title}"'
-        subprocess.run(["osascript", "-e", script], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            timeout=timeout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(f"⚠️ Przekroczono limit czasu ({timeout}s) dla powiadomienia macOS (osascript). Kontynuuję.")
     except Exception as e:
         logger.warning(f"Nie udało się wysłać powiadomienia macOS: {e}")
 

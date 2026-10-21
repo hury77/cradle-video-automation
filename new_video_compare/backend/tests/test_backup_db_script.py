@@ -34,7 +34,17 @@ def test_backup_db_all_scenarios():
         conn.commit()
         conn.close()
 
+        # Utworzenie atrapowego osascript w mock_bin, aby nie wysylac prawdziwych powiadomien macOS
+        mock_bin_dir = temp_root / "mock_bin"
+        mock_bin_dir.mkdir(exist_ok=True)
+        fake_osascript = mock_bin_dir / "osascript"
+        osascript_log = temp_root / "osascript_calls.log"
+        fake_script_content = "#!/bin/sh\necho \"$@\" >> \"" + str(osascript_log) + "\"\nexit 0\n"
+        fake_osascript.write_text(fake_script_content)
+        fake_osascript.chmod(0o755)
+
         env = os.environ.copy()
+        env["PATH"] = str(mock_bin_dir) + ":" + env.get("PATH", "")
         env["DB_PATH"] = str(fake_db)
         env["BACKUPS_DIR"] = str(fake_backups_dir)
         env["LOG_DIR"] = str(fake_logs_dir)
@@ -133,12 +143,15 @@ def test_backup_db_all_scenarios():
         assert st_f2["consecutive_failures"] == 2
 
         time.sleep(1.1)
-        # Przy 3 błędzie odpala się kod osascript (weryfikujemy, że skrypt nie wywala się i loguje stan)
+        # Przy 3 błędzie odpala się atrapowy osascript (weryfikujemy mocka i brak crasha)
         res_fail3 = subprocess.run(["python3", str(SCRIPT_PATH)], env=env_corrupt, capture_output=True, text=True)
         assert res_fail3.returncode != 0
         st_f3 = json.loads(status_file.read_text())
         assert st_f3["consecutive_failures"] == 3
-        print("Scenario 6 Passed: consecutive_failures reached 3 without crashing.")
+        assert osascript_log.exists(), "Atrapowy osascript powinien zostać wywołany przy consecutive_failures >= 3"
+        osascript_calls = osascript_log.read_text()
+        assert "Cradle DB Backup Alert" in osascript_calls
+        print("Scenario 6 Passed: consecutive_failures reached 3 and mock osascript received alert.")
 
         # --- 7. Powrót do zdrowej bazy -> reset consecutive_failures i last_failure ---
         print("\n--- Scenario 7: Recovery resets failure counters ---")
@@ -217,6 +230,9 @@ assert ok is True, "Backup must succeed fail-closed even when dedup comparison f
         st10 = json.loads(status_file.read_text())
         assert st10["result"] == "failed"
         assert "Blocked by >= 3 stale .tmp files" in st10["last_failure_reason"]
+        # Weryfikacja powiadomienia blokady w atrapowym osascript
+        osascript_calls_after_10 = osascript_log.read_text()
+        assert "Cradle DB Backup Blokada" in osascript_calls_after_10
         print("Scenario 10 Passed.")
 
         # --- 11. Testy backup_status.py (monitoring statusu) ---
@@ -254,7 +270,29 @@ assert ok is True, "Backup must succeed fail-closed even when dedup comparison f
 
         print("Scenario 11 Passed: backup_status.py correctly validates healthy and unhealthy states.")
 
-        print("\n🎉 ALL 11 UNIT AND SCENARIO TESTS PASSED SUCCESSFULLY!")
+        # --- 12. Test timeoutu osascript (TimeoutExpired nie przerywa działania ani nie zmienia kodu) ---
+        print("\n--- Scenario 12: osascript timeout handling (TimeoutExpired) ---")
+        slow_osascript = mock_bin_dir / "osascript"
+        slow_osascript.write_text("#!/bin/sh\nsleep 2\nexit 0\n")
+        slow_osascript.chmod(0o755)
+
+        script_dir = str(SCRIPT_PATH.parent)
+        test_timeout_code = """
+import os, sys, time
+sys.path.insert(0, """ + repr(script_dir) + """)
+import backup_db
+# Testujemy bezposrednio send_macos_notification z krotkim timeoutem 0.1s
+t0 = time.time()
+backup_db.send_macos_notification("Test Title", "Test Message", timeout=0.1)
+elapsed = time.time() - t0
+assert elapsed < 1.0, f"Notification call took too long: {elapsed}s"
+print("Timeout handled gracefully.")
+"""
+        res_timeout = subprocess.run(["python3", "-c", test_timeout_code], env=env, capture_output=True, text=True)
+        assert res_timeout.returncode == 0, f"Timeout test failed: {res_timeout.stderr}"
+        print("Scenario 12 Passed: TimeoutExpired handled cleanly without altering execution.")
+
+        print("\n🎉 ALL 12 UNIT AND SCENARIO TESTS PASSED SUCCESSFULLY!")
 
     finally:
         for f in temp_root.rglob("*"):
