@@ -176,3 +176,8 @@ __pycache__/
 .DS_Store
 
 graphify-out/
+
+# Backend local test environment and pytest caches
+new_video_compare/backend/test_venv/
+.pytest_cache/
+**/.pytest_cache/
