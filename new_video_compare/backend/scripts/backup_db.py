@@ -1,33 +1,40 @@
 #!/usr/bin/env python3
 """
-backup_db.py — Automatyczny backup bazy danych Knowledge Base (new_video_compare.db)
+backup_db.py — Automatyczny bezpieczny backup bazy danych Knowledge Base.
+Korzysta z SQLite Online Backup API.
 
-Kopiuje aktualną bazę do katalogu backups/ z datą w nazwie.
-Sprawdza integralność bazy przed zamrożeniem (uchg).
-Kompresuje bazę i wysyła do iCloud Drive (Offsite Backup).
-Usuwa backupy starsze niż 30 dni, ale ZAWSZE zachowuje minimum 3 najnowsze kopie.
+ARCHITEKTURA I ZASADY BEZPIECZEŃSTWA:
+1. Spójność transakcyjna: Wykorzystuje SQLite Online Backup API (src.backup(dst))
+   do pliku tymczasowego .tmp.
+2. Weryfikacja integralności: Przed finalizacją każdy zrzut musi przejść PRAGMA integrity_check.
+3. Deduplikacja: Przed zamrożeniem zrzut .tmp jest porównywany pod kątem SHA-256
+   z najnowszą istniejącą kopią db_backup_*.db. Jeśli hashe są identyczne, plik .tmp
+   jest bezpiecznie usuwany, a redundantna kopia jest pomijana (oszczędność dysku).
+   W przypadku jakiegokolwiek błędu porównania, skrypt fail-closed tworzy kopię.
+4. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
+5. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
+6. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzanie retencją to osobna decyzja,
+   realizowana przez dedykowane narzędzia z audytem).
+7. Offsite / iCloud: Wysyłka zewnętrzna (np. iCloud) to osobna decyzja architektoniczna
+   i nie jest wykonywana w podstawowym cyklu lokalnym.
 """
-import shutil
+import hashlib
 import logging
-import subprocess
-import sqlite3
-import gzip
+import os
 from pathlib import Path
-from datetime import datetime, timedelta
+import sqlite3
+import subprocess
+import sys
+from datetime import datetime
 
 # Ścieżki
-SCRIPT_DIR = Path(__file__).parent.resolve()
-BACKEND_DIR = SCRIPT_DIR.parent
-DB_PATH = Path.home() / ".cradle_data/new_video_compare.db"
-BACKUPS_DIR = Path.home() / ".cradle_data/backups"
-ICLOUD_BACKUPS_DIR = Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/CradleBackups"
-LOG_DIR = BACKEND_DIR / "logs"
+DB_PATH = Path(os.environ.get("DB_PATH", Path.home() / ".cradle_data/new_video_compare.db"))
+BACKUPS_DIR = Path(os.environ.get("BACKUPS_DIR", Path.home() / ".cradle_data/backups"))
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.home() / ".cradle_data/logs"))
 LOG_PATH = LOG_DIR / "backup.log"
-KEEP_DAYS = 30
-MIN_BACKUPS_TO_KEEP = 3
 
 # Logging
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(exist_ok=True, mode=0o700)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [BACKUP] %(message)s",
@@ -48,79 +55,89 @@ def check_integrity(db_path: Path) -> bool:
         conn.close()
         if result and result[0].lower() == "ok":
             return True
-        logger.error(f"❌ Błąd integralności bazy: {result}")
+        logger.error(f"❌ Błąd integralności bazy (PRAGMA integrity_check): {result}")
         return False
     except Exception as e:
         logger.error(f"❌ Wyjątek podczas sprawdzania integralności: {e}")
         return False
 
 
-def run_backup():
+def calculate_sha256(filepath: Path) -> str:
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(1024 * 1024):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def run_backup() -> bool:
     if not DB_PATH.exists():
         logger.error(f"❌ Plik bazy nie istnieje: {DB_PATH}")
         return False
 
     BACKUPS_DIR.mkdir(exist_ok=True)
-    ICLOUD_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Nazwa backupu z datą i godziną
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    backup_name = f"db_backup_{timestamp}.db"
-    backup_path = BACKUPS_DIR / backup_name
-    icloud_backup_path = ICLOUD_BACKUPS_DIR / f"{backup_name}.gz"
+    final_backup_name = f"db_backup_{timestamp}.db"
+    final_backup_path = BACKUPS_DIR / final_backup_name
+    tmp_backup_path = BACKUPS_DIR / f"{final_backup_name}.tmp"
+
+    if final_backup_path.exists() or tmp_backup_path.exists():
+        logger.error(f"❌ Plik docelowy lub tymczasowy już istnieje: {final_backup_name}")
+        return False
 
     try:
-        # 1. Kopiowanie
-        shutil.copy2(DB_PATH, backup_path)
-        
-        # 2. Test Integralności
-        if not check_integrity(backup_path):
-            logger.error("❌ SKORUMPOWANY BACKUP! Baza nie przeszła PRAGMA integrity_check. Usuwam zrzut.")
-            backup_path.unlink()
-            return False
-            
-        # 3. Offsite Backup (iCloud Drive Gzip)
-        logger.info(f"☁️ Kompresowanie i wysyłanie backupu do iCloud...")
-        with open(backup_path, 'rb') as f_in:
-            with gzip.open(icloud_backup_path, 'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
-        icloud_size_mb = icloud_backup_path.stat().st_size / (1024 * 1024)
-        logger.info(f"☁️ iCloud Backup zapisany: {icloud_backup_path.name} ({icloud_size_mb:.1f} MB)")
+        # 1. Kopiowanie SQLite Online Backup
+        logger.info(f"Tworzenie kopii bazy online do pliku tymczasowego: {tmp_backup_path.name}")
+        src = sqlite3.connect(str(DB_PATH))
+        dst = sqlite3.connect(str(tmp_backup_path))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
 
-        # 4. Zamrożenie (uchg)
-        subprocess.run(["chflags", "uchg", str(backup_path)], check=True)
-        size_mb = backup_path.stat().st_size / (1024 * 1024)
-        logger.info(f"✅ Backup zapisany, sprawdzony (ok) i zamrożony (uchg): {backup_name} ({size_mb:.1f} MB)")
+        # 2. Test Integralności
+        if not check_integrity(tmp_backup_path):
+            logger.error("❌ SKORUMPOWANY BACKUP! Plik .tmp nie przeszedł PRAGMA integrity_check. Pozostawiam do analizy bez flagi uchg.")
+            return False
+
+        # 3. Deduplikacja: Porównanie z najnowszą istniejącą kopią db_backup_*.db
+        existing_db_backups = sorted(
+            [f for f in BACKUPS_DIR.glob("db_backup_*.db") if f.is_file() and not f.name.endswith(".tmp")],
+            key=lambda p: p.stat().st_mtime
+        )
+        if existing_db_backups:
+            latest_existing = existing_db_backups[-1]
+            try:
+                # Szybki pre-check rozmiaru
+                if tmp_backup_path.stat().st_size == latest_existing.stat().st_size:
+                    tmp_sha = calculate_sha256(tmp_backup_path)
+                    latest_sha = calculate_sha256(latest_existing)
+                    if tmp_sha and latest_sha and tmp_sha == latest_sha:
+                        logger.info(f"🛡️ Deduplikacja: Baza danych jest identyczna z najnowszą kopią ({latest_existing.name}). Pomijam zrzut.")
+                        tmp_backup_path.unlink()
+                        return True
+            except Exception as dedup_err:
+                logger.warning(f"⚠️ Błąd podczas sprawdzania deduplikacji ({dedup_err}). Kontynuuję standardowy zapis (fail-closed).")
+
+        # 4. Zmiana nazwy z .tmp na finalną (Atomic No-Clobber)
+        try:
+            os.link(str(tmp_backup_path), str(final_backup_path))
+            tmp_backup_path.unlink()
+        except FileExistsError:
+            logger.error(f"❌ Kolizja! Plik docelowy {final_backup_name} niespodziewanie istnieje podczas próby zapisu. Przerywam.")
+            return False
+
+        # 5. Zamrożenie (uchg)
+        subprocess.run(["chflags", "uchg", str(final_backup_path)], check=True)
+        size_mb = final_backup_path.stat().st_size / (1024 * 1024)
+        logger.info(f"✅ Backup zapisany, sprawdzony (ok) i zamrożony (uchg): {final_backup_name} ({size_mb:.1f} MB)")
     except Exception as e:
         logger.error(f"❌ Błąd podczas wykonywania zrzutu bazy: {e}")
         return False
 
-    # 5. Bezpieczna retencja (Zawsze zostawiaj MIN_BACKUPS_TO_KEEP)
-    all_backups = sorted(BACKUPS_DIR.glob("db_backup_*.db"), key=lambda p: p.stat().st_mtime)
-    if len(all_backups) <= MIN_BACKUPS_TO_KEEP:
-        logger.info(f"🛡️ Retencja pominięta: liczba backupów ({len(all_backups)}) <= minimum ({MIN_BACKUPS_TO_KEEP}).")
-    else:
-        # Kandydaci do usunięcia to wszyscy poza najnowszymi MIN_BACKUPS_TO_KEEP
-        candidates_for_deletion = all_backups[:-MIN_BACKUPS_TO_KEEP]
-        cutoff = datetime.now() - timedelta(days=KEEP_DAYS)
-        removed = 0
-        
-        for old_backup in candidates_for_deletion:
-            try:
-                mtime = datetime.fromtimestamp(old_backup.stat().st_mtime)
-                if mtime < cutoff:
-                    # Zdjęcie flagi immutable przed próbą usunięcia
-                    subprocess.run(["chflags", "nouchg", str(old_backup)], check=True)
-                    old_backup.unlink()
-                    removed += 1
-                    logger.info(f"🗑️ Usunięto stary backup: {old_backup.name}")
-            except Exception as e:
-                logger.warning(f"⚠️ Nie można usunąć {old_backup.name}: {e}")
-
-        if removed:
-            logger.info(f"🧹 Usunięto {removed} starych backupów (>{KEEP_DAYS} dni)")
-
-    # Podsumowanie
+    # 6. RETENCJA WYŁĄCZONA (Zarządzana osobnym procesem retencji)
     all_backups = sorted(BACKUPS_DIR.glob("db_backup_*.db"))
     logger.info(f"📦 Łącznie backupów lokalnych: {len(all_backups)}")
     return True
@@ -128,7 +145,13 @@ def run_backup():
 
 if __name__ == "__main__":
     logger.info("=" * 50)
-    logger.info("🔒 Cradle DB Backup — start")
+    logger.info("🔒 Cradle DB Backup — start (Bezpieczny Online Backup z deduplikacją)")
     success = run_backup()
-    logger.info(f"{'✅ Zakończono pomyślnie' if success else '❌ Zakończono z błędem'}")
-    logger.info("=" * 50)
+    if success:
+        logger.info("✅ Zakończono pomyślnie")
+        logger.info("=" * 50)
+        sys.exit(0)
+    else:
+        logger.info("❌ Zakończono z błędem")
+        logger.info("=" * 50)
+        sys.exit(1)
