@@ -11,27 +11,35 @@ ARCHITEKTURA I ZASADY BEZPIECZEŃSTWA:
    z najnowszą istniejącą kopią db_backup_*.db. Jeśli hashe są identyczne, plik .tmp
    jest bezpiecznie usuwany, a redundantna kopia jest pomijana (oszczędność dysku).
    W przypadku jakiegokolwiek błędu porównania, skrypt fail-closed tworzy kopię.
-4. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
-5. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
-6. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzanie retencją to osobna decyzja,
-   realizowana przez dedykowane narzędzia z audytem).
-7. Offsite / iCloud: Wysyłka zewnętrzna (np. iCloud) to osobna decyzja architektoniczna
-   i nie jest wykonywana w podstawowym cyklu lokalnym.
+4. Ochrona przed resztkami .tmp: Wykrywa pliki *.tmp starsze niż 1 godzina.
+   Jeśli takich plików jest 3 lub więcej, skrypt fail-closed przerywa działanie
+   (exit 1) i nie tworzy kolejnego .tmp, chroniąc dysk przed pętlą awarii.
+   Nigdy nie usuwa ich automatycznie.
+5. Plik stanu audytowego (backup_status.json): Zapisywany atomowo (tmp + rename)
+   w LOG_DIR po każdym cyklu: timestamp, result (created / skipped_duplicate / failed),
+   nazwa ostatniej kopii oraz licznik kolejnych pominięć.
+6. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
+7. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
+8. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzana osobnym procesem retencji).
+9. Offsite / iCloud: Osobna decyzja architektoniczna, poza podstawowym cyklem lokalnym.
 """
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
 # Ścieżki
 DB_PATH = Path(os.environ.get("DB_PATH", Path.home() / ".cradle_data/new_video_compare.db"))
 BACKUPS_DIR = Path(os.environ.get("BACKUPS_DIR", Path.home() / ".cradle_data/backups"))
 LOG_DIR = Path(os.environ.get("LOG_DIR", Path.home() / ".cradle_data/logs"))
 LOG_PATH = LOG_DIR / "backup.log"
+STATUS_FILE = LOG_DIR / "backup_status.json"
 
 # Logging
 LOG_DIR.mkdir(exist_ok=True, mode=0o700)
@@ -70,9 +78,95 @@ def calculate_sha256(filepath: Path) -> str:
     return h.hexdigest()
 
 
+def load_previous_status() -> dict:
+    if STATUS_FILE.exists():
+        try:
+            return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Nie udało się odczytać pliku stanu {STATUS_FILE}: {e}")
+    return {}
+
+
+def update_status(result: str, last_backup_name: str, error_message: str = None):
+    """Zapisuje stan wykonania atomowo (plik tymczasowy + rename) w LOG_DIR."""
+    try:
+        prev = load_previous_status()
+        consecutive_skips = prev.get("consecutive_skips", 0)
+
+        if result == "skipped_duplicate":
+            consecutive_skips += 1
+        elif result == "created":
+            consecutive_skips = 0
+
+        # Zachowaj nazwę ostatniej utworzonej kopii, jeśli bieżący cykl pominął lub zakończył się błędem
+        effective_last_backup = last_backup_name or prev.get("last_successful_backup")
+
+        status_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "result": result,
+            "last_successful_backup": effective_last_backup,
+            "consecutive_skips": consecutive_skips,
+        }
+        if result == "created":
+            status_data["last_created_at"] = status_data["timestamp"]
+        elif "last_created_at" in prev:
+            status_data["last_created_at"] = prev["last_created_at"]
+
+        if error_message:
+            status_data["error"] = error_message
+
+        tmp_status = LOG_DIR / f"backup_status_{os.getpid()}_{int(time.time()*1000)}.tmp"
+        tmp_status.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
+        os.replace(str(tmp_status), str(STATUS_FILE))
+    except Exception as e:
+        logger.warning(f"Nie udało się zaktualizować pliku stanu {STATUS_FILE}: {e}")
+
+
+def check_stale_tmp_files() -> bool:
+    """
+    Sprawdza obecność resztek *.tmp w BACKUPS_DIR starszych niż 1 godzina.
+    Zwraca False (blokada wykonania), jeśli jest ich 3 lub więcej.
+    """
+    if not BACKUPS_DIR.exists():
+        return True
+
+    now = time.time()
+    one_hour_ago = now - 3600
+    stale_tmps = []
+
+    for tmp_file in BACKUPS_DIR.glob("*.tmp"):
+        try:
+            mtime = tmp_file.stat().st_mtime
+            if mtime < one_hour_ago:
+                stale_tmps.append((tmp_file, mtime))
+        except Exception:
+            pass
+
+    if stale_tmps:
+        logger.warning(
+            f"⚠️ Wykryto {len(stale_tmps)} porzuconych plików *.tmp starszych niż 1h w {BACKUPS_DIR}: "
+            f"{[f[0].name for f in stale_tmps]}. Pliki te nie są usuwane automatycznie."
+        )
+
+    if len(stale_tmps) >= 3:
+        logger.error(
+            f"❌ BLOKADA FAIL-CLOSED: W katalogu backups znajduje się {len(stale_tmps)} (>= 3) "
+            "starych plików *.tmp! Przerywam cykl, aby zapobiec nawarstwianiu niespójnych danych na dysku."
+        )
+        return False
+
+    return True
+
+
 def run_backup() -> bool:
+    # 0. Sprawdzenie resztek .tmp przed jakimkolwiek zapisem
+    if not check_stale_tmp_files():
+        update_status("failed", None, error_message="Blocked by >= 3 stale .tmp files")
+        return False
+
     if not DB_PATH.exists():
         logger.error(f"❌ Plik bazy nie istnieje: {DB_PATH}")
+        update_status("failed", None, error_message=f"DB file not found: {DB_PATH}")
         return False
 
     BACKUPS_DIR.mkdir(exist_ok=True)
@@ -84,6 +178,7 @@ def run_backup() -> bool:
 
     if final_backup_path.exists() or tmp_backup_path.exists():
         logger.error(f"❌ Plik docelowy lub tymczasowy już istnieje: {final_backup_name}")
+        update_status("failed", None, error_message=f"Target or tmp file collision: {final_backup_name}")
         return False
 
     try:
@@ -100,6 +195,7 @@ def run_backup() -> bool:
         # 2. Test Integralności
         if not check_integrity(tmp_backup_path):
             logger.error("❌ SKORUMPOWANY BACKUP! Plik .tmp nie przeszedł PRAGMA integrity_check. Pozostawiam do analizy bez flagi uchg.")
+            update_status("failed", None, error_message="Integrity check failed on .tmp backup")
             return False
 
         # 3. Deduplikacja: Porównanie z najnowszą istniejącą kopią db_backup_*.db
@@ -117,6 +213,7 @@ def run_backup() -> bool:
                     if tmp_sha and latest_sha and tmp_sha == latest_sha:
                         logger.info(f"🛡️ Deduplikacja: Baza danych jest identyczna z najnowszą kopią ({latest_existing.name}). Pomijam zrzut.")
                         tmp_backup_path.unlink()
+                        update_status("skipped_duplicate", latest_existing.name)
                         return True
             except Exception as dedup_err:
                 logger.warning(f"⚠️ Błąd podczas sprawdzania deduplikacji ({dedup_err}). Kontynuuję standardowy zapis (fail-closed).")
@@ -127,14 +224,17 @@ def run_backup() -> bool:
             tmp_backup_path.unlink()
         except FileExistsError:
             logger.error(f"❌ Kolizja! Plik docelowy {final_backup_name} niespodziewanie istnieje podczas próby zapisu. Przerywam.")
+            update_status("failed", None, error_message=f"Collision during os.link: {final_backup_name}")
             return False
 
         # 5. Zamrożenie (uchg)
         subprocess.run(["chflags", "uchg", str(final_backup_path)], check=True)
         size_mb = final_backup_path.stat().st_size / (1024 * 1024)
         logger.info(f"✅ Backup zapisany, sprawdzony (ok) i zamrożony (uchg): {final_backup_name} ({size_mb:.1f} MB)")
+        update_status("created", final_backup_name)
     except Exception as e:
         logger.error(f"❌ Błąd podczas wykonywania zrzutu bazy: {e}")
+        update_status("failed", None, error_message=str(e))
         return False
 
     # 6. RETENCJA WYŁĄCZONA (Zarządzana osobnym procesem retencji)
