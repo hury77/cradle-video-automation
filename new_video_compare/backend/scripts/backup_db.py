@@ -17,11 +17,15 @@ ARCHITEKTURA I ZASADY BEZPIECZEŃSTWA:
    Nigdy nie usuwa ich automatycznie.
 5. Plik stanu audytowego (backup_status.json): Zapisywany atomowo (tmp + rename)
    w LOG_DIR po każdym cyklu: timestamp, result (created / skipped_duplicate / failed),
-   nazwa ostatniej kopii oraz licznik kolejnych pominięć.
-6. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
-7. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
-8. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzana osobnym procesem retencji).
-9. Offsite / iCloud: Osobna decyzja architektoniczna, poza podstawowym cyklem lokalnym.
+   nazwa ostatniej kopii, consecutive_skips, consecutive_failures, last_failure_at,
+   last_failure_reason.
+6. Powiadomienia macOS (osascript): Przy blokadzie przez resztki .tmp oraz po >= 3
+   kolejnych awariach (consecutive_failures >= 3) skrypt wysyła powiadomienie OS.
+   Wywołanie to jest całkowicie nieblokujące i nie wpływa na kod wyjścia.
+7. Atomowe linkowanie: Wykorzystuje os.link (no-clobber) do zapisu docelowego.
+8. Zamrożenie (uchg): Każda zatwierdzona kopia otrzymuje flagę systemową uchg.
+9. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzana osobnym procesem retencji).
+10. Offsite / iCloud: Osobna decyzja architektoniczna, poza podstawowym cyklem lokalnym.
 """
 import hashlib
 import json
@@ -52,6 +56,18 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def send_macos_notification(title: str, message: str):
+    """Wysyła powiadomienie macOS przez osascript. Błąd powiadomienia nie może przerwać działania."""
+    try:
+        # Bezpieczne oczyszczenie cudzysłowów
+        safe_title = title.replace('"', '\"')
+        safe_msg = message.replace('"', '\"')
+        script = f'display notification "{safe_msg}" with title "{safe_title}"'
+        subprocess.run(["osascript", "-e", script], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        logger.warning(f"Nie udało się wysłać powiadomienia macOS: {e}")
 
 
 def check_integrity(db_path: Path) -> bool:
@@ -92,32 +108,60 @@ def update_status(result: str, last_backup_name: str, error_message: str = None)
     try:
         prev = load_previous_status()
         consecutive_skips = prev.get("consecutive_skips", 0)
+        consecutive_failures = prev.get("consecutive_failures", 0)
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         if result == "skipped_duplicate":
             consecutive_skips += 1
+            consecutive_failures = 0
         elif result == "created":
             consecutive_skips = 0
+            consecutive_failures = 0
+        elif result == "failed":
+            consecutive_failures += 1
 
-        # Zachowaj nazwę ostatniej utworzonej kopii, jeśli bieżący cykl pominął lub zakończył się błędem
         effective_last_backup = last_backup_name or prev.get("last_successful_backup")
 
         status_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso,
             "result": result,
             "last_successful_backup": effective_last_backup,
             "consecutive_skips": consecutive_skips,
+            "consecutive_failures": consecutive_failures,
         }
-        if result == "created":
-            status_data["last_created_at"] = status_data["timestamp"]
-        elif "last_created_at" in prev:
-            status_data["last_created_at"] = prev["last_created_at"]
 
-        if error_message:
-            status_data["error"] = error_message
+        # Zachowanie / aktualizacja znaczników czasu
+        if result == "created":
+            status_data["last_created_at"] = now_iso
+            status_data["last_success_at"] = now_iso
+        elif result == "skipped_duplicate":
+            if "last_created_at" in prev:
+                status_data["last_created_at"] = prev["last_created_at"]
+            status_data["last_success_at"] = now_iso
+        else:
+            if "last_created_at" in prev:
+                status_data["last_created_at"] = prev["last_created_at"]
+            if "last_success_at" in prev:
+                status_data["last_success_at"] = prev["last_success_at"]
+
+        if result == "failed":
+            status_data["last_failure_at"] = now_iso
+            status_data["last_failure_reason"] = error_message or "Unknown failure"
+        else:
+            # Po udanym cyklu pola błędu są zerowane / brak aktywnego błędu
+            status_data["last_failure_at"] = None
+            status_data["last_failure_reason"] = None
 
         tmp_status = LOG_DIR / f"backup_status_{os.getpid()}_{int(time.time()*1000)}.tmp"
         tmp_status.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
         os.replace(str(tmp_status), str(STATUS_FILE))
+
+        # Alert macOS po >= 3 kolejnych błędach
+        if result == "failed" and consecutive_failures >= 3:
+            send_macos_notification(
+                "Cradle DB Backup Alert",
+                f"Kolejna awaria ({consecutive_failures}/3)! Powód: {error_message or 'Błąd zrzutu'}"
+            )
     except Exception as e:
         logger.warning(f"Nie udało się zaktualizować pliku stanu {STATUS_FILE}: {e}")
 
@@ -149,10 +193,11 @@ def check_stale_tmp_files() -> bool:
         )
 
     if len(stale_tmps) >= 3:
+        msg = f"Blokada: {len(stale_tmps)} starych plików *.tmp w katalogu backups!"
         logger.error(
-            f"❌ BLOKADA FAIL-CLOSED: W katalogu backups znajduje się {len(stale_tmps)} (>= 3) "
-            "starych plików *.tmp! Przerywam cykl, aby zapobiec nawarstwianiu niespójnych danych na dysku."
+            f"❌ BLOKADA FAIL-CLOSED: {msg} Przerywam cykl, aby zapobiec nawarstwianiu niespójnych danych na dysku."
         )
+        send_macos_notification("Cradle DB Backup Blokada", msg)
         return False
 
     return True
