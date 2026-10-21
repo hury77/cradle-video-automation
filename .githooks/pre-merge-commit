@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Git hook: pre-merge-commit
-# Wykonuje szybki backup bazy przed merge.
+# Wykonuje bezpieczny backup bazy danych przed utworzeniem merge commitu.
+# Jeśli backup zawiedzie, hook zwraca kod błędu (exit $rc), blokując merge commit.
 
 ./new_video_compare/backend/scripts/git_hook_backup.sh
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "❌ [pre-merge-commit] Blokada utworzenia commitu merge z powodu błędu kopii zapasowej (kod: $rc)." >&2
+    echo "ℹ️ Użyj 'git merge --abort' lub rozwiąż problem spójności bazy danych." >&2
+    exit $rc
+fi
 exit 0

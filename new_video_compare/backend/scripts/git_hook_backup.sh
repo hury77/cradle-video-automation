@@ -1,49 +1,38 @@
 #!/usr/bin/env bash
-# git_hook_backup.sh - Zabezpieczenie przed modyfikacjami Git
-# Ten skrypt kopiuje bazę danych przed zmianą gałęzi lub mergem.
+# git_hook_backup.sh - Zabezpieczenie bazy danych przed modyfikacjami Git
+# Wykorzystuje SQLite Online Backup API przez backup_db.py --prefix git_pre_op_backup_
 #
-# UWAGA DOTYCZĄCA TRYBU WAL (Write-Ahead Logging):
-# Obecna produkcyjna baza działa w trybie 'delete' (journal_mode=delete).
-# Jeśli baza zostanie przełączona na tryb WAL, bezpośrednie polecenie 'cp'
-# oraz haszowanie samego pliku .db będzie niewystarczające (ryzyko braku spójności
-# transakcji znajdujących się w pliku -wal). Przy przejściu na WAL należy
-# zastąpić 'cp' wywołaniem SQLite Online Backup API:
-#   sqlite3 "$DB_PATH" ".backup '$BACKUP_DIR/git_pre_op_backup_${TIMESTAMP}.db'"
-# lub wymusić uprzednio checkpoint: sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);"
+# ZASADY DZIAŁANIA I KODY WYJŚCIA:
+# 1. Korzysta z tego samego bezpiecznego silnika co cykliczny backup (Online Backup API,
+#    weryfikacja integralności PRAGMA integrity_check, deduplikacja, zamrożenie uchg).
+# 2. Zachowuje zmienne środowiskowe: DB_PATH, BACKUPS_DIR, LOG_DIR.
+# 3. Zapisuje oddzielny stan w backup_status_git_pre_op_backup.json (nie narusza monitoringu db_backup).
+# 4. Propaguje niezerowy kod wyjścia, aby nie ukrywać awarii (brak || true).
+# 5. Jeśli hook wywołany jest po przełączeniu gałęzi (post-checkout), awaria backupu
+#    zostaje wypisana na stderr, lecz nie cofa automatycznie checkoutu (przełączenie już nastąpiło).
+# 6. Jeśli hook wywołany jest przed zatwierdzeniem merge (pre-merge-commit), niezerowy kod
+#    zablokuje utworzenie commitu merge; operator może wykonać `git merge --abort`
+#    lub rozwiązać problem spójności bazy danych.
 
-DB_PATH="${DB_PATH:-$HOME/.cradle_data/new_video_compare.db}"
-BACKUP_DIR="${BACKUP_DIR:-$HOME/.cradle_data/backups}"
-TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
+set -uo pipefail
 
-if [ -f "$DB_PATH" ]; then
-    mkdir -p "$BACKUP_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_PY="$SCRIPT_DIR/backup_db.py"
 
-    SHOULD_BACKUP=true
+if [ ! -f "$BACKUP_PY" ]; then
+    echo "❌ BŁĄD KRYTYCZNY HOOKA: Nie znaleziono skryptu zrzutu bazy: $BACKUP_PY" >&2
+    exit 1
+fi
 
-    # Znajdź najnowszą istniejącą kopię git_pre_op_backup_*.db (jeśli istnieje)
-    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/git_pre_op_backup_*.db 2>/dev/null | head -n 1)
-
-    if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
-        # Szybkie porównanie rozmiaru w bajtach (fail-closed przy błędzie)
-        DB_SIZE=$(stat -f %z "$DB_PATH" 2>/dev/null || stat -c %s "$DB_PATH" 2>/dev/null)
-        LATEST_SIZE=$(stat -f %z "$LATEST_BACKUP" 2>/dev/null || stat -c %s "$LATEST_BACKUP" 2>/dev/null)
-
-        if [ -n "$DB_SIZE" ] && [ -n "$LATEST_SIZE" ] && [ "$DB_SIZE" = "$LATEST_SIZE" ]; then
-            # Obliczenie hashów SHA-256
-            DB_HASH=$(shasum -a 256 "$DB_PATH" 2>/dev/null | awk '{print $1}')
-            LATEST_HASH=$(shasum -a 256 "$LATEST_BACKUP" 2>/dev/null | awk '{print $1}')
-
-            # Pomiń kopię TYLKO wtedy, gdy oba hashe są niepuste i identyczne
-            if [ -n "$DB_HASH" ] && [ -n "$LATEST_HASH" ] && [ "$DB_HASH" = "$LATEST_HASH" ]; then
-                SHOULD_BACKUP=false
-                echo "🛡️ Git Hook: Baza danych jest identyczna z najnowszą kopią (${LATEST_BACKUP##*/}). Pomijam redundantny zrzut."
-            fi
-        fi
-    fi
-
-    if [ "$SHOULD_BACKUP" = true ]; then
-        cp "$DB_PATH" "$BACKUP_DIR/git_pre_op_backup_${TIMESTAMP}.db" 2>/dev/null || true
-        chflags uchg "$BACKUP_DIR/git_pre_op_backup_${TIMESTAMP}.db" 2>/dev/null || true
-        echo "🛡️ Git Hook: Wykonano zrzut bazy po operacji Git (git_pre_op_backup_${TIMESTAMP}.db)"
-    fi
+# Wywołanie bezpiecznego silnika z dedykowanym prefiksem hooka
+python3 "$BACKUP_PY" --prefix git_pre_op_backup_
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "" >&2
+    echo "❌ BŁĄD BACKUPU: Nie udało się zabezpieczyć bazy danych przed operacją Git (kod błędu: $rc)!" >&2
+    echo "ℹ️ Wskazówka:" >&2
+    echo "  - Przy pre-merge-commit: merge commit został wstrzymany. Użyj git merge --abort lub napraw bazę." >&2
+    echo "  - Przy post-checkout: gałąź została już zmieniona w Git, lecz baza NIE została zabezpieczona." >&2
+    echo "  - Sprawdź logi w: ${LOG_DIR:-$HOME/.cradle_data/logs}/backup.log" >&2
+    exit $rc
 fi

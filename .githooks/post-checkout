@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
-# Git hook: pre-checkout
-# Wykonuje szybki backup bazy przed przełączeniem gałęzi.
+# Git hook: post-checkout
+# Wykonuje bezpieczny backup bazy danych po przełączeniu gałęzi lub checkout plików.
+#
+# SEMANTYKA KODU WYJŚCIA:
+# Git wywołuje post-checkout PO fizycznym przestawieniu gałęzi i drzewa roboczego.
+# Niezerowy kod nie może cofnąć wykonanego już checkoutu. W razie błędu wypisywane
+# jest wyraźne ostrzeżenie na stderr, lecz hook kończy się kodem 0.
 
 ./new_video_compare/backend/scripts/git_hook_backup.sh
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "⚠️ [post-checkout] OSTRZEŻENIE: Checkout powiódł się, lecz zrzut bezpieczeństwa bazy danych NIE został wykonany (kod: $rc)!" >&2
+    echo "ℹ️ Sprawdź stan bazy danych i logi backupu przed wprowadzeniem zmian." >&2
+fi
 exit 0

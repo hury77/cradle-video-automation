@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Git hook: pre-checkout
-# Wykonuje szybki backup bazy przed przełączeniem gałęzi.
+# Uwaga: Standardowy Git CLI nie posiada wbudowanego hooka pre-checkout.
+# Hook ten może być wywoływany przez zewnętrzne nakładki GUI lub narzędzia automatyzacji.
+# Ze względów bezpieczeństwa zachowuje politykę ostrzegawczą i nie blokuje nieoczekiwanie operacji.
 
 ./new_video_compare/backend/scripts/git_hook_backup.sh
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "⚠️ [pre-checkout] OSTRZEŻENIE: Nie udało się wykonać zrzutu bazy przed przełączeniem (kod: $rc)!" >&2
+fi
 exit 0

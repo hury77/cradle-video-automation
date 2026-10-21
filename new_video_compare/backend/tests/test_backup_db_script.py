@@ -26,7 +26,10 @@ def test_backup_db_all_scenarios():
         fake_db = temp_root / "new_video_compare.db"
         fake_backups_dir = temp_root / "backups"
         fake_logs_dir = temp_root / "logs"
-        status_file = fake_logs_dir / "backup_status.json"
+        status_file = fake_logs_dir / "backup_status_db_backup.json"
+        legacy_status_file = fake_logs_dir / "backup_status.json"
+        git_status_file = fake_logs_dir / "backup_status_git_pre_op_backup.json"
+        GIT_HOOK_PATH = Path(__file__).parent.parent / "scripts/git_hook_backup.sh"
 
         conn = sqlite3.connect(str(fake_db))
         conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, msg TEXT);")
@@ -233,6 +236,10 @@ assert ok is True, "Backup must succeed fail-closed even when dedup comparison f
         # Weryfikacja powiadomienia blokady w atrapowym osascript
         osascript_calls_after_10 = osascript_log.read_text()
         assert "Cradle DB Backup Blokada" in osascript_calls_after_10
+        # Czyszczenie starych plików .tmp po teście blokady, aby nie blokować kolejnych scenariuszy
+        tmp1.unlink()
+        tmp2.unlink()
+        tmp3.unlink()
         print("Scenario 10 Passed.")
 
         # --- 11. Testy backup_status.py (monitoring statusu) ---
@@ -292,7 +299,161 @@ print("Timeout handled gracefully.")
         assert res_timeout.returncode == 0, f"Timeout test failed: {res_timeout.stderr}"
         print("Scenario 12 Passed: TimeoutExpired handled cleanly without altering execution.")
 
-        print("\n🎉 ALL 12 UNIT AND SCENARIO TESTS PASSED SUCCESSFULLY!")
+        # --- 13. Odrzucenie nieprawidłowego prefiksu CLI (kod 2) ---
+        print("\n--- Scenario 13: Invalid CLI prefix rejected with exit code 2 ---")
+        res13 = subprocess.run(["python3", str(SCRIPT_PATH), "--prefix", "invalid_prefix_"], env=env, capture_output=True, text=True)
+        assert res13.returncode == 2, f"Expected exit code 2 for invalid prefix, got {res13.returncode}"
+        print("Scenario 13 Passed: Invalid prefix rejected.")
+
+        # --- 14. git_hook_backup.sh: Pierwszy zrzut i dedykowany status git_pre_op_backup ---
+        print("\n--- Scenario 14: git_hook_backup.sh first run and separated status ---")
+        time.sleep(1.1)
+        res14 = subprocess.run(["bash", str(GIT_HOOK_PATH)], env=env, capture_output=True, text=True)
+        assert res14.returncode == 0, f"git_hook_backup.sh failed: {res14.stderr}"
+        git_backups14 = list(fake_backups_dir.glob("git_pre_op_backup_*.db"))
+        assert len(git_backups14) == 1
+        assert (git_backups14[0].stat().st_flags & UF_IMMUTABLE) != 0
+
+        # Weryfikacja rozdzielenia statusów:
+        assert git_status_file.exists(), "Hook Git musi utworzyć backup_status_git_pre_op_backup.json"
+        st_git14 = json.loads(git_status_file.read_text())
+        assert st_git14["result"] == "created"
+        assert st_git14["last_successful_backup"] == git_backups14[0].name
+
+        # Plik statusu db_backup_ nie może zostać zmieniony przez hooka
+        st_db_prev = json.loads(status_file.read_text())
+        assert "git_pre_op_backup" not in st_db_prev.get("last_successful_backup", "")
+        print("Scenario 14 Passed: git_hook_backup.sh created backup with isolated status.")
+
+        # --- 15. Deduplikacja per prefix: Hook dedupuje tylko po git_pre_op, a db_backup po db_backup ---
+        print("\n--- Scenario 15: Deduplication isolated per prefix ---")
+        time.sleep(1.1)
+        # 15a. Hook na identycznej bazie -> skipped_duplicate w statusie git_pre_op
+        res15a = subprocess.run(["bash", str(GIT_HOOK_PATH)], env=env, capture_output=True, text=True)
+        assert res15a.returncode == 0
+        assert len(list(fake_backups_dir.glob("git_pre_op_backup_*.db"))) == 1
+        st_git15a = json.loads(git_status_file.read_text())
+        assert st_git15a["result"] == "skipped_duplicate"
+        assert st_git15a["consecutive_skips"] == 1
+
+        # 15b. Cykliczny db_backup_ na identycznej bazie -> pomija względem db_backup_
+        time.sleep(1.1)
+        res15b = subprocess.run(["python3", str(SCRIPT_PATH)], env=env, capture_output=True, text=True)
+        assert res15b.returncode == 0
+        st_db15b = json.loads(status_file.read_text())
+        assert st_db15b["result"] == "skipped_duplicate"
+
+        # 15c. Zmiana bazy -> hook tworzy nową kopię git_pre_op
+        time.sleep(1.1)
+        conn = sqlite3.connect(str(fake_db))
+        conn.execute("INSERT INTO test (msg) VALUES ('hook test row');")
+        conn.commit()
+        conn.close()
+
+        res15c = subprocess.run(["bash", str(GIT_HOOK_PATH)], env=env, capture_output=True, text=True)
+        assert res15c.returncode == 0
+        assert len(list(fake_backups_dir.glob("git_pre_op_backup_*.db"))) == 2
+        st_git15c = json.loads(git_status_file.read_text())
+        assert st_git15c["result"] == "created"
+        assert st_git15c["consecutive_skips"] == 0
+        print("Scenario 15 Passed: Deduplication operates strictly within same prefix.")
+
+        # --- 16. Propagacja błędu przez git_hook_backup.sh (uszkodzona baza) ---
+        print("\n--- Scenario 16: git_hook_backup.sh propagates failure on corrupt DB ---")
+        time.sleep(1.1)
+        env_corrupt_hook = env.copy()
+        env_corrupt_hook["DB_PATH"] = str(corrupt_db)
+        res16 = subprocess.run(["bash", str(GIT_HOOK_PATH)], env=env_corrupt_hook, capture_output=True, text=True)
+        assert res16.returncode != 0, "Hook Git musi zwrócić kod błędu przy awarii backupu"
+        assert "BŁĄD BACKUPU" in res16.stderr
+        st_git16 = json.loads(git_status_file.read_text())
+        assert st_git16["result"] == "failed"
+        assert "Integrity check failed" in st_git16["last_failure_reason"]
+        print("Scenario 16 Passed: Failure correctly propagated by git_hook_backup.sh.")
+
+        # --- 17. backup_status.py: Domyślny odczyt db_backup_, opcja --prefix oraz fallback legacy ---
+        print("\n--- Scenario 17: backup_status.py prefix handling and legacy fallback ---")
+        # 17a. Domyślne wywołanie sprawdza db_backup
+        res17a = subprocess.run(["python3", str(STATUS_SCRIPT_PATH)], env=env, capture_output=True, text=True)
+        assert res17a.returncode == 0
+        assert "db_backup_" in res17a.stdout
+
+        # 17b. Wywołanie z --prefix git_pre_op_backup_
+        res17b = subprocess.run(["python3", str(STATUS_SCRIPT_PATH), "--prefix", "git_pre_op_backup_"], env=env, capture_output=True, text=True)
+        assert "git_pre_op_backup" in res17b.stdout
+
+        # 17c. Fallback do starego backup_status.json tylko gdy nowego pliku brak
+        temp_legacy_root = Path(tempfile.mkdtemp(prefix="test_legacy_fallback_"))
+        try:
+            legacy_logs = temp_legacy_root / "logs"
+            legacy_logs.mkdir()
+            old_file = legacy_logs / "backup_status.json"
+            old_file.write_text(json.dumps({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "last_success_at": datetime.now(timezone.utc).isoformat(),
+                "result": "created",
+                "last_successful_backup": "legacy_db_backup.db",
+                "consecutive_skips": 0,
+                "consecutive_failures": 0
+            }))
+            env_legacy = env.copy()
+            env_legacy["LOG_DIR"] = str(legacy_logs)
+            res17c = subprocess.run(["python3", str(STATUS_SCRIPT_PATH)], env=env_legacy, capture_output=True, text=True)
+            assert res17c.returncode == 0
+            assert "legacy_db_backup.db" in res17c.stdout
+            # Upewnij się, że nie utworzono automatycznie kopii/symlinku do starego pliku
+            assert not (legacy_logs / "backup_status_db_backup.json").exists()
+        finally:
+            shutil.rmtree(temp_legacy_root, ignore_errors=True)
+
+        print("Scenario 17 Passed: backup_status.py prefix resolution and legacy fallback verified.")
+
+        # --- 18. Testy wrapperów w .githooks w środowisku izolowanym z atrapowym backupem ---
+        print("\n--- Scenario 18: Testing .githooks wrappers exit codes and error handling ---")
+        hook_test_dir = temp_root / "hook_wrapper_test"
+        hook_test_dir.mkdir(exist_ok=True)
+        fake_repo_dir = hook_test_dir / "new_video_compare/backend/scripts"
+        fake_repo_dir.mkdir(parents=True, exist_ok=True)
+        fake_hook_script = fake_repo_dir / "git_hook_backup.sh"
+
+        repo_root = Path(__file__).parent.parent.parent.parent
+        pre_merge_src = (repo_root / ".githooks/pre-merge-commit").read_text(encoding="utf-8")
+        post_checkout_src = (repo_root / ".githooks/post-checkout").read_text(encoding="utf-8")
+
+        test_pre_merge = hook_test_dir / "pre-merge-commit"
+        test_post_checkout = hook_test_dir / "post-checkout"
+        test_pre_merge.write_text(pre_merge_src, encoding="utf-8")
+        test_post_checkout.write_text(post_checkout_src, encoding="utf-8")
+        test_pre_merge.chmod(0o755)
+        test_post_checkout.chmod(0o755)
+
+        # 18a. Atrapowy backup zwracający błąd (exit 1)
+        fake_hook_script.write_text("#!/bin/sh\necho \"Simulated backup failure\" >&2\nexit 1\n", encoding="utf-8")
+        fake_hook_script.chmod(0o755)
+
+        # pre-merge-commit musi propagować kod błędu 1 i wypisać blokadę merge
+        res_pm_fail = subprocess.run(["bash", str(test_pre_merge)], cwd=str(hook_test_dir), capture_output=True, text=True)
+        assert res_pm_fail.returncode == 1, f"pre-merge-commit should return code 1, got {res_pm_fail.returncode}"
+        assert "Blokada utworzenia commitu merge" in res_pm_fail.stderr
+
+        # post-checkout musi zwrócić kod 0, lecz wypisać ostrzeżenie na stderr
+        res_pc_fail = subprocess.run(["bash", str(test_post_checkout)], cwd=str(hook_test_dir), capture_output=True, text=True)
+        assert res_pc_fail.returncode == 0, f"post-checkout must return code 0 even on backup failure, got {res_pc_fail.returncode}"
+        assert "OSTRZEŻENIE: Checkout powiódł się, lecz zrzut bezpieczeństwa" in res_pc_fail.stderr
+
+        # 18b. Atrapowy backup zwracający sukces (exit 0)
+        fake_hook_script.write_text("#!/bin/sh\necho \"Backup successful\"\nexit 0\n", encoding="utf-8")
+        res_pm_ok = subprocess.run(["bash", str(test_pre_merge)], cwd=str(hook_test_dir), capture_output=True, text=True)
+        assert res_pm_ok.returncode == 0
+        assert "Blokada" not in res_pm_ok.stderr
+
+        res_pc_ok = subprocess.run(["bash", str(test_post_checkout)], cwd=str(hook_test_dir), capture_output=True, text=True)
+        assert res_pc_ok.returncode == 0
+        assert "OSTRZEŻENIE" not in res_pc_ok.stderr
+
+        print("Scenario 18 Passed: .githooks wrappers correctly propagate / handle exit codes.")
+
+        print("\n🎉 ALL 18 UNIT AND SCENARIO TESTS PASSED SUCCESSFULLY!")
 
     finally:
         for f in temp_root.rglob("*"):

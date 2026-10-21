@@ -28,6 +28,7 @@ ARCHITEKTURA I ZASADY BEZPIECZEŃSTWA:
 9. Retencja: Automatyczne usuwanie jest WYŁĄCZONE (zarządzana osobnym procesem retencji).
 10. Offsite / iCloud: Osobna decyzja architektoniczna, poza podstawowym cyklem lokalnym.
 """
+import argparse
 import hashlib
 import json
 import logging
@@ -44,7 +45,13 @@ DB_PATH = Path(os.environ.get("DB_PATH", Path.home() / ".cradle_data/new_video_c
 BACKUPS_DIR = Path(os.environ.get("BACKUPS_DIR", Path.home() / ".cradle_data/backups"))
 LOG_DIR = Path(os.environ.get("LOG_DIR", Path.home() / ".cradle_data/logs"))
 LOG_PATH = LOG_DIR / "backup.log"
-STATUS_FILE = LOG_DIR / "backup_status.json"
+LEGACY_STATUS_FILE = LOG_DIR / "backup_status.json"
+
+ALLOWED_PREFIXES = ("db_backup_", "git_pre_op_backup_")
+
+def get_status_file(prefix: str = "db_backup_") -> Path:
+    clean_prefix = prefix.rstrip("_")
+    return LOG_DIR / f"backup_status_{clean_prefix}.json"
 
 # Logging
 LOG_DIR.mkdir(exist_ok=True, mode=0o700)
@@ -107,19 +114,25 @@ def calculate_sha256(filepath: Path) -> str:
     return h.hexdigest()
 
 
-def load_previous_status() -> dict:
-    if STATUS_FILE.exists():
+def load_previous_status(prefix: str = "db_backup_") -> dict:
+    status_file = get_status_file(prefix)
+    # Dla prefixu db_backup_, jeśli dedykowany plik jeszcze nie istnieje, użyj starego pliku jako fallback
+    if not status_file.exists() and prefix == "db_backup_" and LEGACY_STATUS_FILE.exists():
+        status_file = LEGACY_STATUS_FILE
+
+    if status_file.exists():
         try:
-            return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+            return json.loads(status_file.read_text(encoding="utf-8"))
         except Exception as e:
-            logger.warning(f"Nie udało się odczytać pliku stanu {STATUS_FILE}: {e}")
+            logger.warning(f"Nie udało się odczytać pliku stanu {status_file}: {e}")
     return {}
 
 
-def update_status(result: str, last_backup_name: str, error_message: str = None):
-    """Zapisuje stan wykonania atomowo (plik tymczasowy + rename) w LOG_DIR."""
+def update_status(result: str, last_backup_name: str, error_message: str = None, prefix: str = "db_backup_"):
+    """Zapisuje stan wykonania atomowo (plik tymczasowy + rename) w LOG_DIR per prefix."""
     try:
-        prev = load_previous_status()
+        status_file = get_status_file(prefix)
+        prev = load_previous_status(prefix=prefix)
         consecutive_skips = prev.get("consecutive_skips", 0)
         consecutive_failures = prev.get("consecutive_failures", 0)
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -165,9 +178,10 @@ def update_status(result: str, last_backup_name: str, error_message: str = None)
             status_data["last_failure_at"] = None
             status_data["last_failure_reason"] = None
 
-        tmp_status = LOG_DIR / f"backup_status_{os.getpid()}_{int(time.time()*1000)}.tmp"
+        clean_prefix = prefix.rstrip("_")
+        tmp_status = LOG_DIR / f"backup_status_{clean_prefix}_{os.getpid()}_{int(time.time()*1000)}.tmp"
         tmp_status.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
-        os.replace(str(tmp_status), str(STATUS_FILE))
+        os.replace(str(tmp_status), str(status_file))
 
         # Alert macOS po >= 3 kolejnych błędach
         if result == "failed" and consecutive_failures >= 3:
@@ -176,7 +190,7 @@ def update_status(result: str, last_backup_name: str, error_message: str = None)
                 f"Kolejna awaria ({consecutive_failures}/3)! Powód: {error_message or 'Błąd zrzutu'}"
             )
     except Exception as e:
-        logger.warning(f"Nie udało się zaktualizować pliku stanu {STATUS_FILE}: {e}")
+        logger.warning(f"Nie udało się zaktualizować pliku stanu {status_file}: {e}")
 
 
 def check_stale_tmp_files() -> bool:
@@ -216,27 +230,31 @@ def check_stale_tmp_files() -> bool:
     return True
 
 
-def run_backup() -> bool:
+def run_backup(prefix: str = "db_backup_") -> bool:
+    if prefix not in ALLOWED_PREFIXES:
+        logger.error(f"❌ Niedozwolony prefiks backupu: '{prefix}'. Dozwolone: {ALLOWED_PREFIXES}")
+        return False
+
     # 0. Sprawdzenie resztek .tmp przed jakimkolwiek zapisem
     if not check_stale_tmp_files():
-        update_status("failed", None, error_message="Blocked by >= 3 stale .tmp files")
+        update_status("failed", None, error_message="Blocked by >= 3 stale .tmp files", prefix=prefix)
         return False
 
     if not DB_PATH.exists():
         logger.error(f"❌ Plik bazy nie istnieje: {DB_PATH}")
-        update_status("failed", None, error_message=f"DB file not found: {DB_PATH}")
+        update_status("failed", None, error_message=f"DB file not found: {DB_PATH}", prefix=prefix)
         return False
 
     BACKUPS_DIR.mkdir(exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    final_backup_name = f"db_backup_{timestamp}.db"
+    final_backup_name = f"{prefix}{timestamp}.db"
     final_backup_path = BACKUPS_DIR / final_backup_name
     tmp_backup_path = BACKUPS_DIR / f"{final_backup_name}.tmp"
 
     if final_backup_path.exists() or tmp_backup_path.exists():
         logger.error(f"❌ Plik docelowy lub tymczasowy już istnieje: {final_backup_name}")
-        update_status("failed", None, error_message=f"Target or tmp file collision: {final_backup_name}")
+        update_status("failed", None, error_message=f"Target or tmp file collision: {final_backup_name}", prefix=prefix)
         return False
 
     try:
@@ -253,25 +271,25 @@ def run_backup() -> bool:
         # 2. Test Integralności
         if not check_integrity(tmp_backup_path):
             logger.error("❌ SKORUMPOWANY BACKUP! Plik .tmp nie przeszedł PRAGMA integrity_check. Pozostawiam do analizy bez flagi uchg.")
-            update_status("failed", None, error_message="Integrity check failed on .tmp backup")
+            update_status("failed", None, error_message="Integrity check failed on .tmp backup", prefix=prefix)
             return False
 
-        # 3. Deduplikacja: Porównanie z najnowszą istniejącą kopią db_backup_*.db
-        existing_db_backups = sorted(
-            [f for f in BACKUPS_DIR.glob("db_backup_*.db") if f.is_file() and not f.name.endswith(".tmp")],
+        # 3. Deduplikacja: Porównanie z najnowszą istniejącą kopią o tym samym prefiksie ({prefix}*.db)
+        existing_prefix_backups = sorted(
+            [f for f in BACKUPS_DIR.glob(f"{prefix}*.db") if f.is_file() and not f.name.endswith(".tmp")],
             key=lambda p: p.stat().st_mtime
         )
-        if existing_db_backups:
-            latest_existing = existing_db_backups[-1]
+        if existing_prefix_backups:
+            latest_existing = existing_prefix_backups[-1]
             try:
                 # Szybki pre-check rozmiaru
                 if tmp_backup_path.stat().st_size == latest_existing.stat().st_size:
                     tmp_sha = calculate_sha256(tmp_backup_path)
                     latest_sha = calculate_sha256(latest_existing)
                     if tmp_sha and latest_sha and tmp_sha == latest_sha:
-                        logger.info(f"🛡️ Deduplikacja: Baza danych jest identyczna z najnowszą kopią ({latest_existing.name}). Pomijam zrzut.")
+                        logger.info(f"🛡️ Deduplikacja ({prefix}): Baza danych jest identyczna z najnowszą kopią ({latest_existing.name}). Pomijam zrzut.")
                         tmp_backup_path.unlink()
-                        update_status("skipped_duplicate", latest_existing.name)
+                        update_status("skipped_duplicate", latest_existing.name, prefix=prefix)
                         return True
             except Exception as dedup_err:
                 logger.warning(f"⚠️ Błąd podczas sprawdzania deduplikacji ({dedup_err}). Kontynuuję standardowy zapis (fail-closed).")
@@ -282,17 +300,17 @@ def run_backup() -> bool:
             tmp_backup_path.unlink()
         except FileExistsError:
             logger.error(f"❌ Kolizja! Plik docelowy {final_backup_name} niespodziewanie istnieje podczas próby zapisu. Przerywam.")
-            update_status("failed", None, error_message=f"Collision during os.link: {final_backup_name}")
+            update_status("failed", None, error_message=f"Collision during os.link: {final_backup_name}", prefix=prefix)
             return False
 
         # 5. Zamrożenie (uchg)
         subprocess.run(["chflags", "uchg", str(final_backup_path)], check=True)
         size_mb = final_backup_path.stat().st_size / (1024 * 1024)
         logger.info(f"✅ Backup zapisany, sprawdzony (ok) i zamrożony (uchg): {final_backup_name} ({size_mb:.1f} MB)")
-        update_status("created", final_backup_name)
+        update_status("created", final_backup_name, prefix=prefix)
     except Exception as e:
         logger.error(f"❌ Błąd podczas wykonywania zrzutu bazy: {e}")
-        update_status("failed", None, error_message=str(e))
+        update_status("failed", None, error_message=str(e), prefix=prefix)
         return False
 
     # 6. RETENCJA WYŁĄCZONA (Zarządzana osobnym procesem retencji)
@@ -302,9 +320,18 @@ def run_backup() -> bool:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Bezpieczny zrzut bazy SQLite (Online Backup API).")
+    parser.add_argument(
+        "--prefix",
+        default="db_backup_",
+        choices=list(ALLOWED_PREFIXES),
+        help=f"Prefiks nazwy pliku kopii (dozwolone: {ALLOWED_PREFIXES}, domyślnie: db_backup_)"
+    )
+    args = parser.parse_args()
+
     logger.info("=" * 50)
-    logger.info("🔒 Cradle DB Backup — start (Bezpieczny Online Backup z deduplikacją)")
-    success = run_backup()
+    logger.info(f"🔒 Cradle DB Backup — start (prefix: {args.prefix})")
+    success = run_backup(prefix=args.prefix)
     if success:
         logger.info("✅ Zakończono pomyślnie")
         logger.info("=" * 50)

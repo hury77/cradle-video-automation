@@ -79,16 +79,40 @@ def inspect_status(status_file_path: Path) -> int:
             print(f"  - {r}")
         return 1
 
+def resolve_status_file(status_file_arg: str, prefix_arg: str) -> Path:
+    if status_file_arg:
+        return Path(status_file_arg)
+
+    log_dir = Path(os.environ.get("LOG_DIR", Path.home() / ".cradle_data/logs"))
+    clean_prefix = prefix_arg.rstrip("_")
+    target_file = log_dir / f"backup_status_{clean_prefix}.json"
+
+    # Fallback dla domyślnego db_backup_: jeśli nie ma nowego pliku, sprawdź legacy backup_status.json
+    if not target_file.exists() and clean_prefix == "db_backup":
+        legacy_file = log_dir / "backup_status.json"
+        if legacy_file.exists():
+            return legacy_file
+
+    return target_file
+
 def main():
     parser = argparse.ArgumentParser(description="Monitoring stanu backupów bazy Cradle (read-only).")
     parser.add_argument(
         "--status-file",
         type=str,
-        default=str(Path(os.environ.get("LOG_DIR", Path.home() / ".cradle_data/logs")) / "backup_status.json"),
-        help="Ścieżka do backup_status.json"
+        default=None,
+        help="Bezpośrednia ścieżka do pliku statusu (nadpisuje --prefix)"
+    )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        default="db_backup_",
+        choices=["db_backup_", "git_pre_op_backup_"],
+        help="Prefiks zrzutu (db_backup_ dla cyklicznego, git_pre_op_backup_ dla hooka Git, domyślnie db_backup_)"
     )
     args = parser.parse_args()
-    rc = inspect_status(Path(args.status_file))
+    status_path = resolve_status_file(args.status_file, args.prefix)
+    rc = inspect_status(status_path)
     sys.exit(rc)
 
 if __name__ == "__main__":
