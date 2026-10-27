@@ -70,14 +70,14 @@ def check_active_conflicting_processes() -> List[str]:
     conflicts = []
     current_pid = os.getpid()
     conflict_patterns = ['ollama', 'demucs', 'whisper', 'mlx_whisper']
-    
+
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             if p.info['pid'] == current_pid:
                 continue
             name = (p.info['name'] or '').lower()
             cmdline = ' '.join(p.info['cmdline'] or []).lower()
-            
+
             if any(ide in cmdline for ide in ['antigravity', 'vscode', 'pycharm', 'sublime']):
                 continue
 
@@ -87,7 +87,7 @@ def check_active_conflicting_processes() -> List[str]:
                     break
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-            
+
     return list(set(conflicts))
 
 def check_available_system_ram(min_gib: float = MIN_REQUIRED_RAM_GIB) -> Tuple[float, bool]:
@@ -121,7 +121,7 @@ def run_stage_subprocess(cmd: List[str], timeout_sec: float) -> Tuple[int, str, 
     """
     Wykonuje etap w kontrolowanym podprocesie z limitem czasu w osobnej grupie procesow (start_new_session=True).
     Zwraca: (returncode, stdout, stderr, timed_out, still_running, pid, pgid)
-    
+
     Zachowanie przy timeout:
     1. Wysyla os.killpg(proc.pid, signal.SIGTERM) do calej grupy procesow.
     2. Czeka do 5s przez proc.communicate(timeout=5).
@@ -164,13 +164,75 @@ def run_stage_subprocess(cmd: List[str], timeout_sec: float) -> Tuple[int, str, 
             # zwracamy kontrolowany status still_running wraz z PID i PGID.
             return -1, "", "Process group still running after SIGTERM and 5s grace period", True, True, pid, pgid
 
+def build_stage_error_diagnostics(
+    payload: Optional[Dict[str, Any]],
+    returncode: int,
+    temp_dir: Optional[Path] = None
+) -> Dict[str, Any]:
+    """
+    Buduje zredagowane metadane diagnostyczne dla etapu smoke testu, ktory zwrocil blad.
+    Redaguje sciezke katalogu domowego (~), ogranicza rozmiar tekstow do max 500 znakow,
+    oraz nie ujawnia pelnych transkrypcji ani config JSON.
+    """
+    if not payload:
+        return {
+            "returncode": returncode,
+            "has_error": True,
+            "error": "Missing result payload" if returncode == 0 else f"Process exited with code {returncode}",
+            "payload_keys": [],
+            "stderr_tail": None
+        }
+
+    payload_keys = sorted(list(payload.keys()))
+    has_error_key = ("error" in payload) or ("error_message" in payload)
+    raw_error = payload.get("error") if "error" in payload else payload.get("error_message")
+    has_error = has_error_key or (returncode != 0)
+
+    if not has_error:
+        return {
+            "returncode": returncode,
+            "has_error": False,
+            "error": None,
+            "payload_keys": payload_keys,
+            "stderr_tail": None
+        }
+
+    if has_error_key and (raw_error is None or str(raw_error).strip() == ""):
+        err_str = "Payload reported error without message"
+    elif raw_error is not None:
+        err_str = str(raw_error)
+    else:
+        err_str = f"Subprocess failed with code {returncode}"
+
+    # Redagowanie sciezki domowej
+    home_dir = str(Path.home())
+    err_str = err_str.replace(home_dir, "~")
+
+    # Wykrywanie i wyodrebnienie stderr_tail jesli obecne w komunikacie bledu
+    stderr_tail = None
+    if "stderr tail:" in err_str:
+        parts = err_str.split("stderr tail:", 1)
+        stderr_tail = parts[1].strip()[:500]
+
+    # Ograniczenie dlugosci bledu do 500 znakow
+    truncated_error = err_str[:500]
+
+    return {
+        "returncode": returncode,
+        "has_error": True,
+        "error": truncated_error,
+        "payload_keys": payload_keys,
+        "stderr_tail": stderr_tail
+    }
+
+
 def run_smoke_test(with_demucs: bool = False) -> int:
     check_forbidden_imports()
-    
+
     print("==================================================")
     print("STT Hardware Smoke Test — Pre-flight Checks")
     print("==================================================")
-    
+
     # 1. Bezwzgledna odmowa przy aktywnych procesach rywalizujacych
     active_conflicts = check_active_conflicting_processes()
     if active_conflicts:
@@ -192,7 +254,7 @@ def run_smoke_test(with_demucs: bool = False) -> int:
     temp_dir = Path(tempfile.mkdtemp(prefix="stt_smoke_hw_"))
     synthetic_wav = temp_dir / "synth_3s.wav"
     report_file = temp_dir / "smoke_test_report.json"
-    
+
     report: Dict[str, Any] = {
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "initial_ram": get_system_ram_metrics(),
@@ -276,9 +338,23 @@ def run_smoke_test(with_demucs: bool = False) -> int:
                 has_error = "error" in whisper_payload
                 stage1_data["is_expected_no_speech"] = (detected_text == "" or len(detected_text) < 10)
                 stage1_data["success"] = (not has_error)
+                diag = build_stage_error_diagnostics(whisper_payload, rc, temp_dir=temp_dir)
+                stage1_data["diagnostics"] = diag
+                if not stage1_data["success"]:
+                    stage1_data["error"] = diag["error"]
+                    print(f"DIAGNOSTIC: Stage 1 failed (returncode={rc})")
+                    print(f"  payload_keys: {diag['payload_keys']}")
+                    print(f"  error: {diag['error']}")
+                    if diag["stderr_tail"]:
+                        print(f"  stderr_tail: {diag['stderr_tail']}")
             else:
                 stage1_data["error"] = "Output result file missing"
                 stage1_data["success"] = False
+                diag = build_stage_error_diagnostics(None, rc, temp_dir=temp_dir)
+                stage1_data["diagnostics"] = diag
+                print(f"DIAGNOSTIC: Stage 1 failed (missing output file, returncode={rc})")
+                print(f"  payload_keys: {diag['payload_keys']}")
+                print(f"  error: {diag['error']}")
 
             report["stages"]["transcribe_audio"] = stage1_data
             print(f"Stage 1 completed in {t1_duration:.2f}s (success={stage1_data['success']}, expected_no_speech={stage1_data['is_expected_no_speech']})")
@@ -371,13 +447,13 @@ def run_smoke_test(with_demucs: bool = False) -> int:
         print(f"Poczatkowy RAM dostepny: {report.get('initial_ram', {}).get('available_gib', 0.0):.2f} GiB")
         if "final_ram" in report:
             print(f"Koncowy RAM dostepny: {report['final_ram'].get('available_gib', 0.0):.2f} GiB")
-        
+
         st1 = report.get("stages", {}).get("transcribe_audio")
         if st1:
             still_run1 = st1.get('timeout_process_still_running', False)
             pid1_info = f", PID={st1.get('process_pid')}, PGID={st1.get('process_pgid')}, still_running={still_run1}" if st1.get('timed_out') else ""
             print(f"Etap 1 (MLX Whisper): duration={st1.get('duration_sec', 0.0):.2f}s, success={st1.get('success')}, expected_no_speech={st1.get('is_expected_no_speech')}{pid1_info}, RSS={st1.get('rss_before_mb', 0.0):.1f}MB->{st1.get('rss_after_mb', 0.0):.1f}MB")
-        
+
         st2 = report.get("stages", {}).get("separate_sources")
         if st2:
             still_run2 = st2.get('timeout_process_still_running', False)

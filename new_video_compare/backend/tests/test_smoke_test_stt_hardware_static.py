@@ -141,21 +141,21 @@ def test_functional_lightweight_timeout_sleep_with_process_group():
     """
     from tests.smoke_test_stt_hardware import run_stage_subprocess
     import shutil
-    
+
     start_t = time.time()
     rc, stdout, stderr, timed_out, still_running, pid, pgid = run_stage_subprocess(
         ["/bin/sh", "-c", "sleep 2"],
         timeout_sec=0.1
     )
     duration = time.time() - start_t
-    
+
     assert timed_out is True, "Oczekiwano timed_out=True dla sleep 2 przy timeout 0.1s"
     assert rc == -1, f"Oczekiwano returncode=-1, otrzymano: {rc}"
     assert duration < 2.0, f"Subprocess powinien zakonczyc sie natychmiast po terminate(), trwal: {duration:.2f}s"
     assert still_running is False, "Zwykly proces sleep powinien bezproblemowo zakonczyc sie po SIGTERM"
     assert pid is not None and pid > 0, "PID powinien byc prawidlowo zwrocony"
     assert pgid is not None and pgid == pid, f"Oczekiwano PID ({pid}) == PGID ({pgid}) dzieki start_new_session=True"
-    
+
     # Weryfikacja kontraktu warunkowego sprzatania
     temp_dir_test = Path(tempfile.mkdtemp(prefix="test_cleanup_"))
     try:
@@ -175,7 +175,109 @@ def test_functional_lightweight_timeout_sleep_with_process_group():
 
     print(f"Test 9: Lekki test funkcjonalny subprocessu i warunkowego cleanupu zaliczony (timed_out={timed_out}, still_running={still_running}, PID={pid}, PGID={pgid}, duration={duration:.2f}s).")
 
+def test_build_stage_error_diagnostics_with_error_and_home_redaction():
+    """
+    Weryfikuje, ze build_stage_error_diagnostics prawidlowo ekstrahuje pola,
+    wykrywa stderr_tail oraz redaguje sciezke home do ~.
+    """
+    from tests.smoke_test_stt_hardware import build_stage_error_diagnostics
+
+    home_dir = str(Path.home())
+    fake_error = f"Subprocess failed with code 1 in {home_dir}/models/whisper. stderr tail: File not found in {home_dir}/cache"
+    mock_payload = {
+        "error": fake_error,
+        "text": "",
+        "segments": []
+    }
+
+    diag = build_stage_error_diagnostics(mock_payload, returncode=0)
+
+    assert diag["has_error"] is True
+    assert diag["returncode"] == 0
+    assert diag["payload_keys"] == ["error", "segments", "text"]
+    assert home_dir not in diag["error"], "Pelna sciezka home powinna byc zredagowana"
+    assert "~" in diag["error"], "Zamiast sciezki home powinien pojawic sie znak ~"
+    assert diag["stderr_tail"] is not None
+    assert home_dir not in diag["stderr_tail"]
+    assert "File not found in ~/cache" in diag["stderr_tail"]
+    print("Test 10: build_stage_error_diagnostics z bledem i redagowaniem home zaliczony.")
+
+def test_build_stage_error_diagnostics_without_error():
+    """
+    Weryfikuje, ze build_stage_error_diagnostics dla poprawnego payloadu
+    zwraca minimalna diagnostyke bez bledu.
+    """
+    from tests.smoke_test_stt_hardware import build_stage_error_diagnostics
+
+    mock_payload = {
+        "text": "",
+        "segments": [],
+        "language": "en"
+    }
+
+    diag = build_stage_error_diagnostics(mock_payload, returncode=0)
+
+    assert diag["has_error"] is False
+    assert diag["returncode"] == 0
+    assert diag["error"] is None
+    assert diag["stderr_tail"] is None
+    assert diag["payload_keys"] == ["language", "segments", "text"]
+    print("Test 11: build_stage_error_diagnostics bez bledu zaliczony.")
+
+def test_build_stage_error_diagnostics_none_or_empty_payload():
+    """
+    Weryfikuje, ze payload=None lub pusty payload zawsze ustawia has_error=True
+    oraz error='Missing result payload' (dla returncode=0).
+    """
+    from tests.smoke_test_stt_hardware import build_stage_error_diagnostics
+
+    diag_none = build_stage_error_diagnostics(None, returncode=0)
+    assert diag_none["has_error"] is True
+    assert diag_none["returncode"] == 0
+    assert diag_none["error"] == "Missing result payload"
+    assert diag_none["payload_keys"] == []
+    assert diag_none["stderr_tail"] is None
+
+    diag_empty_dict = build_stage_error_diagnostics({}, returncode=0)
+    assert diag_empty_dict["has_error"] is True
+    assert diag_empty_dict["returncode"] == 0
+    assert diag_empty_dict["error"] == "Missing result payload"
+    print("Test 12: build_stage_error_diagnostics dla payload=None i pustego payloadu zaliczony.")
+
+def test_build_stage_error_diagnostics_empty_error_value():
+    """
+    Weryfikuje, ze payload z kluczem 'error': '' zwraca has_error=True
+    oraz bezpieczny komunikat 'Payload reported error without message'.
+    """
+    from tests.smoke_test_stt_hardware import build_stage_error_diagnostics
+
+    mock_payload = {
+        "error": "",
+        "text": "",
+        "segments": []
+    }
+
+    diag = build_stage_error_diagnostics(mock_payload, returncode=0)
+    assert diag["has_error"] is True
+    assert diag["returncode"] == 0
+    assert diag["error"] == "Payload reported error without message"
+    assert diag["payload_keys"] == ["error", "segments", "text"]
+    assert diag["stderr_tail"] is None
+    print("Test 13: build_stage_error_diagnostics dla pustej wartosci error zaliczony.")
+
+def test_static_stage1_diagnostics_condition_on_success_false():
+    """
+    Weryfikuje, ze w smoke_test_stt_hardware.py wypisywanie diagnostyki Stage 1
+    bazuje bezposrednio na warunku stage1_data['success'] is False.
+    """
+    with open(SMOKE_SCRIPT_PATH, 'r') as f:
+        src = f.read()
+
+    assert "if not stage1_data[\"success\"]:" in src, "Wypisywanie diagnostyki Stage 1 musi bazowac na success=False"
+    print("Test 14: Warunek diagnostyki Stage 1 oparty na success=False zaliczony.")
+
 if __name__ == '__main__':
+
     test_static_source_code_cleanliness_and_no_lock_deletion()
     test_strictly_forbidden_kill_mechanisms()
     test_static_process_group_and_conditional_cleanup_assertions()
@@ -185,4 +287,9 @@ if __name__ == '__main__':
     test_refuse_start_on_low_memory_fail_closed()
     test_expected_no_speech_acceptance()
     test_functional_lightweight_timeout_sleep_with_process_group()
+    test_build_stage_error_diagnostics_with_error_and_home_redaction()
+    test_build_stage_error_diagnostics_without_error()
+    test_build_stage_error_diagnostics_none_or_empty_payload()
+    test_build_stage_error_diagnostics_empty_error_value()
+    test_static_stage1_diagnostics_condition_on_success_false()
     print("WSZYSTKIE TESTY STATYCZNE I LEKKI TEST TIMEOUTU ZALICZONE POMYSLNIE!")
