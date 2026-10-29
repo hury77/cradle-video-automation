@@ -9,13 +9,13 @@ export const translations = {
     appSubtitle: "PROFESSIONAL VIDEO ANALYSIS PLATFORM",
     devBadge: "DEV",
     devTooltip: "Środowisko deweloperskie — zmiany nie wpływają na LIVE",
-    
+
     // Navigation Tabs
     navJobs: "Zadania",
     navStats: "Statystyki",
     navKB: "Baza Wiedzy",
     navLogs: "Logi",
-    
+
     // Notifications & System Status
     backendStatus: "Backend",
     wsStatus: "WS",
@@ -23,7 +23,7 @@ export const translations = {
     viewLogs: "Zobacz logi",
     noSystemErrors: "Brak zgłoszonych błędów systemowych.",
     systemNotifications: "Powiadomienia systemowe",
-    
+
     // Video Comparison
     dashboardBreadcrumb: "Dashboard",
     acceptanceVideo: "Wideo Akceptacyjne (Acceptance)",
@@ -35,7 +35,8 @@ export const translations = {
     audioDifferences: "Różnice Audio",
     paused: "WSTRZYMANE",
     playing: "ODTWARZANIE",
-    
+    waveformClockAligned: "Waveform wyrównany do synchronizacji Clock",
+
     // Tools & Controls
     eyedropper: "Kroplomierz",
     ruler: "Linijka",
@@ -43,7 +44,7 @@ export const translations = {
     exportPdf: "Raport PDF",
     reanalyze: "Ponowna Analiza",
     backToDashboard: "Powrót do Dashboardu",
-    
+
     // Dashboard & Filters
     totalJobs: "Wszystkie Joby",
     successRate: "Skuteczność",
@@ -86,13 +87,13 @@ export const translations = {
     appSubtitle: "PROFESSIONAL VIDEO ANALYSIS PLATFORM",
     devBadge: "DEV",
     devTooltip: "Development Environment — changes do not affect LIVE",
-    
+
     // Navigation Tabs
     navJobs: "Jobs",
     navStats: "Stats",
     navKB: "KB",
     navLogs: "Logs",
-    
+
     // Notifications & System Status
     backendStatus: "Backend",
     wsStatus: "WS",
@@ -100,7 +101,7 @@ export const translations = {
     viewLogs: "View logs",
     noSystemErrors: "No system errors reported.",
     systemNotifications: "System Notifications",
-    
+
     // Video Comparison
     dashboardBreadcrumb: "Dashboard",
     acceptanceVideo: "Acceptance Video",
@@ -112,7 +113,8 @@ export const translations = {
     audioDifferences: "Audio Differences",
     paused: "PAUSED",
     playing: "PLAYING",
-    
+    waveformClockAligned: "Waveform aligned to Clock sync",
+
     // Tools & Controls
     eyedropper: "Eyedropper",
     ruler: "Ruler",
@@ -120,7 +122,7 @@ export const translations = {
     exportPdf: "Export PDF",
     reanalyze: "Re-analyze",
     backToDashboard: "Back to Dashboard",
-    
+
     // Dashboard & Filters
     totalJobs: "Total Jobs",
     successRate: "Success Rate",
