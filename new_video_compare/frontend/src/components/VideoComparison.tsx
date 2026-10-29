@@ -12,11 +12,13 @@ import {
   ChartBarSquareIcon,
   DocumentChartBarIcon,
   ChevronRightIcon,
+  ClockIcon,
 } from "@heroicons/react/24/outline";
 import DifferenceInspector from "./DifferenceInspector";
 import QAVerdictPanel from "./QAVerdictPanel";
 
 import { translations, Language } from "../utils/translations";
+import { calculateWaveformTransforms } from "../utils/waveformAlignment";
 
 interface VideoComparisonProps {
   job: ComparisonJob;
@@ -212,18 +214,18 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
   const { acceptanceOffset, emissionOffset, displayDuration } = useMemo(() => {
     const reportData = results?.overall_result?.report_data;
     const isArpp = reportData?.video?.is_arpp_slate || false;
-    
+
     // Fallback: detect via duration if backend report data is missing or legacy
     const durAcc = job.acceptance_file?.duration || 0;
     const durEmi = job.emission_file?.duration || 0;
     const durationDiff = Math.abs(durAcc - durEmi);
     const fallbackIsArpp = durationDiff >= 10.5 && durationDiff <= 11.5;
-    
+
     const arppActive = isArpp || fallbackIsArpp;
-    
+
     let accOffset = 0;
     let emiOffset = 0;
-    
+
     if (arppActive) {
       if (durAcc > durEmi) {
         accOffset = 10.0;
@@ -233,17 +235,26 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         emiOffset = 10.0;
       }
     }
-    
+
     // We override duration to be the commercial length (max duration - offset)
     const baseDuration = duration || Math.max(durAcc, durEmi);
     const commercialDuration = Math.max(0, baseDuration - Math.max(accOffset, emiOffset));
-    
+
     return {
       acceptanceOffset: accOffset,
       emissionOffset: emiOffset,
       displayDuration: commercialDuration
     };
   }, [results, job, duration]);
+
+  // Visual waveform alignment transforms for Clock/slate compensation
+  const waveformTransforms = useMemo(() => {
+    return calculateWaveformTransforms(
+      { acceptanceOffset, emissionOffset, displayDuration },
+      job.acceptance_file?.duration || 0,
+      job.emission_file?.duration || 0
+    );
+  }, [acceptanceOffset, emissionOffset, displayDuration, job.acceptance_file?.duration, job.emission_file?.duration]);
 
   // Audio Visualization Refs
   const waveformRef = useRef<HTMLDivElement>(null);
@@ -253,9 +264,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
   const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
   const emissionVideoRef = useRef<HTMLVideoElement>(null);
-  
+
   // Waveform Error States
-  
+
   // Waveform Error States
   const [waveformError, setWaveformError] = useState<string | null>(null);
   const [emissionWaveformError, setEmissionWaveformError] = useState<string | null>(null);
@@ -271,7 +282,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
       // For large files (37MB+), this internal fetch can fail/timeout.
       // Solution: pre-fetch as blob, create blob URL → WaveSurfer.load(blobUrl).
       const blobUrlsToCleanup: string[] = [];
-      
+
       const initWaveSurfer = async (
           container: HTMLDivElement,
           mediaEl: HTMLVideoElement,
@@ -293,7 +304,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   normalize: true,
                   interact: false,
               });
-              
+
               ws.on('error', (err: any) => {
                   console.error(`${label} WaveSurfer Error:`, err);
                   if (err.toString().includes('AbortError')) return;
@@ -303,7 +314,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       setError(err.toString());
                   }
               });
-              
+
               // Pre-fetch audio as blob to bypass internal fetch issues
               try {
                   const response = await fetch(videoUrl);
@@ -318,7 +329,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   // Fallback: let WaveSurfer try to decode from the media element
                   // This may work for smaller files
               }
-              
+
               return ws;
           } catch (e: any) {
               console.error(`${label} WaveSurfer Init Error:`, e);
@@ -330,7 +341,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               return null;
           }
       };
-      
+
       // Initialize both waveforms
       if (waveformRef.current && acceptanceVideoRef.current && acceptanceVideoUrl) {
           initWaveSurfer(
@@ -339,7 +350,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               'Acceptance', setWaveformError
           ).then(ws => { wavesurferRef.current = ws; });
       }
-      
+
       if (emissionWaveformRef.current && emissionVideoRef.current && emissionVideoUrl) {
           // DELAY: Wait 500ms before starting second fetch to reduce concurrent pressure on single-threaded backend
           setTimeout(() => {
@@ -366,10 +377,31 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
           blobUrlsToCleanup.forEach(url => URL.revokeObjectURL(url));
       };
   }, [acceptanceVideoUrl, emissionVideoUrl, showResults]);
+
+  // Re-render WaveSurfer instances when waveform transforms/offsets change (without reloading blobs)
+  useEffect(() => {
+    // WaveSurfer internal ResizeObserver handles container width changes automatically via debounced reRender().
+    // For immediate synchronization when offsets change, trigger setOptions({}) if instance exists.
+    if (wavesurferRef.current) {
+      try {
+        wavesurferRef.current.setOptions({});
+      } catch (e) {
+        console.warn("Acceptance WaveSurfer re-render warning:", e);
+      }
+    }
+    if (emissionWavesurferRef.current) {
+      try {
+        emissionWavesurferRef.current.setOptions({});
+      } catch (e) {
+        console.warn("Emission WaveSurfer re-render warning:", e);
+      }
+    }
+  }, [waveformTransforms]);
+
   const [showInspector, setShowInspector] = useState(false);
   const [inspectorInitialTimestamp, setInspectorInitialTimestamp] = useState<number | null>(null);
 
-  
+
   // Video loading states
   const [acceptanceLoading, setAcceptanceLoading] = useState(true);
   const [emissionLoading, setEmissionLoading] = useState(true);
@@ -415,22 +447,22 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     // Find closest frame (timeline is float seconds)
     // We check if current time is close to any diff timestamp (within 0.5s)
     const time = Math.floor(currentTime); // 1fps, so integer part is enough usually
-    
+
     // Check key directly first
     let foundImage = diffFrames[time.toString()] || diffFrames[time.toFixed(1)];
-    
+
     if (!foundImage) {
         // Fallback: search keys
         const keys = Object.keys(diffFrames).map(Number);
-        const closest = keys.reduce((prev, curr) => 
+        const closest = keys.reduce((prev, curr) =>
             Math.abs(curr - currentTime) < Math.abs(prev - currentTime) ? curr : prev
         , keys[0]);
-        
+
         if (Math.abs(closest - currentTime) < 0.6) {
            foundImage = diffFrames[closest.toString()];
         }
     }
-    
+
     setCurrentDiffImage(foundImage || null);
   }, [currentTime, showHeatmap, results]);
 
@@ -459,7 +491,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         const rawTime = acceptanceVideoRef.current.currentTime;
         const baseTime = Math.max(0, rawTime - acceptanceOffset);
         setCurrentTime(baseTime);
-        
+
         // Sync Emission player only when playing to prevent fighting seekers
         if (emissionVideoRef.current && isPlaying) {
           const expectedEmiTime = baseTime + emissionOffset;
@@ -658,9 +690,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
            if (w.length > 0) allEmiWords.push(w);
        });
     });
-    
+
     const events: Array<{ timestamp: number; acceptance?: string; emission?: string }> = [];
-    
+
     if (sortedA.length === 0 && sortedB.length > 0) {
         sortedB.forEach((seg: any) => {
             events.push({ timestamp: seg.start, emission: seg.text });
@@ -669,16 +701,16 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     }
 
     let emiWordIdx = 0;
-    
+
     sortedA.forEach((segA: any, index: number) => {
         const accWords = segA.text.trim().split(/\s+/).filter((w: string) => w.length > 0);
         let takeCount = accWords.length;
-        
+
         // For the last segment, take all remaining emission words to not lose any text
         if (index === sortedA.length - 1) {
             takeCount = allEmiWords.length - emiWordIdx;
         }
-        
+
         const segEmiWords = [];
         for (let i = 0; i < takeCount; i++) {
             if (emiWordIdx < allEmiWords.length) {
@@ -686,7 +718,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 emiWordIdx++;
             }
         }
-        
+
         events.push({
             timestamp: segA.start,
             acceptance: segA.text,
@@ -701,7 +733,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
   const exportTimelineToXLSX = async () => {
     if (!activeTimeline || activeTimeline.length === 0) return;
-    
+
     // Dynamic import to avoid bloating the main bundle
     const XLSX = await import('xlsx');
 
@@ -713,7 +745,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
-    
+
     // Set auto-width for columns
     const colWidths = [
       { wch: 12 }, // Time
@@ -793,7 +825,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 <ChartBarSquareIcon className="w-4 h-4 mr-2 text-indigo-600 dark:text-cyan-400" />
                 {showResults ? (lang === "PL" ? "Ukryj Wyniki" : "Hide Results") : (lang === "PL" ? "Pokaż Wyniki" : "Show Results")}
               </button>
-              
+
               {/* Inspect Button */}
               {videoDifferencesFound && (
                 <button
@@ -841,7 +873,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
         </div>
 
         {/* Difference Inspector Modal */}
-        <DifferenceInspector 
+        <DifferenceInspector
             isOpen={showInspector}
             onClose={() => setShowInspector(false)}
             differences={videoDiffs}
@@ -901,7 +933,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 {acceptanceError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
                     <p className="text-rose-400 text-xs font-bold">Failed to load media</p>
-                    <button 
+                    <button
                       onClick={() => {
                         setAcceptanceError(false);
                         setAcceptanceLoading(true);
@@ -998,14 +1030,14 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </span>
                       )}
                     </div>
-                    
+
                     {/* Heatmap Toggle */}
                     {results?.overall_result?.report_data?.video?.diff_frames && (
                         <button
                             onClick={() => setShowHeatmap(!showHeatmap)}
                             className={`flex items-center space-x-1 px-2.5 py-0.5 rounded-lg text-xs font-bold transition-all ${
-                                showHeatmap 
-                                ? 'bg-indigo-600 text-white shadow-md' 
+                                showHeatmap
+                                ? 'bg-indigo-600 text-white shadow-md'
                                 : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
                             }`}
                             title="Toggle Visual Difference Overlay (Heatmap)"
@@ -1028,7 +1060,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 {emissionError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
                     <p className="text-rose-400 text-xs font-bold">Failed to load video</p>
-                    <button 
+                    <button
                       onClick={() => {
                         setEmissionError(false);
                         setEmissionLoading(true);
@@ -1068,13 +1100,13 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                     }}
                   />
                 )}
-                
+
                 {/* Heatmap Overlay */}
                 {showHeatmap && currentDiffImage && (
                     <div className="absolute inset-0 z-20 pointer-events-none opacity-80 mix-blend-screen">
-                        <img 
-                            src={`${currentDiffImage}`} 
-                            alt="Difference Heatmap" 
+                        <img
+                            src={`${currentDiffImage}`}
+                            alt="Difference Heatmap"
                             className="w-full h-full object-contain"
                         />
                         <div className="absolute top-2 right-2 bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-90 font-black uppercase tracking-wider">
@@ -1148,10 +1180,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       {formatTime(displayDuration)}
                     </span>
                   </div>
-                  
+
                   {/* Difference Tracks Container */}
                   <div className="mt-3 space-y-2.5 w-full">
-                    
+
                     {/* 1. VIDEO Differences Track (RED PASKI) */}
                     <div className="flex items-center space-x-3 w-full">
                       <span className="text-[10px] font-bold text-red-600 dark:text-rose-400 uppercase w-12 text-right flex-shrink-0">
@@ -1169,10 +1201,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                 setShowInspector(true);
                               }}
                               className="absolute bg-red-600 dark:bg-rose-500 hover:opacity-80 cursor-pointer z-10"
-                              style={{ 
-                                  left: `${position}%`, 
-                                  width: '2.5px', 
-                                  height: '100%' 
+                              style={{
+                                  left: `${position}%`,
+                                  width: '2.5px',
+                                  height: '100%'
                               }}
                               title={`🎬 Video Diff: ${formatTime(diff.timestamp_seconds)}`}
                             />
@@ -1191,11 +1223,11 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         {audioDiffSegments.map((seg: any, index: number) => {
                            const timeStr = seg.time_a !== "(missing)" ? seg.time_a : seg.time_b;
                            const time = parseFloat(timeStr.replace('s', ''));
-                           
+
                            if (isNaN(time) || displayDuration <= 0) return null;
-                           
+
                            const position = (time / displayDuration) * 100;
-                           
+
                            return (
                              <div
                                key={`audio-${index}`}
@@ -1203,9 +1235,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                  handleSeek(time);
                                }}
                                className="absolute bg-indigo-500 dark:bg-indigo-400 hover:opacity-80 cursor-pointer z-10 rounded-full"
-                               style={{ 
-                                   left: `${position}%`, 
-                                   width: '6px', 
+                               style={{
+                                   left: `${position}%`,
+                                   width: '6px',
                                    height: '6px',
                                    transform: 'translateX(-50%)'
                                }}
@@ -1262,10 +1294,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 </h2>
                 {loading && <span className="ml-2 text-xs font-bold text-slate-400">(Loading...)</span>}
               </div>
-              
+
               <div className="flex items-center space-x-3">
                  {/* Print Button - visible on screen, hidden on print */}
-                 <button 
+                 <button
                     onClick={() => {
                       const oldTitle = document.title;
                       document.title = job.cradle_id ? `${job.cradle_id}` : job.job_name || 'report';
@@ -1273,7 +1305,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                         window.print();
                         document.title = oldTitle;
                       }, 50);
-                    }} 
+                    }}
                     className="flex items-center space-x-1 px-3.5 py-1.5 bg-emerald-500 border border-transparent text-white rounded-xl hover:bg-emerald-600 text-xs font-bold print:hidden shadow-sm transition-colors"
                  >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1290,13 +1322,13 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                 </span>
                 <span className="text-slate-300 dark:text-slate-700">|</span>
                 <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Re-analyze:</span>
-                
+
                 {/* Manual Levels */}
                 {(["high", "automation", "vo_transcript"] as const).map((level) => {
                   const levelStr = level as string;
-                  const isCurrent = ((job.sensitivity_level as string) || "medium") === levelStr && 
+                  const isCurrent = ((job.sensitivity_level as string) || "medium") === levelStr &&
                                    (levelStr === "automation" ? job.comparison_type === "automation" : levelStr === "vo_transcript" ? job.comparison_type === "vo_transcript" : job.comparison_type !== "automation" && job.comparison_type !== "vo_transcript");
-                  
+
                   return (
                     <button
                       key={levelStr}
@@ -1312,7 +1344,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           const formData = new FormData();
                           formData.append("sensitivity_level", levelStr === "vo_transcript" ? "automation" : levelStr);
                           formData.append("comparison_type", levelStr === "automation" ? "automation" : levelStr === "vo_transcript" ? "vo_transcript" : "full");
-                          
+
                           const response = await fetch(
                             `/api/v1/compare/${job.id}/reanalyze`,
                             { method: "POST", body: formData }
@@ -1391,7 +1423,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                       {t.audioDifferences || "Audio Similarity"}
                     </h3>
                     <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                      {results.audio_result?.audio_analysis_data?.audio_comparison_skipped 
+                      {results.audio_result?.audio_analysis_data?.audio_comparison_skipped
                         ? (results.audio_result?.audio_analysis_data?.audio_mismatch ? (lang === "PL" ? "Błąd: Brak audio w jednym z plików" : "Error: Audio missing in one file") : (lang === "PL" ? "Plik niemy (Brak audio)" : "Silent file (No audio)"))
                         : (audioSimilarity != null ? "Spectral analysis" : (lang === "PL" ? "Brak ścieżki dźwiękowej" : "No audio track"))}
                     </p>
@@ -1404,7 +1436,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                   const audio = results.overall_result.report_data.audio;
                   const loudness = audio.loudness;
                   const similarity = audio.similarity;
-                  
+
                   return (
                     <div id="audio-results-section" className="mb-8 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden">
                       {/* Header */}
@@ -1432,7 +1464,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </span>
                         )}
                       </div>
-                      
+
                       {/* Two Panel View - LUFS */}
                       <div className="grid grid-cols-2 gap-0 border-b border-slate-200 dark:border-white/10">
                         {/* Acceptance LUFS */}
@@ -1461,7 +1493,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                             )}
                           </div>
                         </div>
-                        
+
                         {/* Emission LUFS */}
                         <div>
                           <div className="bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white px-4 py-2 font-black text-xs text-center uppercase tracking-wider">
@@ -1489,7 +1521,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* Comparison Summary */}
                       {loudness?.comparison && (
                         <div className="p-4 bg-slate-100 dark:bg-slate-800/60">
@@ -1515,7 +1547,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Audio Waveforms (Stacked) */}
                       <div className="mt-6 mb-8">
                         <h4 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-3 flex items-center">
@@ -1523,11 +1555,21 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           Audio Waveform Comparison
                         </h4>
                         <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/10 p-4 space-y-4">
-                          
+
                           {/* Acceptance Waveform */}
                           <div className="relative">
                             <div className="flex justify-between items-center mb-1">
-                              <span className="text-[11px] font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">Acceptance Audio</span>
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-[11px] font-black text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">Acceptance Audio</span>
+                                {waveformTransforms.acceptance.isAligned && (
+                                  <span
+                                    className="inline-flex items-center justify-center p-0.5 rounded text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/50 border border-cyan-200 dark:border-cyan-800/50 cursor-help"
+                                    title={t.waveformClockAligned}
+                                  >
+                                    <ClockIcon className="w-3.5 h-3.5" />
+                                  </span>
+                                )}
+                              </div>
                               {waveformError && (
                                 <span className={`text-[10px] font-bold px-2 rounded border ${waveformError === 'No audio track' ? 'text-slate-500 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-white/10' : 'text-rose-500 bg-white dark:bg-slate-900 border-rose-200'}`}>
                                   {waveformError === 'No audio track' ? waveformError : `Error: ${waveformError}`}
@@ -1535,7 +1577,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               )}
                             </div>
                             <div className="h-[60px] w-full bg-white dark:bg-[#12131c] rounded-xl border border-indigo-100 dark:border-indigo-900/40 relative overflow-hidden">
-                              <div ref={waveformRef} className="absolute inset-0 w-full h-full" />
+                              <div
+                                ref={waveformRef}
+                                className="absolute inset-y-0 h-full"
+                                style={{
+                                  left: `${waveformTransforms.acceptance.leftPercent}%`,
+                                  width: `${waveformTransforms.acceptance.widthPercent}%`,
+                                  paddingLeft: waveformTransforms.acceptance.paddingLeftPercent > 0 ? `${waveformTransforms.acceptance.paddingLeftPercent}%` : undefined
+                                }}
+                              />
                               {/* Central Line */}
                               <div className="absolute top-1/2 left-0 right-0 h-px bg-indigo-100 dark:bg-indigo-900/40 z-0"></div>
                             </div>
@@ -1544,7 +1594,17 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           {/* Emission Waveform */}
                           <div className="relative">
                             <div className="flex justify-between items-center mb-1">
-                              <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">Emission Audio</span>
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">Emission Audio</span>
+                                {waveformTransforms.emission.isAligned && (
+                                  <span
+                                    className="inline-flex items-center justify-center p-0.5 rounded text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/50 cursor-help"
+                                    title={t.waveformClockAligned}
+                                  >
+                                    <ClockIcon className="w-3.5 h-3.5" />
+                                  </span>
+                                )}
+                              </div>
                               {emissionWaveformError && (
                                 <span className={`text-[10px] font-bold px-2 rounded border ${emissionWaveformError === 'No audio track' ? 'text-slate-500 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-white/10' : 'text-rose-500 bg-white dark:bg-slate-900 border-rose-200'}`}>
                                   {emissionWaveformError === 'No audio track' ? emissionWaveformError : `Error: ${emissionWaveformError}`}
@@ -1552,7 +1612,15 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               )}
                             </div>
                             <div className="h-[60px] w-full bg-white dark:bg-[#12131c] rounded-xl border border-rose-100 dark:border-rose-900/40 relative overflow-hidden">
-                              <div ref={emissionWaveformRef} className="absolute inset-0 w-full h-full" />
+                              <div
+                                ref={emissionWaveformRef}
+                                className="absolute inset-y-0 h-full"
+                                style={{
+                                  left: `${waveformTransforms.emission.leftPercent}%`,
+                                  width: `${waveformTransforms.emission.widthPercent}%`,
+                                  paddingLeft: waveformTransforms.emission.paddingLeftPercent > 0 ? `${waveformTransforms.emission.paddingLeftPercent}%` : undefined
+                                }}
+                              />
                               {/* Central Line */}
                               <div className="absolute top-1/2 left-0 right-0 h-px bg-rose-100 dark:bg-rose-900/40 z-0"></div>
                             </div>
@@ -1560,7 +1628,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
                         </div>
                       </div>
-                      
+
                       {/* Voiceover Comparison (if both have vocals) */}
                       {audio.voiceover && (
                         <div className={`mt-4 p-4 rounded-2xl border ${audio.voiceover.is_same_voice ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/40' : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/40'}`}>
@@ -1589,7 +1657,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Transcript Comparison (HIGH sensitivity only) */}
                       {audio.speech_to_text && (
                         <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/10">
@@ -1604,7 +1672,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                               {Math.round(audio.speech_to_text.text_similarity * 100)}% match
                             </span>
                           </h4>
-                          
+
                           <div className="space-y-4">
                             {/* Dialog Timeline (Whisper) - Side by Side */}
                             {activeTimeline !== undefined ? (
@@ -1651,10 +1719,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                                             const normB = (item.emission || "").toLowerCase().replace(/[.,?!:;\-"']/g, "").replace(/\s+/g, " ").trim();
                                             isMismatch = Boolean(item.acceptance && item.emission && normA !== normB);
                                           }
-  
+
                                           return (
-                                            <tr 
-                                              key={idx} 
+                                            <tr
+                                              key={idx}
                                               className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors ${isMismatch ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}
                                               onClick={() => jumpToDifference(item.timestamp)}
                                             >
@@ -1717,7 +1785,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           {videoDiffs.length > 0 ? `${videoDiffs.length} diffs` : `${videoDifferences} frames`}
                         </span>
                       </div>
-                      
+
                       <button
                         onClick={() => setShowInspector(true)}
                         className="px-3.5 py-1.5 bg-gradient-to-r from-[#350F9C] to-[#4960E6] text-white rounded-xl text-xs font-bold hover:opacity-90 transition-all shadow-sm print:hidden flex items-center space-x-1.5"
@@ -1737,10 +1805,10 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           const timeKeyInt = Math.floor(time).toString();
                           const timeKeyFloat = time.toFixed(1);
                           let diffImg = diffFrames[timeKeyInt] || diffFrames[timeKeyFloat];
-                          
+
                           if (!diffImg && Object.keys(diffFrames).length > 0) {
                             const keys = Object.keys(diffFrames);
-                            const closestKey = keys.reduce((prev, curr) => 
+                            const closestKey = keys.reduce((prev, curr) =>
                               Math.abs(Number(curr) - time) < Math.abs(Number(prev) - time) ? curr : prev
                             );
                             if (Math.abs(Number(closestKey) - time) < 1.0) {
@@ -1749,7 +1817,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
                           }
 
                           return (
-                            <div 
+                            <div
                               key={`diff-report-card-${index}`}
                               className="bg-slate-50 dark:bg-[#12131c] rounded-xl p-3 border border-slate-200 dark:border-white/10 flex flex-col justify-between break-inside-avoid page-break-inside-avoid shadow-sm"
                             >
@@ -1765,9 +1833,9 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
                                 {diffImg ? (
                                   <div className="aspect-video bg-black rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 mb-2.5 relative">
-                                    <img 
-                                      src={diffImg} 
-                                      alt={`Difference at ${formatTime(time)}`} 
+                                    <img
+                                      src={diffImg}
+                                      alt={`Difference at ${formatTime(time)}`}
                                       className="w-full h-full object-contain"
                                     />
                                     <div className="absolute bottom-1 right-1 bg-black/75 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-bold text-white uppercase border border-white/10">
@@ -1805,7 +1873,7 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
               </>
             ) : !loading ? (
               <div className="text-center py-8 text-gray-500">
-                {job.status === "completed" 
+                {job.status === "completed"
                   ? (lang === "PL" ? "Brak szczegółowych wyników" : "No detailed results available")
                   : `Job status: ${job.status}.`
                 }
@@ -1817,8 +1885,8 @@ const VideoComparison: React.FC<VideoComparisonProps> = ({ job, onJobReanalyzed,
 
       {/* ======================== QA VERDICT PANEL ======================== */}
       {job.status === "completed" && (
-        <QAVerdictPanel 
-          jobId={job.id} 
+        <QAVerdictPanel
+          jobId={job.id}
           clientName={(job as any).client_name || ""}
           lang={lang}
           onSaveSuccess={onBackToDashboard}
