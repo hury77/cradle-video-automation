@@ -6,10 +6,44 @@ import asyncio
 import glob
 import shutil
 import zipfile
+import re
+
+# Cradle random hash suffix pattern: exactly 7 alphanumeric characters
+CRADLE_HASH_PATTERN = re.compile(r"^[A-Za-z0-9]{7}$")
+GENERIC_TEMPLATE_IDS = {"master", "master1111", "template"}
+
+def normalize_acceptance_stem(stem_or_filename: str):
+    """
+    Normalizes acceptance stem/filename by stripping Cradle random 7-character hash suffix.
+
+    Rules:
+      - Removes only trailing segment after '_' if it matches exactly 7 alphanumeric chars ([A-Za-z0-9]).
+      - Preserves language segments, format tokens, and normal words.
+      - Keeps extension outside.
+      - Returns (original_stem, cleaned_stem).
+    """
+    if not stem_or_filename:
+        return ("", "")
+
+    orig_stem = Path(stem_or_filename).stem
+    parts = orig_stem.split("_")
+    if len(parts) >= 2 and CRADLE_HASH_PATTERN.match(parts[-1]):
+        cleaned_stem = "_".join(parts[:-1])
+    else:
+        cleaned_stem = orig_stem
+
+    return (orig_stem, cleaned_stem)
+
+
+
+DEFAULT_LUCID_BASES_CONFIG = {
+    "Electrolux": Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS"),
+    "AEG": Path("/Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS"),
+}
 
 
 class FileHandler:
-    def __init__(self, download_base_path=None):
+    def __init__(self, download_base_path=None, lucid_bases_config=None):
         self.logger = logging.getLogger(__name__)
 
         # Default Downloads folder
@@ -18,6 +52,8 @@ class FileHandler:
             self.download_base_path = home / "Downloads"
         else:
             self.download_base_path = Path(download_base_path)
+
+        self.lucid_bases_config = lucid_bases_config or DEFAULT_LUCID_BASES_CONFIG
 
         self.logger.info(
             f"FileHandler initialized with base path: {self.download_base_path}"
@@ -594,11 +630,8 @@ class FileHandler:
           3. Search within that campaign folder for files by Template ID
         """
         try:
-            LUCID_BASES_CONFIG = {
-                "Electrolux": Path("/Volumes/egpluswarsaw/alfa/Electrolux/Sources/1. CAMPAIGNS"),
-                "AEG": Path("/Volumes/egpluswarsaw/alfa/AEG/Sources/CAMPAIGNS")
-            }
-            VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv"}
+            LUCID_BASES_CONFIG = getattr(self, "lucid_bases_config", DEFAULT_LUCID_BASES_CONFIG)
+            VIDEO_EXTENSIONS = {".mp4", ".mov", ".mxf", ".prores", ".avi", ".mkv", ".webm"}
 
             job_number_raw = file_info.get("jobNumber") or ""
             template_id = file_info.get("templateId") or ""
@@ -814,6 +847,84 @@ class FileHandler:
                             f"   Candidates were: {[str(c) for c in all_candidates]}"
                         )
                     break  # Stop at first pattern that yields results
+
+            if not found_file:
+                # ── Fallback search for Generic Template ID or unlocated emission ──────
+                is_generic_template = not template_id or template_id.strip().lower() in GENERIC_TEMPLATE_IDS
+                if is_generic_template or acceptance_name_full:
+                    orig_acc_stem, cleaned_acc_stem = normalize_acceptance_stem(acceptance_name_full or "")
+                    if cleaned_acc_stem and len(cleaned_acc_stem) > 4:
+                        self.logger.info(
+                            f"💡 Triggering generic/fallback search with cleaned acceptance stem: '{cleaned_acc_stem}' "
+                            f"(original: '{orig_acc_stem}', generic_template={is_generic_template})"
+                        )
+                        fallback_candidates = []
+                        seen_paths = set()
+
+                        # Helper: check language matching
+                        target_lang = lang_code.upper() if lang_code else None
+                        target_aliases = set()
+                        other_aliases = set()
+                        if target_lang and target_lang in LANG_FILENAME_ALIASES:
+                            target_aliases = {a.lower() for a in LANG_FILENAME_ALIASES[target_lang]}
+                            target_aliases.add(target_lang.lower())
+                            for ol, o_aliases in LANG_FILENAME_ALIASES.items():
+                                if ol != target_lang:
+                                    for oa in o_aliases:
+                                        if oa.lower() not in target_aliases:
+                                            other_aliases.add(oa.lower())
+
+                        for target_folder in search_targets:
+                            for m in target_folder.rglob(f"*{cleaned_acc_stem}*"):
+                                if not (m.is_file() and m.suffix.lower() in VIDEO_EXTENSIONS):
+                                    continue
+                                if m in seen_paths:
+                                    continue
+                                seen_paths.add(m)
+
+                                # Basename must contain cleaned stem with boundary
+                                m_stem = m.stem
+                                pattern_re = rf"^{re.escape(cleaned_acc_stem)}(?:[_\-.\s].*)?$"
+                                if not re.match(pattern_re, m_stem, re.IGNORECASE):
+                                    continue
+
+                                # Language token filter:
+                                # When langCode is available, require positive confirmation of target language
+                                # either in basename or in the language folder path. Reject if confirmation is missing
+                                # or if other languages are detected.
+                                if target_lang:
+                                    m_name_tokens = set(re.split(r"[_.\-\s]+", m.name.lower()))
+                                    m_path_tokens = set(re.split(r"[_.\-\s/()]+", str(m).lower()))
+                                    has_other = any(oa in m_name_tokens for oa in other_aliases)
+                                    has_target = any(ta in m_name_tokens or ta in m_path_tokens for ta in target_aliases)
+
+                                    if not has_target:
+                                        self.logger.debug(
+                                            f"Rejecting candidate without target language confirmation '{target_lang}': {m.name}"
+                                        )
+                                        continue
+
+                                    if has_other:
+                                        self.logger.debug(
+                                            f"Rejecting candidate due to conflicting language token: {m.name}"
+                                        )
+                                        continue
+
+                                fallback_candidates.append(m)
+
+                        if len(fallback_candidates) == 1:
+                            found_file = fallback_candidates[0]
+                            self.logger.info(
+                                f"✅ Found Lucid emission file via cleaned stem fallback: {found_file.name}"
+                            )
+                        elif len(fallback_candidates) > 1:
+                            redacted_names = [c.name for c in fallback_candidates]
+                            error = (
+                                f"AMBIGUOUS_LUCID_EMISSION_MATCH: Found {len(fallback_candidates)} candidates "
+                                f"matching stem '{cleaned_acc_stem}': {redacted_names}"
+                            )
+                            self.logger.error(f"❌ {error}")
+                            return {"success": False, "error": error}
 
             if not found_file:
                 error = f"No video file found for templateId='{template_id}' in any matching campaign folder"
