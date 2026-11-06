@@ -45,7 +45,10 @@ current_script_dir = Path(__file__).resolve().parent
 backend_dir = current_script_dir.parent
 sys.path.insert(0, str(backend_dir))
 
-from services.deterministic_metrics_adapter import adapt_comparison_metrics
+from services.deterministic_metrics_adapter import (
+    adapt_comparison_metrics,
+    is_metrics_contract_complete,
+)
 from services.deterministic_decision_engine import (
     DeterministicDecisionEngineV1,
     CANONICAL_FAST_PATH_IDENTICAL_AUDIO,
@@ -165,175 +168,9 @@ def open_readonly_connection(db_file: Path) -> sqlite3.Connection:
 
 def check_snapshot_completeness(canonical_metrics: Dict[str, Any]) -> Tuple[bool, Dict[str, bool]]:
     """
-    Tightened verification of record completeness in strict mode.
-    Returns (is_complete, completeness_flags).
-
-    A. Always required:
-       - video_similarity (valid number 0.0..1.0)
-       - duration_difference (valid number >= 0.0)
-       - is_arpp_slate (exact bool)
-       - is_binary_duplicate (exact bool)
-       - audio_mismatch (exact bool)
-       - no_audio_tracks (exact bool)
-       - acc_has_audio (exact bool)
-       - emi_has_audio (exact bool)
-
-    B. If audio_pair_comparable (both files have audio and no mismatch):
-       - audio_similarity (valid number 0.0..1.0)
-       - lufs_difference (valid number)
-       - STT payload (dict with status and is_uncertain as exact bool)
-
-    C. For completed_no_speech or legacy completed with 0 words:
-       Full suite of Raw VAD fields required:
-       - raw_vad_metrics_complete is True
-       - raw_vad_error in (False, None)
-       - raw_vad_inconclusive is False
-       - raw_vad_speech is False
-       - raw_vad_status_acc == "no_speech"
-       - raw_vad_status_emi == "no_speech"
-       - raw_vad_speech_acc is False
-       - raw_vad_speech_emi is False
-       - music_dominant is False
-
-    D. For skipped STT:
-       - canonical skipped_reason matching allowlist
-       - if FAST_PATH: audio_similarity >= 0.98, lufs_difference valid
-       - if FULL_MODE: complete Raw VAD fields
-       - if NO_AUDIO_STREAMS: strictly DOOH/both-silent only
+    Backward-compatible wrapper delegating to is_metrics_contract_complete in adapter.
     """
-    flags: Dict[str, bool] = {
-        "has_video_similarity": _is_valid_number(canonical_metrics.get("video_similarity"))
-        and (0.0 <= float(canonical_metrics["video_similarity"]) <= 1.0),
-        "has_duration_difference": _is_valid_number(canonical_metrics.get("duration_difference"))
-        and (float(canonical_metrics["duration_difference"]) >= 0.0),
-        "has_is_arpp_slate": _is_exact_bool(canonical_metrics.get("is_arpp_slate")),
-        "has_is_binary_duplicate": _is_exact_bool(canonical_metrics.get("is_binary_duplicate")),
-        "has_audio_probe": (
-            _is_exact_bool(canonical_metrics.get("audio_mismatch"))
-            and _is_exact_bool(canonical_metrics.get("no_audio_tracks"))
-            and _is_exact_bool(canonical_metrics.get("acc_has_audio"))
-            and _is_exact_bool(canonical_metrics.get("emi_has_audio"))
-        ),
-        "has_audio_similarity": False,
-        "has_lufs": False,
-        "has_stt_payload": False,
-        "has_raw_vad_complete": False,
-    }
-
-    # Step A: Universal base checks
-    if not (
-        flags["has_video_similarity"]
-        and flags["has_duration_difference"]
-        and flags["has_is_arpp_slate"]
-        and flags["has_is_binary_duplicate"]
-        and flags["has_audio_probe"]
-    ):
-        return False, flags
-
-    no_audio = canonical_metrics.get("no_audio_tracks") is True
-    audio_mismatch = canonical_metrics.get("audio_mismatch") is True
-    acc_audio = canonical_metrics.get("acc_has_audio") is True
-    emi_audio = canonical_metrics.get("emi_has_audio") is True
-
-    # If both files lack audio (DOOH / silent)
-    if no_audio and not acc_audio and not emi_audio and not audio_mismatch:
-        flags["has_lufs"] = True
-        flags["has_audio_similarity"] = True
-        flags["has_stt_payload"] = True
-        flags["has_raw_vad_complete"] = True
-        return True, flags
-
-    # If stream mismatch (one has audio, other does not)
-    if audio_mismatch:
-        flags["has_lufs"] = True
-        flags["has_audio_similarity"] = True
-        flags["has_stt_payload"] = True
-        flags["has_raw_vad_complete"] = True
-        return True, flags
-
-    # Step B: Audio pair is comparable
-    audio_pair_comparable = acc_audio and emi_audio and not audio_mismatch and not no_audio
-    if not audio_pair_comparable:
-        return False, flags
-
-    aud_sim = canonical_metrics.get("audio_similarity")
-    flags["has_audio_similarity"] = _is_valid_number(aud_sim) and (0.0 <= float(aud_sim) <= 1.0)
-
-    loudness = canonical_metrics.get("audio_loudness")
-    raw_lufs = loudness.get("lufs_difference") if isinstance(loudness, dict) else canonical_metrics.get("lufs_difference")
-    flags["has_lufs"] = _is_valid_number(raw_lufs)
-
-    stt = canonical_metrics.get("audio_transcription")
-    stt_valid = (
-        isinstance(stt, dict)
-        and stt.get("status") is not None
-        and _is_exact_bool(stt.get("is_uncertain"))
-    )
-    flags["has_stt_payload"] = stt_valid
-
-    if not (flags["has_audio_similarity"] and flags["has_lufs"] and flags["has_stt_payload"]):
-        return False, flags
-
-    # Step C & D: Branch-specific completeness
-    stt_status = stt.get("status")
-    w_a = stt.get("word_count_a")
-    w_b = stt.get("word_count_b")
-    text_a = str(stt.get("acceptance_text", "")).strip()
-    text_b = str(stt.get("emission_text", "")).strip()
-
-    is_no_speech = (
-        stt_status == "completed_no_speech"
-        or (stt_status == "completed" and text_a == "" and text_b == "" and w_a == 0 and w_b == 0)
-    )
-
-    if is_no_speech:
-        raw_vad_complete = (
-            canonical_metrics.get("raw_vad_metrics_complete") is True
-            and canonical_metrics.get("raw_vad_error") in (False, None)
-            and canonical_metrics.get("raw_vad_inconclusive") is False
-            and canonical_metrics.get("raw_vad_speech") is False
-            and canonical_metrics.get("raw_vad_status_acc") == "no_speech"
-            and canonical_metrics.get("raw_vad_status_emi") == "no_speech"
-            and canonical_metrics.get("raw_vad_speech_acc") is False
-            and canonical_metrics.get("raw_vad_speech_emi") is False
-            and canonical_metrics.get("music_dominant") is False
-        )
-        flags["has_raw_vad_complete"] = raw_vad_complete
-        return raw_vad_complete, flags
-
-    if stt_status == "skipped":
-        raw_reason = stt.get("skipped_reason") or canonical_metrics.get("stt_skipped_reason")
-        if not raw_reason or not isinstance(raw_reason, str):
-            return False, flags
-
-        # Canonical skip reason checks
-        if CANONICAL_FAST_PATH_IDENTICAL_AUDIO in raw_reason:
-            flags["has_raw_vad_complete"] = True
-            return True, flags
-        elif CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH in raw_reason:
-            raw_vad_complete = (
-                canonical_metrics.get("raw_vad_metrics_complete") is True
-                and canonical_metrics.get("raw_vad_error") in (False, None)
-                and canonical_metrics.get("raw_vad_inconclusive") is False
-                and canonical_metrics.get("raw_vad_speech") is False
-                and canonical_metrics.get("raw_vad_status_acc") == "no_speech"
-                and canonical_metrics.get("raw_vad_status_emi") == "no_speech"
-                and canonical_metrics.get("raw_vad_speech_acc") is False
-                and canonical_metrics.get("raw_vad_speech_emi") is False
-                and canonical_metrics.get("music_dominant") is False
-            )
-            flags["has_raw_vad_complete"] = raw_vad_complete
-            return raw_vad_complete, flags
-        elif CANONICAL_NO_AUDIO_STREAMS in raw_reason:
-            # Valid only if actually silent DOOH (already handled above)
-            return False, flags
-        else:
-            # Non-canonical skip reason
-            return False, flags
-
-    # Regular STT with spoken text (completed, failed)
-    flags["has_raw_vad_complete"] = True
-    return True, flags
+    return is_metrics_contract_complete(canonical_metrics)
 
 
 def run_replay(
