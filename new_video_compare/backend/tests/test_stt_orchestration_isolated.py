@@ -255,6 +255,13 @@ def test_mlx_subprocess_path_injection_safety(mock_json, mock_open, mock_run):
     assert "sys.argv[1]" in call_args[2]
     assert call_args[3].endswith('.json')
 
+    call_kwargs = mock_run.call_args.kwargs
+    assert "env" in call_kwargs, "Worker subprocess must receive explicit env dictionary"
+    worker_env = call_kwargs["env"]
+    assert "PATH" in worker_env
+    exec_bin_dir = str(Path(call_args[0]).resolve().parent)
+    assert worker_env["PATH"].startswith(exec_bin_dir), "Worker env PATH must start with Python executable bin dir"
+
 # 14. test_detector_3_suffix_loop_preserves_prefix
 def test_detector_3_suffix_loop_preserves_prefix():
     from services.audio_service import _detect_and_strip_loop_hallucination
@@ -1603,3 +1610,55 @@ def test_analyst_service_strict_skip_code_normalization():
         decision_canon = analyst.analyze_job_results(canonical_metrics, db=MockDB())
         assert decision_canon["verdict"] == "review"
         assert "DUPLICATE_INPUT" in decision_canon["reasoning"]
+
+
+# 49. test_build_mlx_worker_env_deterministic_path
+def test_build_mlx_worker_env_deterministic_path():
+    """
+    Verifies that build_mlx_worker_env:
+    - prepends executable bin dir to PATH when missing;
+    - moves executable bin dir to the very front of PATH if present in the middle;
+    - collapses multiple occurrences of bin dir to exactly one at the start;
+    - preserves relative ordering of all other PATH elements;
+    - leaves base_env completely unmutated;
+    - ensures ffmpeg located under Path(sys.executable).parent is executable.
+    """
+    from services.audio_service import build_mlx_worker_env
+    import os
+    import sys
+
+    exec_path = sys.executable
+    exec_bin_dir = str(Path(exec_path).resolve().parent)
+
+    # 1. PATH without exec_bin_dir -> prepends it to front
+    base_env = {"PATH": "/usr/bin:/bin", "OTHER": "val"}
+    worker_env = build_mlx_worker_env(exec_path, base_env)
+    assert worker_env["PATH"] == f"{exec_bin_dir}:/usr/bin:/bin"
+    # Ensure base_env was not mutated
+    assert base_env["PATH"] == "/usr/bin:/bin"
+    assert base_env["OTHER"] == "val"
+
+    # 2. PATH contains exec_bin_dir in the middle -> moves strictly to front
+    middle_env = {"PATH": f"/usr/local/bin:{exec_bin_dir}:/usr/bin"}
+    worker_env2 = build_mlx_worker_env(exec_path, middle_env)
+    assert worker_env2["PATH"] == f"{exec_bin_dir}:/usr/local/bin:/usr/bin"
+    assert worker_env2["PATH"].count(exec_bin_dir) == 1
+    assert middle_env["PATH"] == f"/usr/local/bin:{exec_bin_dir}:/usr/bin"
+
+    # 3. PATH contains exec_bin_dir multiple times -> collapsed to exactly one at front
+    multi_env = {"PATH": f"/opt/bin:{exec_bin_dir}:/usr/local/bin:{exec_bin_dir}:/usr/bin"}
+    worker_env3 = build_mlx_worker_env(exec_path, multi_env)
+    assert worker_env3["PATH"] == f"{exec_bin_dir}:/opt/bin:/usr/local/bin:/usr/bin"
+    assert worker_env3["PATH"].count(exec_bin_dir) == 1
+
+    # 4. If ffmpeg exists in the environment's bin dir, verify it is resolved and runnable
+    ffmpeg_binary = Path(exec_bin_dir) / "ffmpeg"
+    if ffmpeg_binary.exists():
+        proc = subprocess.run(
+            ["ffmpeg", "-version"],
+            env=worker_env,
+            capture_output=True,
+            text=True
+        )
+        assert proc.returncode == 0
+        assert "ffmpeg version" in proc.stdout

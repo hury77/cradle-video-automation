@@ -3,13 +3,15 @@ Audio Service for Audio Comparison
 Provides loudness measurement (LUFS), source separation, and voiceover comparison
 """
 
+import os
+import sys
 import logging
 import subprocess
 import tempfile
 import threading
 import fcntl
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Mapping
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -1345,6 +1347,27 @@ def _detect_and_strip_loop_hallucination(text: str, ngram_size: int = 3, max_rep
     return text, False
 
 
+def build_mlx_worker_env(executable: str, base_env: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
+    """
+    Builds a deterministic environment dictionary for the MLX Whisper worker subprocess.
+    Ensures Path(executable).parent is strictly the first entry in PATH so that tools like ffmpeg
+    located in the Python environment's bin/ directory always take precedence over system tools.
+    - exec_bin_dir appears exactly once, strictly at the beginning of PATH.
+    - Preserves existing order of other PATH elements without duplication.
+    - Does not mutate base_env or os.environ.
+    """
+    if base_env is None:
+        base_env = os.environ
+    env = dict(base_env)
+
+    exec_bin_dir = str(Path(executable).resolve().parent)
+    current_path = env.get("PATH", "")
+    other_parts = [p for p in current_path.split(os.pathsep) if p and p != exec_bin_dir]
+    env["PATH"] = os.pathsep.join([exec_bin_dir] + other_parts)
+
+    return env
+
+
 def transcribe_audio(
     audio_path: str,
     language: Optional[str] = None,
@@ -1433,12 +1456,14 @@ def transcribe_audio(
                         return f"Error reading stderr: {err}"
 
                 try:
+                    worker_env = build_mlx_worker_env(sys.executable, os.environ)
                     with open(tmp_stderr_path, "wb") as stderr_f:
                         proc = subprocess.run(
                             [sys.executable, "-c", worker_script, tmp_cfg_path],
                             stdout=subprocess.DEVNULL,
                             stderr=stderr_f,
-                            timeout=300
+                            timeout=300,
+                            env=worker_env
                         )
 
                     err_tail = _read_stderr_tail(tmp_stderr_path)
