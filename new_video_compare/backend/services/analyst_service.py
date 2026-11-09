@@ -62,8 +62,7 @@ class AnalystService:
             "Na podstawie tych danych i historii decyzji, jaki jest Twój werdykt?"
         )
 
-        # Store metrics for fallback reasoning generation (used if LLM returns empty reasoning)
-        self._last_metrics = job_data
+
 
         import ollama
         try:
@@ -82,7 +81,7 @@ class AnalystService:
             )
 
             content = response["message"]["content"]
-            return self._parse_response(content)
+            return self._parse_response(content, job_data)
 
         except Exception as e:
             logger.error(f"❌ AI Service Error: {e}")
@@ -414,7 +413,7 @@ class AnalystService:
     # RESPONSE PARSING
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _parse_response(self, content: str) -> Dict[str, Any]:
+    def _parse_response(self, content: str, metrics: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Parse LLM JSON response — language-agnostic, LLM-proof.
 
@@ -455,11 +454,11 @@ class AnalystService:
             # generate a deterministic, metric-based explanation instead of the generic fallback.
             if "reasoning" not in analysis or not str(analysis.get("reasoning", "")).strip():
                 logger.warning("⚠️ LLM returned empty reasoning — generating rule-based explanation.")
-                analysis["reasoning"] = self._generate_rule_based_reasoning(verdict, self._last_metrics)
+                analysis["reasoning"] = self._generate_rule_based_reasoning(verdict, metrics)
 
             # ── Deterministic Post-Processing for STT Skipped ─────────────────
             # Prevent LLM from hallucinating that "transcription is perfect" when it was skipped.
-            if self._last_metrics.get("stt_skipped", False):
+            if metrics.get("stt_skipped", False):
                 reasoning = analysis.get("reasoning", "")
                 required_msg = "Transkrypcja została pominięta dla optymalizacji z powodu braku różnic w warstwie audio."
                 if required_msg not in reasoning:
@@ -476,8 +475,8 @@ class AnalystService:
 
             # ── Deterministic Post-Processing for Missing Audio ───────────────
             # Prevent LLM from saying "pełna zgodność audio" when there are no audio tracks
-            audio_data = self._last_metrics.get("audio_analysis_data", {})
-            audio_sim = self._last_metrics.get("audio_similarity")
+            audio_data = metrics.get("audio_analysis_data", {})
+            audio_sim = metrics.get("audio_similarity")
             similarity_error = audio_data.get("similarity", {}).get("error", "") if isinstance(audio_data, dict) else ""
             
             is_missing_audio = False
@@ -500,7 +499,7 @@ class AnalystService:
 
             # ── Deterministic Post-Processing for Missing VO ──────────────────
             # Prevent LLM from saying "Transkrypcja zgodna" when there is no voiceover
-            if not is_missing_audio and not self._last_metrics.get("stt_skipped", False):
+            if not is_missing_audio and not metrics.get("stt_skipped", False):
                 stt_comp = audio_data.get("speech_to_text", {}).get("comparison", {}) if isinstance(audio_data, dict) else {}
                 if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
                     reasoning = analysis.get("reasoning", "")
@@ -520,61 +519,50 @@ class AnalystService:
             # This is NOT a quality defect — audio absence in both files is OK.
             # If video matches perfectly, the verdict MUST be APPROVE.
             if analysis["verdict"] in ("reject", "review"):
-                video_sim = self._last_metrics.get("overall_similarity", 1.0)
-                audio_sim = self._last_metrics.get("audio_similarity")
-                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                video_sim = metrics.get("overall_similarity", 1.0)
+                audio_sim = metrics.get("audio_similarity")
+                audio_loudness = metrics.get("audio_loudness", {})
                 lufs_diff = audio_loudness.get("lufs_difference") if isinstance(audio_loudness, dict) else None
                 has_loudness_issue = audio_loudness.get("has_loudness_issue", False) if isinstance(audio_loudness, dict) else False
 
-                stt_data = self._last_metrics.get("audio_transcription", {})
+                stt_data = metrics.get("audio_transcription", {})
                 text_sim = stt_data.get("text_similarity") if isinstance(stt_data, dict) else None
                 word_diffs = stt_data.get("word_differences_count", 0) if isinstance(stt_data, dict) else 0
 
                 # DOOH pattern: no LUFS data, audio_sim=0.0, text perfectly matches (both empty)
-                # OR asymmetric audio (one file has no audio streams) where we intentionally skip STT
-                stt_skipped_reason = self._last_metrics.get("stt_skipped_reason", "")
-                is_asymmetric_audio = stt_skipped_reason and "No audio streams in" in stt_skipped_reason
-
+                # Strictly requires both files to lack audio tracks. Asymmetric audio must NEVER auto-approve as DOOH!
                 is_no_audio = (
-                    (
-                        lufs_diff is None
-                        and not has_loudness_issue
-                        and audio_sim is not None and float(audio_sim) == 0.0
-                        and (text_sim is None or text_sim == 1.0)
-                        and word_diffs == 0
-                    )
-                    or is_asymmetric_audio
+                    lufs_diff is None
+                    and not has_loudness_issue
+                    and audio_sim is not None and float(audio_sim) == 0.0
+                    and (text_sim is None or text_sim == 1.0)
+                    and word_diffs == 0
+                    and metrics.get("no_audio_tracks") is True
+                    and not metrics.get("audio_mismatch")
                 )
 
                 if is_no_audio and float(video_sim) >= 0.98:
                     analysis["verdict"] = "approve"
-                    
                     reason_msg = "brak ścieżek dźwiękowych w obu plikach"
-                    if is_asymmetric_audio:
-                        if "acceptance" in stt_skipped_reason.lower():
-                            reason_msg = "brak ścieżki dźwiękowej w pliku acceptance (oczekiwane w digital)"
-                        else:
-                            reason_msg = "brak ścieżki dźwiękowej w pliku emisji (oczekiwane w digital)"
-                            
                     analysis["reasoning"] = (
                         f"Obraz: idealnie zgodny (similarity={video_sim:.4f}, 0 różnych klatek). "
                         f"Audio: {reason_msg} (DOOH — poprawny stan). "
                         "Brak różnic w treści. Końcowy werdykt: APPROVE."
                     )
-                    logger.info(f"🔧 Post-processing: DOOH detected ({reason_msg}) — overriding to APPROVE.")
+                    logger.info("🔧 Post-processing: DOOH detected (brak ścieżek dźwiękowych w obu plikach) — overriding to APPROVE.")
 
             # ── Deterministic Post-Processing for Minor Audio Differences ───
             # If everything else is perfect, allow audio similarity down to 0.85 as compression artifacts
             if analysis["verdict"] == "review":
-                video_sim = self._last_metrics.get("overall_similarity", 1.0)
-                audio_sim = self._last_metrics.get("audio_similarity")
-                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                video_sim = metrics.get("overall_similarity", 1.0)
+                audio_sim = metrics.get("audio_similarity")
+                audio_loudness = metrics.get("audio_loudness", {})
                 lufs_diff = audio_loudness.get("lufs_difference") if isinstance(audio_loudness, dict) else None
                 abs_lufs = abs(float(lufs_diff)) if lufs_diff is not None else 0.0
                 
                 # Check STT matches
-                stt_data = self._last_metrics.get("audio_transcription", {})
-                stt_skipped = self._last_metrics.get("stt_skipped", False)
+                stt_data = metrics.get("audio_transcription", {})
+                stt_skipped = metrics.get("stt_skipped", False)
                 
                 is_stt_ok = False
                 if stt_skipped:
@@ -603,7 +591,7 @@ class AnalystService:
             current_reasoning = analysis.get("reasoning", "")
 
             # 1. Video Similarity Override — force REJECT if below 0.95, REVIEW if below 0.98
-            video_sim = self._last_metrics.get("video_similarity", self._last_metrics.get("overall_similarity", 1.0))
+            video_sim = metrics.get("video_similarity", metrics.get("overall_similarity", 1.0))
             if video_sim < 0.95 and analysis["verdict"] != "reject":
                 analysis["verdict"] = "reject"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Zgodność wideo ({video_sim:.2%}) jest poniżej krytycznego progu 95%. Wymuszono status REJECT. [Oryginalna notatka AI: {current_reasoning}]"
@@ -614,27 +602,32 @@ class AnalystService:
                 current_reasoning = analysis["reasoning"]
 
             # 2. Check STT condition early for LUFS override exception
-            stt_data = self._last_metrics.get("audio_transcription", {})
-            stt_skipped = self._last_metrics.get("stt_skipped", False)
+            stt_data = metrics.get("audio_transcription", {})
+            stt_skipped = metrics.get("stt_skipped", False)
             is_stt_ok = False
             if stt_skipped:
                 is_stt_ok = True
             elif isinstance(stt_data, dict):
-                if stt_data.get("is_text_match") is True:
+                stt_status = stt_data.get("status")
+                if stt_status == "completed_no_speech":
+                    is_stt_ok = True
+                elif stt_status == "failed":
+                    is_stt_ok = False
+                elif stt_data.get("is_text_match") is True:
                     is_stt_ok = True
                 else:
-                    stt_comp = self._last_metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
+                    stt_comp = metrics.get("audio_analysis_data", {}).get("speech_to_text", {}).get("comparison", {})
                     if isinstance(stt_comp, dict) and stt_comp.get("word_count_a", -1) == 0 and stt_comp.get("word_count_b", -1) == 0:
                         is_stt_ok = True
 
             # 3. LUFS Override — force REJECT if diff > 2.0, REVIEW if diff > 1.0
-            audio_loudness = self._last_metrics.get("audio_loudness", {})
+            audio_loudness = metrics.get("audio_loudness", {})
             if isinstance(audio_loudness, dict):
                 lufs_diff = audio_loudness.get("lufs_difference")
                 if lufs_diff is not None:
                     abs_lufs = abs(float(lufs_diff))
 
-                    video_sim_lufs_check = self._last_metrics.get("overall_similarity", 1.0)
+                    video_sim_lufs_check = metrics.get("overall_similarity", 1.0)
                     is_lufs_exception = (video_sim_lufs_check >= 0.98 and is_stt_ok)
 
                     if abs_lufs > 1.0 and is_lufs_exception:
@@ -655,12 +648,12 @@ class AnalystService:
                             current_reasoning = analysis["reasoning"]
 
             # 4. Audio Similarity Override — reduce false-positives
-            audio_sim_val = self._last_metrics.get("audio_similarity")
+            audio_sim_val = metrics.get("audio_similarity")
             if audio_sim_val is not None and not is_missing_audio:
                 audio_sim_val = float(audio_sim_val)
                 
                 # Check Loudness condition
-                audio_loudness = self._last_metrics.get("audio_loudness", {})
+                audio_loudness = metrics.get("audio_loudness", {})
                 is_loudness_ok = not (audio_loudness.get("has_loudness_issue", False) if isinstance(audio_loudness, dict) else False)
                 
                 has_green_flags = is_stt_ok and is_loudness_ok
@@ -678,8 +671,8 @@ class AnalystService:
                     current_reasoning = analysis["reasoning"]
 
             # 4. Duration Difference Override (Enforce REJECT if length differs > 0.5s and not ARPP)
-            duration_diff = self._last_metrics.get("duration_difference", 0.0)
-            is_arpp = self._last_metrics.get("is_arpp_slate", False)
+            duration_diff = metrics.get("duration_difference", 0.0)
+            is_arpp = metrics.get("is_arpp_slate", False)
             if duration_diff > 0.5 and not is_arpp and analysis["verdict"] != "reject":
                 analysis["verdict"] = "reject"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Pliki różnią się długością o {duration_diff:.1f}s i nie jest to format z planszami. Wymuszono status REJECT. [Oryginalna notatka: {analysis.get('reasoning', '')}]"
@@ -696,9 +689,34 @@ class AnalystService:
                             current_reasoning = analysis["reasoning"]
 
             # 4. Audio Mismatch Override (Enforce REVIEW)
-            if self._last_metrics.get("audio_mismatch"):
+            if metrics.get("audio_mismatch"):
                 analysis["verdict"] = "review"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: KRYTYCZNA RÓŻNICA — brak ścieżki dźwiękowej w jednym z plików (mismatch). Wymuszono status REVIEW. [Oryginalna notatka AI: {analysis.get('reasoning', '')}]"
+
+            # 6. STT Failure / Uncertainty / DUPLICATE_INPUT Overrides (Enforce REVIEW on APPROVE, preserve hard REJECT)
+            if isinstance(stt_data, dict):
+                from services.comparison_service import extract_normalized_skip_code
+                is_duplicate = (
+                    extract_normalized_skip_code(stt_data.get("skipped_reason")) == "DUPLICATE_INPUT"
+                    or extract_normalized_skip_code(stt_data.get("uncertainty_reason")) == "DUPLICATE_INPUT"
+                )
+                if is_duplicate:
+                    if analysis["verdict"] != "reject":
+                        analysis["verdict"] = "review"
+                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT). Podejrzenie błędu pobrania (duplikat). Wymuszono status REVIEW do weryfikacji przez człowieka. [Oryginalna notatka: {current_reasoning}]"
+                    else:
+                        analysis["reasoning"] = f"🚨 SYSTEM WARNING: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT), lecz zachowano twardy status REJECT. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
+                elif stt_data.get("status") == "failed" and analysis["verdict"] == "approve":
+                    analysis["verdict"] = "review"
+                    err = stt_data.get("error_message", "Awaria modułu STT")
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Moduł STT uległ awarii ({err}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
+                elif stt_data.get("is_uncertain") and analysis["verdict"] == "approve":
+                    analysis["verdict"] = "review"
+                    unc = stt_data.get("uncertainty_reason", "wykryto zapętlenie lub niepewność lektora")
+                    analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wynik STT oznaczono jako niepewny ({unc}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
+                    current_reasoning = analysis["reasoning"]
 
             confidence = analysis.get("confidence", 0.5)
             kb_used = analysis.get("kb_used", False)
