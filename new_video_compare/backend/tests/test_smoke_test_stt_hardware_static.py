@@ -276,6 +276,61 @@ def test_static_stage1_diagnostics_condition_on_success_false():
     assert "if not stage1_data[\"success\"]:" in src, "Wypisywanie diagnostyki Stage 1 musi bazowac na success=False"
     print("Test 14: Warunek diagnostyki Stage 1 oparty na success=False zaliczony.")
 
+def test_is_conflicting_process_detection_and_no_false_positive():
+    """
+    Weryfikuje precyzyjne wykrywanie procesow konfliktowych:
+    - brak false positive dla tee z plikiem logu whisper
+    - brak false positive dla shell/grep z argumentem zawierajacym whisper/demucs
+    - wykrywanie ollama serve
+    - wykrywanie python -c 'import mlx_whisper...'
+    - wykrywanie demucs CLI
+    - wykrywanie worker subprocess z mlx_whisper.transcribe
+    """
+    from tests.smoke_test_stt_hardware import is_conflicting_process
+
+    # 1. tee /tmp/stt_whisper_smoke_20261109.log -> brak konfliktu
+    is_conf, _ = is_conflicting_process("tee", ["tee", "/tmp/stt_whisper_smoke_20261109.log"])
+    assert is_conf is False
+
+    # 2. shell command z nazwa logu zawierajaca whisper -> brak konfliktu
+    is_conf, _ = is_conflicting_process("zsh", ["/bin/zsh", "-c", "cat /tmp/whisper_test.log"])
+    assert is_conf is False
+
+    is_conf, _ = is_conflicting_process("grep", ["grep", "whisper", "some_file.txt"])
+    assert is_conf is False
+
+    # 3. ollama serve -> konflikt
+    is_conf, pat = is_conflicting_process("ollama", ["/usr/local/bin/ollama", "serve"])
+    assert is_conf is True
+    assert pat == "ollama"
+
+    # 4. python -c "import mlx_whisper; ..." -> konflikt
+    is_conf, pat = is_conflicting_process("python3", ["python3", "-c", "import mlx_whisper; mlx_whisper.transcribe('a.wav')"])
+    assert is_conf is True
+    assert pat == "whisper"
+
+    # 5. rzeczywisty demucs -> konflikt
+    is_conf, pat = is_conflicting_process("demucs", ["/opt/homebrew/bin/demucs", "--mp3", "track.wav"])
+    assert is_conf is True
+    assert pat == "demucs"
+
+    is_conf, pat = is_conflicting_process("python3", ["python3", "-m", "demucs", "track.wav"])
+    assert is_conf is True
+    assert pat == "demucs"
+
+    # 6. prawdziwy worker z mlx_whisper.transcribe -> konflikt
+    worker_cmd = [
+        "/Users/hubert.rycaj/miniforge3/envs/cradle-env/bin/python3",
+        "-c",
+        "import sys, json, mlx_whisper\nwith open(sys.argv[1]) as f: cfg = json.load(f)\nresult = mlx_whisper.transcribe(cfg['audio_path'])",
+        "/tmp/cfg.json"
+    ]
+    is_conf, pat = is_conflicting_process("python3.11", worker_cmd)
+    assert is_conf is True
+    assert pat == "whisper"
+
+    print("Test 15: Precyzyjne wykrywanie procesow konfliktowych i brak false positive zaliczone.")
+
 if __name__ == '__main__':
 
     test_static_source_code_cleanliness_and_no_lock_deletion()
@@ -292,4 +347,5 @@ if __name__ == '__main__':
     test_build_stage_error_diagnostics_none_or_empty_payload()
     test_build_stage_error_diagnostics_empty_error_value()
     test_static_stage1_diagnostics_condition_on_success_false()
+    test_is_conflicting_process_detection_and_no_false_positive()
     print("WSZYSTKIE TESTY STATYCZNE I LEKKI TEST TIMEOUTU ZALICZONE POMYSLNIE!")

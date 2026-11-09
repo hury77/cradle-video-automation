@@ -65,26 +65,95 @@ def check_forbidden_imports():
         if mod in sys.modules:
             raise RuntimeError(f"CRITICAL VIOLATION: Forbidden module already imported: {mod}")
 
+def is_conflicting_process(name: str, cmdline_list: List[str]) -> Tuple[bool, Optional[str]]:
+    """
+    Determines whether a process represents an active conflicting AI/MPS model process:
+    - ollama (e.g. ollama serve, ollama runner)
+    - demucs (native executable, python -m demucs, demucs scripts)
+    - whisper / mlx_whisper (native CLI, python worker running mlx_whisper / whisper)
+
+    Strictly ignores:
+    - IDEs, text editors (antigravity, vscode, pycharm, sublime, etc.)
+    - utilities and shells: tee, zsh, bash, sh, grep, rg, pytest, etc.
+    - commands that only contain whisper/demucs in file paths (e.g. log files like /tmp/...whisper...log)
+    """
+    cmdline_str = " ".join(cmdline_list).lower()
+    name_lower = (name or "").lower()
+
+    # 1. Ignore IDEs and common editors
+    if any(ide in cmdline_str for ide in ['antigravity', 'vscode', 'pycharm', 'sublime']):
+        return False, None
+
+    # 2. Extract base executable name
+    first_arg = cmdline_list[0].lower() if cmdline_list else name_lower
+    base_exe = Path(first_arg.split()[0]).name.lower() if first_arg else name_lower
+
+    # 3. Explicitly ignore non-model tools even if their arguments contain "whisper" or "demucs" (e.g. tee /tmp/whisper.log)
+    non_model_tools = {
+        'tee', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'cat', 'tail', 'head', 'less', 'more',
+        'bash', 'zsh', 'sh', 'csh', 'tcsh', 'fish', 'pytest', 'git', 'sed', 'awk', 'xargs',
+        'find', 'ls', 'lsof', 'ps', 'top', 'htop', 'nohup'
+    }
+    if base_exe in non_model_tools or name_lower in non_model_tools:
+        return False, None
+
+    # 4. Direct executable matches (ollama, demucs, whisper, mlx_whisper)
+    if 'ollama' in base_exe or 'ollama' in name_lower:
+        return True, 'ollama'
+    if base_exe in ('demucs', 'whisper', 'mlx_whisper') or name_lower in ('demucs', 'whisper', 'mlx_whisper'):
+        matched = 'demucs' if 'demucs' in base_exe or 'demucs' in name_lower else 'whisper'
+        return True, matched
+
+    # 5. Python processes: check for explicit model invocation (module, script, or inline code)
+    if 'python' in base_exe or 'python' in name_lower:
+        # Check arguments following python executable
+        # E.g. python -m demucs, python -m mlx_whisper, python -c "import mlx_whisper...", python path/to/demucs
+        python_args = [arg.lower() for arg in cmdline_list[1:]]
+
+        # Ignore test runners running smoke or unit tests
+        if any('smoke_test_stt_hardware' in arg or 'pytest' in arg for arg in python_args):
+            return False, None
+
+        for idx, arg in enumerate(python_args):
+            # Check flag -m <module>
+            if arg == '-m' and idx + 1 < len(python_args):
+                mod = python_args[idx + 1]
+                if mod in ('demucs', 'whisper', 'mlx_whisper'):
+                    return True, mod
+
+            # Check inline code -c "..."
+            if arg == '-c' and idx + 1 < len(python_args):
+                inline_code = python_args[idx + 1]
+                if any(k in inline_code for k in ['mlx_whisper', 'import whisper', 'from whisper', 'import demucs', 'from demucs']):
+                    pattern = 'demucs' if 'demucs' in inline_code else 'whisper'
+                    return True, pattern
+
+            # Check script path e.g. /bin/demucs or /bin/whisper
+            script_name = Path(arg).name
+            if script_name in ('demucs', 'whisper', 'mlx_whisper'):
+                pattern = 'demucs' if 'demucs' in script_name else 'whisper'
+                return True, pattern
+
+    return False, None
+
+
 def check_active_conflicting_processes() -> List[str]:
     import psutil
     conflicts = []
     current_pid = os.getpid()
-    conflict_patterns = ['ollama', 'demucs', 'whisper', 'mlx_whisper']
 
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             if p.info['pid'] == current_pid:
                 continue
-            name = (p.info['name'] or '').lower()
-            cmdline = ' '.join(p.info['cmdline'] or []).lower()
+            name = p.info['name'] or ''
+            cmdline_list = p.info['cmdline'] or []
+            if not cmdline_list:
+                cmdline_list = [name]
 
-            if any(ide in cmdline for ide in ['antigravity', 'vscode', 'pycharm', 'sublime']):
-                continue
-
-            for pattern in conflict_patterns:
-                if pattern in name or pattern in cmdline:
-                    conflicts.append(f"{pattern} (PID {p.info['pid']}: {name})")
-                    break
+            is_conflict, pattern = is_conflicting_process(name, cmdline_list)
+            if is_conflict and pattern:
+                conflicts.append(f"{pattern} (PID {p.info['pid']}: {name})")
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
