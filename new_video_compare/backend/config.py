@@ -126,6 +126,10 @@ class Settings(BaseSettings):
     celery_broker_url: str = Field(default="redis://localhost:6379/1", env="CELERY_BROKER_URL")
     celery_result_backend: str = Field(default="redis://localhost:6379/2", env="CELERY_RESULT_BACKEND")
     
+    # =============================================================================
+    # DETERMINISTIC DECISION ENGINE & SHADOW MODE
+    # =============================================================================
+    deterministic_shadow_mode: bool = Field(default=False, env="DETERMINISTIC_SHADOW_MODE")
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

@@ -4,6 +4,7 @@ Orchestrates video and audio comparison processing for jobs
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
@@ -34,7 +35,7 @@ from models.models import (
     QADecision,
     DecisionVerdict,
 )
-from config import get_sensitivity_config
+from config import get_sensitivity_config, settings
 
 logger = logging.getLogger(__name__)
 
@@ -1241,7 +1242,43 @@ class ComparisonService:
                 "peak_difference_db": loudness_comparison.get("peak_difference_db"),
                 "has_loudness_issue": loudness.get("has_loudness_differences", False)
             }
-            
+
+        # Enrich metrics with complete probe, raw VAD, and duplicate flags strictly when shadow mode is enabled
+        shadow_enabled = getattr(settings, "deterministic_shadow_mode", False) or (
+            os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
+        )
+        if shadow_enabled:
+            audio_source = audio_res if isinstance(audio_res, dict) else {}
+
+            def _exact_bool(val: Any) -> Optional[bool]:
+                return val if isinstance(val, bool) else None
+
+            metrics["is_binary_duplicate"] = _exact_bool(audio_source.get("is_binary_duplicate"))
+            metrics["acc_has_audio"] = _exact_bool(audio_source.get("acc_has_audio"))
+            metrics["emi_has_audio"] = _exact_bool(audio_source.get("emi_has_audio"))
+            metrics["no_audio_tracks"] = _exact_bool(audio_source.get("no_audio_tracks"))
+            metrics["audio_mismatch"] = _exact_bool(audio_source.get("audio_mismatch"))
+
+            metrics["raw_vad_metrics_complete"] = _exact_bool(audio_source.get("raw_vad_metrics_complete"))
+            metrics["raw_vad_inconclusive"] = _exact_bool(audio_source.get("raw_vad_inconclusive"))
+            metrics["raw_vad_speech"] = _exact_bool(audio_source.get("raw_vad_speech"))
+            metrics["raw_vad_error"] = audio_source.get("raw_vad_error")
+            metrics["raw_vad_status"] = audio_source.get("raw_vad_status")
+            metrics["raw_vad_a"] = audio_source.get("raw_vad_a")
+            metrics["raw_vad_b"] = audio_source.get("raw_vad_b")
+
+            music_prop = audio_source.get("music_proportion")
+            if music_prop is not None and not isinstance(music_prop, bool):
+                try:
+                    metrics["music_proportion"] = float(music_prop)
+                    metrics["music_dominant"] = float(music_prop) > 0.55
+                except (ValueError, TypeError):
+                    metrics["music_proportion"] = None
+                    metrics["music_dominant"] = None
+            else:
+                metrics["music_proportion"] = None
+                metrics["music_dominant"] = _exact_bool(audio_source.get("music_dominant"))
+
         return metrics
 
     def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
@@ -1290,6 +1327,113 @@ class ComparisonService:
 
             # Build knowledge snapshot — full audit trail for post-job-deletion review
             knowledge_snapshot = self._build_knowledge_snapshot(db, job_id, job, results)
+
+            # Deterministic Shadow Mode (only when flag is enabled)
+            shadow_enabled = getattr(settings, "deterministic_shadow_mode", False) or (
+                os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
+            )
+            if shadow_enabled:
+                try:
+                    from .deterministic_metrics_adapter import (
+                        adapt_comparison_metrics,
+                        is_metrics_contract_complete,
+                        redact_shadow_error,
+                    )
+                    from .deterministic_decision_engine import DeterministicDecisionEngineV1
+
+                    job_meta = {
+                        "job_id": job.id,
+                        "job_name": job.job_name,
+                        "client_name": job.client_name,
+                        "comparison_type": job.comparison_type.value if job.comparison_type else None,
+                        "sensitivity": job.sensitivity_level.value if job.sensitivity_level else None,
+                    }
+                    canonical = adapt_comparison_metrics(metrics, job_meta=job_meta)
+                    is_complete, completeness_flags = is_metrics_contract_complete(canonical)
+
+                    primary_verdict_str = verdict.value.lower() if hasattr(verdict, "value") else str(verdict).lower()
+                    decided_by_str = "system" if "[SYSTEM OVERRIDE]" in (ai_result.get("reasoning") or "") else "agent"
+
+                    if not is_complete:
+                        # Fail closed before engine evaluation: do NOT call DecisionEngineV1.evaluate()
+                        shadow_status = "insufficient_metrics"
+                        shadow_verdict_str = None
+                        shadow_conf = 0.0
+                        category_divergence = "INSUFFICIENT_HISTORICAL_METRICS"
+                        redacted_rule_eval = {
+                            "engine_version": "1.0.0",
+                            "fired_rule": "INSUFFICIENT_METRICS_CONTRACT",
+                            "precedence_step": "PRE_EVALUATION_GUARD",
+                            "completeness_flags": completeness_flags,
+                        }
+                    else:
+                        shadow_status = "completed"
+                        engine = DeterministicDecisionEngineV1()
+                        shadow_eval = engine.evaluate(canonical)
+                        shadow_verdict_str = shadow_eval.get("verdict", "review").lower()
+                        shadow_conf = float(shadow_eval.get("confidence", 0.0))
+
+                        prim_up = primary_verdict_str.upper()
+                        shad_up = shadow_verdict_str.upper()
+                        if shad_up == prim_up:
+                            category_divergence = "AGREEMENT"
+                        elif shad_up == "APPROVE" and prim_up == "REJECT":
+                            category_divergence = "DANGEROUS_FALSE_APPROVE"
+                        elif shad_up == "REVIEW":
+                            category_divergence = "DETERMINISTIC_REVIEW"
+                        elif shad_up == "REJECT":
+                            category_divergence = "DETERMINISTIC_REJECT"
+                        else:
+                            category_divergence = "DETERMINISTIC_REVIEW"
+
+                        rule_eval = shadow_eval.get("rule_evaluation") or {}
+                        redacted_rule_eval = {
+                            "engine_version": rule_eval.get("engine_version", "1.0.0"),
+                            "fired_rule": rule_eval.get("fired_rule", "UNKNOWN_RULE"),
+                            "precedence_step": rule_eval.get("precedence_step", "UNKNOWN_STEP"),
+                        }
+                        if "details" in rule_eval and isinstance(rule_eval["details"], dict):
+                            # Keep only scalar numeric/bool details, strictly no raw paths or transcripts
+                            redacted_rule_eval["details"] = {
+                                k: v for k, v in rule_eval["details"].items()
+                                if isinstance(v, (int, float, bool))
+                            }
+
+                    knowledge_snapshot["deterministic_shadow_v1"] = {
+                        "engine": "DeterministicDecisionEngineV1",
+                        "engine_version": "1.0.0",
+                        "shadow_status": shadow_status,
+                        "shadow_verdict": shadow_verdict_str,
+                        "shadow_confidence": shadow_conf,
+                        "metrics_contract_complete": bool(is_complete),
+                        "metrics_contract_details": completeness_flags,
+                        "primary_verdict": primary_verdict_str,
+                        "primary_decided_by": decided_by_str,
+                        "category_divergence": category_divergence,
+                        "rule_evaluation": redacted_rule_eval,
+                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                        "shadow_error": None,
+                    }
+                except Exception as shadow_exc:
+                    safe_err = redact_shadow_error(shadow_exc)
+                    logger.warning(f"⚠️ Deterministic shadow evaluation failed non-fatally: {safe_err}")
+                    primary_verdict_str = verdict.value.lower() if hasattr(verdict, "value") else str(verdict).lower()
+                    decided_by_str = "system" if "[SYSTEM OVERRIDE]" in (ai_result.get("reasoning") or "") else "agent"
+                    knowledge_snapshot["deterministic_shadow_v1"] = {
+                        "engine": "DeterministicDecisionEngineV1",
+                        "engine_version": "1.0.0",
+                        "shadow_status": "error",
+                        "shadow_verdict": None,
+                        "shadow_confidence": 0.0,
+                        "metrics_contract_complete": False,
+                        "metrics_contract_details": {},
+                        "primary_verdict": primary_verdict_str,
+                        "primary_decided_by": decided_by_str,
+                        "category_divergence": "INSUFFICIENT_HISTORICAL_METRICS",
+                        "rule_evaluation": {},
+                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                        "shadow_error": safe_err,
+                    }
 
             decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
             if not decision:
