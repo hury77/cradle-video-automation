@@ -1,0 +1,56 @@
+{
+  "job_id": 1823,
+  "overall_similarity": 0.9733333333333334,
+  "video_similarity": 0.9733333333333334,
+  "video_differences_count": 2,
+  "is_arpp_slate": false,
+  "duration_difference": 0.0,
+  "audio_similarity": 1.0,
+  "audio_analysis_data": {
+    "similarity": {
+      "error": ""
+    },
+    "speech_to_text": {
+      "comparison": {
+        "word_count_a": 0,
+        "word_count_b": 0
+      }
+    }
+  },
+  "audio_mismatch": false,
+  "no_audio_tracks": false,
+  "audio_transcription": {
+    "status": "skipped",
+    "text_similarity": null,
+    "is_text_match": null,
+    "acceptance_text": "",
+    "emission_text": "",
+    "word_differences_count": 0,
+    "word_differences_sample": [],
+    "skipped_reason": "Audio similarity 1.0000 >= 0.98. STT skipped to avoid false positives from source separation non-determinism.",
+    "error_message": null,
+    "is_uncertain": false,
+    "uncertainty_reason": null
+  },
+  "stt_skipped": true,
+  "stt_skipped_reason": "Audio similarity 1.0000 >= 0.98. STT skipped to avoid false positives from source separation non-determinism.",
+  "audio_loudness": {
+    "acceptance_lufs": -8.97,
+    "emission_lufs": -8.97,
+    "lufs_difference": 0.0,
+    "peak_difference_db": 0.0,
+    "has_loudness_issue": false
+  },
+  "is_binary_duplicate": false,
+  "acc_has_audio": true,
+  "emi_has_audio": true,
+  "raw_vad_metrics_complete": false,
+  "raw_vad_inconclusive": false,
+  "raw_vad_speech": false,
+  "raw_vad_error": null,
+  "raw_vad_status": null,
+  "raw_vad_a": null,
+  "raw_vad_b": null,
+  "music_proportion": null,
+  "music_dominant": null
+}

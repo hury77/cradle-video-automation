@@ -1360,11 +1360,15 @@ class ComparisonService:
                         shadow_verdict_str = None
                         shadow_conf = 0.0
                         category_divergence = "INSUFFICIENT_HISTORICAL_METRICS"
+                        failed_flags = sorted(
+                            [k for k, v in completeness_flags.items() if not v]
+                        )
                         redacted_rule_eval = {
                             "engine_version": "1.0.0",
                             "fired_rule": "INSUFFICIENT_METRICS_CONTRACT",
                             "precedence_step": "PRE_EVALUATION_GUARD",
                             "completeness_flags": completeness_flags,
+                            "failed_flags": failed_flags,
                         }
                     else:
                         shadow_status = "completed"
@@ -1392,6 +1396,26 @@ class ComparisonService:
                             "fired_rule": rule_eval.get("fired_rule", "UNKNOWN_RULE"),
                             "precedence_step": rule_eval.get("precedence_step", "UNKNOWN_STEP"),
                         }
+                        raw_reasons = rule_eval.get("reasons")
+                        if isinstance(raw_reasons, list):
+                            redacted_rule_eval["reasons"] = [
+                                str(r)[:240] for r in raw_reasons[:5] if isinstance(r, str)
+                            ]
+                        raw_checks = rule_eval.get("checks")
+                        if isinstance(raw_checks, dict):
+                            # Keep only scalar values (numbers, bool, None, short enums without paths)
+                            redacted_checks = {}
+                            for k, v in raw_checks.items():
+                                if isinstance(v, (int, float, bool)) or v is None:
+                                    redacted_checks[k] = v
+                                elif (
+                                    isinstance(v, str)
+                                    and len(v) <= 64
+                                    and "/" not in v
+                                    and "\\" not in v
+                                ):
+                                    redacted_checks[k] = v
+                            redacted_rule_eval["checks"] = redacted_checks
                         if "details" in rule_eval and isinstance(rule_eval["details"], dict):
                             # Keep only scalar numeric/bool details, strictly no raw paths or transcripts
                             redacted_rule_eval["details"] = {

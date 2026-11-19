@@ -365,6 +365,49 @@ def is_verified_fast_path_skip(metrics: Dict[str, Any], stt_payload: Dict[str, A
     return True
 
 
+def is_verified_no_audio_streams_skip(metrics: Dict[str, Any], stt_payload: Dict[str, Any]) -> bool:
+    """
+    Validates whether NO_AUDIO_STREAMS skip is strictly legitimate (DOOH / silent pair).
+    Requires:
+      - stt_payload.status == 'skipped'
+      - skipped_reason == 'NO_AUDIO_STREAMS'
+      - no_audio_tracks is strictly True
+      - acc_has_audio is strictly False
+      - emi_has_audio is strictly False
+      - audio_mismatch is strictly False
+      - is_binary_duplicate is strictly False
+      - is_uncertain is strictly False
+    """
+    if not isinstance(metrics, dict) or not isinstance(stt_payload, dict):
+        return False
+
+    if stt_payload.get("status") != "skipped":
+        return False
+
+    skip_reason = stt_payload.get("skipped_reason") or metrics.get("stt_skipped_reason")
+    if skip_reason != CANONICAL_NO_AUDIO_STREAMS:
+        return False
+
+    if metrics.get("no_audio_tracks") is not True:
+        return False
+    if metrics.get("acc_has_audio") is not False:
+        return False
+    if metrics.get("emi_has_audio") is not False:
+        return False
+    if metrics.get("audio_mismatch") is not False:
+        return False
+    if metrics.get("is_binary_duplicate") is not False:
+        return False
+
+    raw_is_uncertain = stt_payload.get("is_uncertain")
+    if raw_is_uncertain is None and "is_uncertain" in metrics:
+        raw_is_uncertain = metrics.get("is_uncertain")
+    if raw_is_uncertain is not False:
+        return False
+
+    return True
+
+
 class DeterministicDecisionEngineV1:
     """
     Deterministic Decision Engine v1 for Cradle QA.
@@ -679,11 +722,19 @@ class DeterministicDecisionEngineV1:
         else:
             if stt_status == "error" or "error" in stt_payload:
                 review_reasons.append(
-                    f"Błąd potoku Speech-to-Text: {stt_payload.get('error', 'nieznany błąd')}"
+                    "Błąd potoku Speech-to-Text: wykryto błąd wykonania modułu STT."
                 )
             elif stt_status not in ("completed", "completed_no_speech", "skipped"):
+                safe_status = (
+                    stt_status
+                    if isinstance(stt_status, str)
+                    and len(stt_status) <= 40
+                    and "/" not in stt_status
+                    and "\\" not in stt_status
+                    else "<invalid_status>"
+                )
                 review_reasons.append(
-                    f"Nieznany lub niekompletny status potoku Speech-to-Text ('{stt_status}')."
+                    f"Nieznany lub niekompletny status potoku Speech-to-Text ('{safe_status}')."
                 )
             elif is_uncertain:
                 review_reasons.append(
@@ -727,9 +778,15 @@ class DeterministicDecisionEngineV1:
                             "UNVERIFIED_FAST_PATH_AUDIO_SKIP: Pominięcie transkrypcji FAST_PATH_IDENTICAL_AUDIO "
                             "nie spełnia warunków (wymagane audio_similarity >= 0.98, brak duplicate, brak mismatch, LUFS <= 3.0 i brak niepewności)."
                         )
+                elif stt_skipped_reason == CANONICAL_NO_AUDIO_STREAMS:
+                    if not is_verified_no_audio_streams_skip(metrics, stt_payload):
+                        review_reasons.append(
+                            "UNVERIFIED_NO_AUDIO_STREAMS_SKIP: Pominięcie transkrypcji NO_AUDIO_STREAMS "
+                            "wymaga no_audio_tracks=True, acc_has_audio=False, emi_has_audio=False, audio_mismatch=False oraz braku niepewności i duplikatu."
+                        )
                 else:
                     review_reasons.append(
-                        f"Pominięcie transkrypcji ze zweryfikowanym powodem spoza allowlisty: '{stt_skipped_reason}'."
+                        "UNTRUSTED_STT_SKIP_REASON: Pominięcie transkrypcji z niekanonicznym powodem spoza allowlisty."
                     )
 
         # B9: Optional new client policy

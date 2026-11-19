@@ -613,7 +613,7 @@ def test_review_stt_skipped_reason_no_audio_streams_not_arbitrary_skip(engine, b
 
     assert res["verdict"] == "review"
     assert res["confidence"] == 0.0
-    assert "spoza allowlisty" in res["reasoning"]
+    assert "UNVERIFIED_NO_AUDIO_STREAMS_SKIP" in res["reasoning"]
 
 
 def test_approve_dooh_both_silent_no_audio(engine, base_approved_metrics):
