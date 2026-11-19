@@ -1,0 +1,56 @@
+{
+  "job_id": 1824,
+  "overall_similarity": 0.0,
+  "video_similarity": 1.0,
+  "video_differences_count": 0,
+  "is_arpp_slate": false,
+  "duration_difference": 0.0,
+  "audio_similarity": 0.0,
+  "audio_analysis_data": {
+    "similarity": {
+      "error": ""
+    },
+    "speech_to_text": {
+      "comparison": {
+        "word_count_a": 0,
+        "word_count_b": 0
+      }
+    }
+  },
+  "audio_mismatch": true,
+  "no_audio_tracks": false,
+  "audio_transcription": {
+    "status": "completed",
+    "text_similarity": 0.0,
+    "is_text_match": false,
+    "acceptance_text": "",
+    "emission_text": "",
+    "word_differences_count": 1,
+    "word_differences_sample": [],
+    "skipped_reason": null,
+    "error_message": null,
+    "is_uncertain": false,
+    "uncertainty_reason": null
+  },
+  "stt_skipped": false,
+  "stt_skipped_reason": null,
+  "audio_loudness": {
+    "acceptance_lufs": null,
+    "emission_lufs": null,
+    "lufs_difference": null,
+    "peak_difference_db": null,
+    "has_loudness_issue": false
+  },
+  "is_binary_duplicate": false,
+  "acc_has_audio": true,
+  "emi_has_audio": false,
+  "raw_vad_metrics_complete": false,
+  "raw_vad_inconclusive": false,
+  "raw_vad_speech": false,
+  "raw_vad_error": null,
+  "raw_vad_status": null,
+  "raw_vad_a": null,
+  "raw_vad_b": null,
+  "music_proportion": null,
+  "music_dominant": null
+}

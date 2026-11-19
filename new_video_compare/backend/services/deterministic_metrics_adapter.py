@@ -22,10 +22,12 @@ import re
 from pathlib import Path
 
 from .deterministic_decision_engine import (
+    CANONICAL_DUPLICATE_INPUT,
     CANONICAL_FAST_PATH_IDENTICAL_AUDIO,
     CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH,
     CANONICAL_NO_AUDIO_STREAMS,
 )
+from .stt_skip_normalizer import normalize_skip_code_strict
 
 
 def _is_valid_number(val: Any) -> bool:
@@ -236,6 +238,17 @@ def adapt_comparison_metrics(
             w_b = int(stt_source.get("word_count_b"))
 
         raw_sim = stt_source.get("text_similarity")
+        raw_skipped = stt_source.get("skipped_reason")
+        if raw_skipped is None:
+            raw_skipped = raw_data.get("stt_skipped_reason")
+        normalized_skip = (
+            normalize_skip_code_strict(raw_skipped)
+            if isinstance(raw_skipped, str)
+            else None
+        )
+        effective_skipped_reason = (
+            normalized_skip if normalized_skip is not None else raw_skipped
+        )
         canonical["audio_transcription"] = {
             "status": stt_source.get("status"),
             "text_similarity": float(raw_sim) if _is_valid_number(raw_sim) else None,
@@ -244,7 +257,7 @@ def adapt_comparison_metrics(
             "emission_text": stt_source.get("emission_text", ""),
             "is_uncertain": _extract_exact_bool(stt_source.get("is_uncertain")),
             "uncertainty_reason": stt_source.get("uncertainty_reason"),
-            "skipped_reason": stt_source.get("skipped_reason"),
+            "skipped_reason": effective_skipped_reason,
             "error_message": stt_source.get("error_message") or stt_source.get("error"),
             "word_count_a": w_a,
             "word_count_b": w_b,
@@ -397,6 +410,38 @@ def is_metrics_contract_complete(
     acc_audio = canonical_metrics.get("acc_has_audio") is True
     emi_audio = canonical_metrics.get("emi_has_audio") is True
 
+    # Verified binary duplicate is a terminal protective condition:
+    # does not require LUFS or full STT flags.
+    stt_candidate = canonical_metrics.get("audio_transcription")
+    raw_skip_candidate = (
+        stt_candidate.get("skipped_reason")
+        if isinstance(stt_candidate, dict)
+        else None
+    ) or canonical_metrics.get("stt_skipped_reason")
+    normalized_skip_candidate = (
+        normalize_skip_code_strict(raw_skip_candidate)
+        if isinstance(raw_skip_candidate, str)
+        else None
+    )
+    if (
+        canonical_metrics.get("is_binary_duplicate") is True
+        and normalized_skip_candidate == CANONICAL_DUPLICATE_INPUT
+    ):
+        aud_sim_dup = canonical_metrics.get("audio_similarity")
+        flags["has_audio_similarity"] = _is_valid_number(aud_sim_dup) and (
+            0.0 <= float(aud_sim_dup) <= 1.0
+        )
+        loudness_dup = canonical_metrics.get("audio_loudness")
+        raw_lufs_dup = (
+            loudness_dup.get("lufs_difference")
+            if isinstance(loudness_dup, dict)
+            else canonical_metrics.get("lufs_difference")
+        )
+        flags["has_lufs"] = _is_valid_number(raw_lufs_dup)
+        flags["has_stt_payload"] = isinstance(stt_candidate, dict)
+        flags["has_raw_vad_complete"] = True
+        return True, flags
+
     # If both files lack audio (DOOH / silent)
     if no_audio and not acc_audio and not emi_audio and not audio_mismatch:
         flags["has_lufs"] = True
@@ -465,14 +510,15 @@ def is_metrics_contract_complete(
 
     if stt_status == "skipped":
         raw_reason = stt.get("skipped_reason") or canonical_metrics.get("stt_skipped_reason")
-        if not raw_reason or not isinstance(raw_reason, str):
+        normalized_reason = normalize_skip_code_strict(raw_reason)
+        if not normalized_reason:
+            # Non-canonical skip reason (fail closed)
             return False, flags
 
-        # Canonical skip reason checks
-        if CANONICAL_FAST_PATH_IDENTICAL_AUDIO in raw_reason:
+        if normalized_reason == CANONICAL_FAST_PATH_IDENTICAL_AUDIO:
             flags["has_raw_vad_complete"] = True
             return True, flags
-        elif CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH in raw_reason:
+        elif normalized_reason == CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH:
             raw_vad_complete = (
                 canonical_metrics.get("raw_vad_metrics_complete") is True
                 and canonical_metrics.get("raw_vad_error") in (False, None)
@@ -486,11 +532,11 @@ def is_metrics_contract_complete(
             )
             flags["has_raw_vad_complete"] = raw_vad_complete
             return raw_vad_complete, flags
-        elif CANONICAL_NO_AUDIO_STREAMS in raw_reason:
+        elif normalized_reason == CANONICAL_NO_AUDIO_STREAMS:
             # Valid only if actually silent DOOH (already handled above)
             return False, flags
         else:
-            # Non-canonical skip reason
+            # DUPLICATE_INPUT without is_binary_duplicate=True or other unverified skip
             return False, flags
 
     # Regular STT with spoken text (completed, failed)

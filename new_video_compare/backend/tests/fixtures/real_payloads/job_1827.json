@@ -1,0 +1,68 @@
+{
+  "job_id": 1827,
+  "overall_similarity": 0.9729,
+  "video_similarity": 1.0,
+  "video_differences_count": 0,
+  "is_arpp_slate": false,
+  "duration_difference": 0.0,
+  "audio_similarity": 0.9729,
+  "audio_analysis_data": {
+    "similarity": {
+      "error": ""
+    },
+    "speech_to_text": {
+      "comparison": {
+        "word_count_a": 16,
+        "word_count_b": 16
+      }
+    }
+  },
+  "audio_mismatch": false,
+  "no_audio_tracks": false,
+  "audio_transcription": {
+    "status": "completed",
+    "text_similarity": 1.0,
+    "is_text_match": true,
+    "acceptance_text": "",
+    "emission_text": "",
+    "word_differences_count": 0,
+    "word_differences_sample": [],
+    "skipped_reason": null,
+    "error_message": null,
+    "is_uncertain": false,
+    "uncertainty_reason": null
+  },
+  "stt_skipped": false,
+  "stt_skipped_reason": null,
+  "audio_loudness": {
+    "acceptance_lufs": -23.45,
+    "emission_lufs": -14.54,
+    "lufs_difference": 8.91,
+    "peak_difference_db": 8.61,
+    "has_loudness_issue": true
+  },
+  "is_binary_duplicate": false,
+  "acc_has_audio": true,
+  "emi_has_audio": true,
+  "raw_vad_metrics_complete": false,
+  "raw_vad_inconclusive": true,
+  "raw_vad_speech": false,
+  "raw_vad_error": "name 'Tuple' is not defined",
+  "raw_vad_status": "error",
+  "raw_vad_a": {
+    "status": "speech_detected",
+    "has_speech": true,
+    "speech_duration_s": 10.7,
+    "segments_count": 3,
+    "error": null
+  },
+  "raw_vad_b": {
+    "status": "speech_detected",
+    "has_speech": true,
+    "speech_duration_s": 10.46,
+    "segments_count": 2,
+    "error": null
+  },
+  "music_proportion": null,
+  "music_dominant": null
+}
