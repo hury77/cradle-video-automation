@@ -6,7 +6,7 @@ Orchestrates video and audio comparison processing for jobs
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 import numpy as np
