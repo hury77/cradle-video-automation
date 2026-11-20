@@ -8,10 +8,53 @@ from api_client import APIClient
 import time
 import shutil
 import os
+import math
 from pathlib import Path
+from typing import Optional
 from zip_utils import check_and_unzip_folder
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_JOB_POLL_INTERVAL_SECONDS = 5
+DEFAULT_JOB_POLL_MAX_SECONDS = 2400  # 40 minutes
+
+
+def get_job_poll_max_seconds(env_value: Optional[str] = None) -> int:
+    """
+    Parse NVC_JOB_POLL_MAX_SECONDS from environment (or explicit string).
+    Requires an integer > 0; falls back to DEFAULT_JOB_POLL_MAX_SECONDS.
+    """
+    raw = os.environ.get("NVC_JOB_POLL_MAX_SECONDS") if env_value is None else env_value
+    if raw is None:
+        return DEFAULT_JOB_POLL_MAX_SECONDS
+    try:
+        parsed = int(str(raw).strip())
+        return parsed if parsed > 0 else DEFAULT_JOB_POLL_MAX_SECONDS
+    except (TypeError, ValueError):
+        return DEFAULT_JOB_POLL_MAX_SECONDS
+
+
+def compute_poll_attempts(
+    max_seconds: int,
+    interval: int = DEFAULT_JOB_POLL_INTERVAL_SECONDS,
+) -> int:
+    """Pure calculation of polling attempts for a given timeout and interval."""
+    if max_seconds <= 0:
+        max_seconds = DEFAULT_JOB_POLL_MAX_SECONDS
+    if interval <= 0:
+        interval = DEFAULT_JOB_POLL_INTERVAL_SECONDS
+    return max(1, math.ceil(max_seconds / interval))
+
+
+def classify_final_job_status(status: Optional[str]) -> str:
+    """
+    Classify terminal job status into 'success' or 'failure'.
+    Only COMPLETED is 'success'; FAILED, ERROR, CANCELLED, and any unknown
+    status map to 'failure' (preserving prior `final_status == "COMPLETED"` semantics).
+    """
+    if isinstance(status, str) and status.strip().upper() == "COMPLETED":
+        return "success"
+    return "failure"
 
 
 
@@ -609,16 +652,20 @@ class WebSocketServer:
             job_finished = False
             final_status = None
             final_res = None
+
+            poll_interval = DEFAULT_JOB_POLL_INTERVAL_SECONDS
+            max_poll_seconds = get_job_poll_max_seconds()
+            max_attempts = compute_poll_attempts(max_poll_seconds, poll_interval)
             
-            for attempt in range(120): # Max 10 minutes
-                await asyncio.sleep(5)
+            for attempt in range(max_attempts):
+                await asyncio.sleep(poll_interval)
                 status_res = await self.api_client.get_job_status(job_id)
                 
                 if isinstance(status_res, dict) and "status" in status_res:
                     current = status_res.get("status")
                     logger.info(f"⏳ [API] Job {job_id} processing... Status: {current}")
                     
-                    if current.upper() in ["COMPLETED", "FAILED", "ERROR"]:
+                    if current.upper() in ["COMPLETED", "FAILED", "ERROR", "CANCELLED"]:
                         job_finished = True
                         final_status = current.upper()
                         final_res = status_res
@@ -626,20 +673,26 @@ class WebSocketServer:
                     
                     # Send continuous progress update to extension
                     progress = status_res.get("progress", 0)
-                    msg = f"Processing video... {current} ({attempt*5}s) - {progress}%"
+                    msg = f"Processing video... {current} ({attempt*poll_interval}s) - {progress}%"
                     await self.send_status_update(websocket, "PROCESSING", {"message": msg, "progress": progress})
             
             if not job_finished:
-                 logger.error(f"❌ [API] Job {job_id} timed out waiting for completion")
-                 raise Exception("Timeout waiting for job completion")
+                 logger.error(f"❌ [API] Job {job_id} timed out waiting for completion ({max_poll_seconds}s)")
+                 raise Exception(f"Timeout waiting for job completion ({max_poll_seconds}s)")
                  
             logger.info(f"✅ [API] Job {job_id} finished with status: {final_status}")
 
             # Send actual final results
+            outcome = classify_final_job_status(final_status)
+            result_msg = (
+                "Job cancelled"
+                if (final_status or "").upper() == "CANCELLED"
+                else f"Job finished with status: {final_status}"
+            )
             await self.send_video_compare_results(websocket, {
-                "success": final_status == "COMPLETED",
+                "success": outcome == "success",
                 "job_id": job_id,
-                "message": f"Job finished with status: {final_status}",
+                "message": result_msg,
                 "api_response": final_res
             })
 
@@ -706,35 +759,45 @@ class WebSocketServer:
                 job_finished = False
                 final_status = None
                 final_res = None
+
+                poll_interval = DEFAULT_JOB_POLL_INTERVAL_SECONDS
+                max_poll_seconds = get_job_poll_max_seconds()
+                max_attempts = compute_poll_attempts(max_poll_seconds, poll_interval)
                 
-                for attempt in range(120): # Max 10 minut
-                    await asyncio.sleep(5)
+                for attempt in range(max_attempts):
+                    await asyncio.sleep(poll_interval)
                     status_res = await self.api_client.get_job_status(job_id)
                     
                     if isinstance(status_res, dict) and "status" in status_res:
                         current = status_res.get("status").upper()
                         logger.info(f"⏳ [RESUME] Job {job_id} processing... Status: {current}")
                         
-                        if current in ["COMPLETED", "FAILED", "ERROR"]:
+                        if current in ["COMPLETED", "FAILED", "ERROR", "CANCELLED"]:
                             job_finished = True
                             final_status = current
                             final_res = status_res
                             break
                         
                         progress = status_res.get("progress", 0)
-                        msg = f"Processing video... {current} ({attempt*5}s) - {progress}%"
+                        msg = f"Processing video... {current} ({attempt*poll_interval}s) - {progress}%"
                         await self.send_status_update(websocket, "PROCESSING", {"message": msg, "progress": progress})
                 
                 if not job_finished:
-                     logger.error(f"❌ [RESUME] Job {job_id} timed out waiting for completion")
-                     raise Exception("Timeout waiting for job completion")
+                     logger.error(f"❌ [RESUME] Job {job_id} timed out waiting for completion ({max_poll_seconds}s)")
+                     raise Exception(f"Timeout waiting for job completion ({max_poll_seconds}s)")
                      
                 logger.info(f"✅ [RESUME] Job {job_id} finished with status: {final_status}")
 
+                outcome = classify_final_job_status(final_status)
+                result_msg = (
+                    "Job cancelled"
+                    if (final_status or "").upper() == "CANCELLED"
+                    else f"Job finished with status: {final_status}"
+                )
                 await self.send_video_compare_results(websocket, {
-                    "success": final_status == "COMPLETED",
+                    "success": outcome == "success",
                     "job_id": job_id,
-                    "message": f"Job finished with status: {final_status}",
+                    "message": result_msg,
                     "api_response": final_res
                 })
         except Exception as e:
