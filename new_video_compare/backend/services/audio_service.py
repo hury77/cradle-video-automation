@@ -84,16 +84,14 @@ def detect_raw_audio_speech(
         speech_timestamps, and total_speech_duration_s.
     """
     try:
-        model, utils = get_silero_vad()
-        (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+        _, utils = get_silero_vad()
+        (_, _, read_audio, _, _) = utils
         wav = read_audio(audio_path, sampling_rate=16000)
-        timestamps = get_speech_timestamps(
+        timestamps = _run_silero_get_speech_timestamps(
             wav,
-            model,
-            sampling_rate=16000,
             threshold=threshold,
             min_silence_duration_ms=min_silence_duration_ms,
-            speech_pad_ms=speech_pad_ms
+            speech_pad_ms=speech_pad_ms,
         )
         if not timestamps:
             return {
@@ -131,6 +129,7 @@ _whisper = None
 _mlx_whisper = None
 _silero_vad_model = None
 _silero_vad_utils = None
+_silero_vad_lock = threading.RLock()
 
 
 def get_pyloudnorm():
@@ -163,21 +162,47 @@ def get_soundfile():
     return _soundfile
 
 def get_silero_vad():
-    """Lazy load Silero VAD model"""
+    """Lazy load Silero VAD model (thread-safe via _silero_vad_lock)."""
     global _silero_vad_model, _silero_vad_utils
-    if _silero_vad_model is None:
-        import torch
-        logger.info("⏳ Downloading/Loading Silero VAD model from torch hub...")
-        model, utils = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            force_reload=False,
-            trust_repo=True
+    with _silero_vad_lock:
+        if _silero_vad_model is None:
+            import torch
+            logger.info("⏳ Downloading/Loading Silero VAD model from torch hub...")
+            model, utils = torch.hub.load(
+                repo_or_dir='snakers4/silero-vad',
+                model='silero_vad',
+                force_reload=False,
+                trust_repo=True
+            )
+            _silero_vad_model = model
+            _silero_vad_utils = utils
+            logger.info("✅ Silero VAD loaded")
+        return _silero_vad_model, _silero_vad_utils
+
+
+def _run_silero_get_speech_timestamps(
+    wav: Any,
+    threshold: float = 0.5,
+    min_silence_duration_ms: int = 400,
+    speech_pad_ms: int = 200,
+):
+    """
+    Serialize Silero VAD inference across threads and reset RNN state before
+    each call because the TorchScript model mutates internal _state/_context.
+    """
+    with _silero_vad_lock:
+        model, utils = get_silero_vad()
+        (get_speech_timestamps, _, _, _, _) = utils
+        if hasattr(model, "reset_states"):
+            model.reset_states()
+        return get_speech_timestamps(
+            wav,
+            model,
+            sampling_rate=16000,
+            threshold=threshold,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
         )
-        _silero_vad_model = model
-        _silero_vad_utils = utils
-        logger.info("✅ Silero VAD loaded")
-    return _silero_vad_model, _silero_vad_utils
 
 def get_mlx_whisper():
     """Lazy load mlx_whisper"""
@@ -903,22 +928,20 @@ def apply_vad_filter(
     sf = get_soundfile()
     
     try:
-        model, utils = get_silero_vad()
-        (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+        _, utils = get_silero_vad()
+        (_, _, read_audio, _, _) = utils
         
         logger.info(f"🎙️ Applying VAD filter on: {Path(audio_path).name}")
         
         # Silero requires 16000 Hz, read_audio handles it natively
         wav = read_audio(audio_path, sampling_rate=16000)
         
-        # Get speech timestamps (in samples at 16kHz)
-        speech_timestamps = get_speech_timestamps(
+        # Get speech timestamps (in samples at 16kHz) under lock with state reset
+        speech_timestamps = _run_silero_get_speech_timestamps(
             wav,
-            model,
-            sampling_rate=16000,
             threshold=threshold,
             min_silence_duration_ms=min_silence_duration_ms,
-            speech_pad_ms=speech_pad_ms
+            speech_pad_ms=speech_pad_ms,
         )
         
         # Load original audio at original sample rate to preserve full quality
