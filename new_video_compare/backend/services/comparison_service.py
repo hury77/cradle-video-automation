@@ -5,6 +5,7 @@ Orchestrates video and audio comparison processing for jobs
 
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
@@ -230,6 +231,17 @@ class ComparisonService:
             if not job:
                 logger.error(f"Job {job_id} not found")
                 return {"success": False, "error": "Job not found"}
+
+            if job.status == JobStatus.CANCELLED:
+                logger.info(
+                    f"⏹️ Skipping job {job_id}: already CANCELLED while waiting in queue."
+                )
+                return {
+                    "success": False,
+                    "job_id": job_id,
+                    "status": "cancelled",
+                    "skipped": True,
+                }
 
             # Update job status to processing
             job.status = JobStatus.PROCESSING
@@ -1594,30 +1606,62 @@ def get_comparison_service() -> ComparisonService:
     return _comparison_service
 
 
+_job_semaphore_lock = threading.Lock()
+_job_semaphore: Optional[threading.BoundedSemaphore] = None
+_job_semaphore_limit: Optional[int] = None
+
+
+def _get_job_semaphore() -> threading.BoundedSemaphore:
+    """
+    Return the process-wide BoundedSemaphore enforcing settings.max_concurrent_jobs.
+
+    Uses threading.BoundedSemaphore inside _run_job_in_process (executed in a
+    ThreadPoolExecutor thread) rather than asyncio.Semaphore so that:
+    - Waiting jobs remain in PENDING without blocking the FastAPI/uvicorn event loop.
+    - Both async process_comparison_job() and direct _run_job_in_process() calls
+      share the same limit across event loops.
+    """
+    global _job_semaphore, _job_semaphore_limit
+    raw_limit = getattr(settings, "max_concurrent_jobs", 1)
+    try:
+        limit = max(1, int(raw_limit))
+    except (TypeError, ValueError):
+        limit = 1
+    with _job_semaphore_lock:
+        if _job_semaphore is None or _job_semaphore_limit != limit:
+            _job_semaphore = threading.BoundedSemaphore(limit)
+            _job_semaphore_limit = limit
+        return _job_semaphore
+
+
+def reset_job_concurrency_limiter() -> None:
+    """Reset cached job semaphore (intended for isolated unit tests)."""
+    global _job_semaphore, _job_semaphore_limit
+    with _job_semaphore_lock:
+        _job_semaphore = None
+        _job_semaphore_limit = None
+
+
 def _run_job_in_process(job_id: int) -> Dict[str, Any]:
     """
-    Standalone function to run job in a separate process.
-    Must be at module level to be picklable.
+    Standalone function to run job in a worker thread under the global
+    max_concurrent_jobs semaphore. Must be at module level to be picklable.
     """
-    # Create a fresh service instance for the new process
-    # Create a fresh service instance for the new process
-    # Fix: Use the same 'uploads' directory that main.py serves statically
-    # comparison_service.py is in backend/services, so uploads is ../uploads
-    uploads_dir = Path(__file__).parent.parent / "uploads"
-    uploads_dir.mkdir(exist_ok=True)
-    
-    # We append "temp" because VideoProcessor appends "job_{id}", resulting in backend/uploads/temp/job_{id}
-    # which matches strict static mounting logic if we want to organize it
-    # Actually, VideoProcessor logic is: self.temp_dir / f"job_{job_id}"
-    # If we pass uploads_dir as temp_dir, it becomes backend/uploads/job_{id}
-    # But URL construction is: /uploads/temp/job_{id}
-    # So we need to match that.
-    
-    temp_dir = uploads_dir / "temp"
-    temp_dir.mkdir(exist_ok=True)
+    sem = _get_job_semaphore()
+    sem.acquire()
+    try:
+        # Fix: Use the same 'uploads' directory that main.py serves statically
+        # comparison_service.py is in backend/services, so uploads is ../uploads
+        uploads_dir = Path(__file__).parent.parent / "uploads"
+        uploads_dir.mkdir(exist_ok=True)
 
-    service = ComparisonService(temp_dir=str(temp_dir))
-    return service.process_job(job_id)
+        temp_dir = uploads_dir / "temp"
+        temp_dir.mkdir(exist_ok=True)
+
+        service = ComparisonService(temp_dir=str(temp_dir))
+        return service.process_job(job_id)
+    finally:
+        sem.release()
 
 
 async def process_comparison_job(job_id: int) -> Dict[str, Any]:

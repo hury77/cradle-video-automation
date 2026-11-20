@@ -133,10 +133,58 @@ def verify_git_hooks():
     except Exception as e:
         logger.error(f"❌ Błąd weryfikacji Git Hooks podczas startu: {e}")
 
+def recover_interrupted_jobs(db_session_factory=None) -> int:
+    """
+    Mark any jobs left in PROCESSING or PENDING as FAILED on backend startup.
+    Because jobs execute solely in-process (BackgroundTasks + ThreadPoolExecutor),
+    no previous worker thread can survive a backend restart.
+    """
+    from datetime import datetime, timezone
+    from models.database import SessionLocal
+    from models.models import ComparisonJob, JobStatus
+
+    factory = db_session_factory or SessionLocal
+    db = factory()
+    try:
+        stale_jobs = (
+            db.query(ComparisonJob)
+            .filter(ComparisonJob.status.in_([JobStatus.PROCESSING, JobStatus.PENDING]))
+            .all()
+        )
+        if not stale_jobs:
+            logger.info("🔄 Startup recovery: 0 interrupted jobs found.")
+            return 0
+
+        now = datetime.now(timezone.utc)
+        for job in stale_jobs:
+            job.status = JobStatus.FAILED
+            job.error_message = "Interrupted by backend restart"
+            job.completed_at = now
+        db.commit()
+        count = len(stale_jobs)
+        logger.warning(
+            f"🔄 Startup recovery: marked {count} interrupted job(s) "
+            f"(PROCESSING/PENDING) as FAILED ('Interrupted by backend restart')."
+        )
+        return count
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"❌ Startup recovery failed: {exc}")
+        raise
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Uruchomienie aplikacji - system WebSocket zainicjalizowany")
     verify_git_hooks()
+    try:
+        recover_interrupted_jobs()
+    except Exception as recovery_err:
+        logger.error(
+            f"⚠️ Best-effort startup recovery failed (continuing startup): {recovery_err}"
+        )
     
     # Start Ollama if not running
     ollama_process = None
