@@ -15,7 +15,13 @@ import numpy as np
 from .video_processor import VideoProcessor, ProcessingResult
 from .audio_processor import AudioProcessor
 # OCR removed — visual differences detected by SSIM+pixel diff comparison
-from .audio_service import compare_loudness, compare_audio_similarity, compare_audio_full, separate_sources, compare_spoken_text
+from .audio_service import (
+    compare_loudness,
+    compare_audio_similarity,
+    compare_audio_full,
+    separate_sources,
+    compare_spoken_text,
+)
 from utils.logging_utils import log_automation_event
 
 # Database imports
@@ -117,6 +123,73 @@ def is_valid_no_audio_streams_skip(audio_res: dict) -> bool:
     if audio_res.get("acc_has_audio") is True or audio_res.get("emi_has_audio") is True:
         return False
     return bool(audio_res.get("no_audio_tracks"))
+
+
+def _populate_raw_vad_metrics(
+    audio_result: Dict[str, Any], acceptance_path: str, emission_path: str
+) -> None:
+    """Run Raw VAD on mixed audio for both files and populate audio_result['raw_vad_*'] fields."""
+    raw_vad_speech = False
+    raw_vad_inconclusive = False
+    raw_vad_status = None
+    raw_vad_metrics_complete = False
+
+    try:
+        from services.audio_service import detect_raw_audio_speech
+        vad_a = detect_raw_audio_speech(acceptance_path)
+        vad_b = detect_raw_audio_speech(emission_path)
+        audio_result["raw_vad_a"] = vad_a
+        audio_result["raw_vad_b"] = vad_b
+
+        def _is_valid_vad_dict(v: Any) -> Tuple[bool, bool, bool]:
+            if not isinstance(v, dict):
+                return False, False, False
+            st = v.get("status")
+            err = v.get("error")
+            has_sp = v.get("has_speech")
+            dur = v.get("speech_duration_s")
+            segs = v.get("segments_count")
+            if err is not None:
+                return False, False, False
+            if not isinstance(dur, (int, float)) or not isinstance(segs, int):
+                return False, False, False
+            if st == "speech_detected" and has_sp is True:
+                return True, True, False
+            if st == "no_speech" and has_sp is False:
+                return True, False, True
+            return False, False, False
+
+        valid_a, sp_a, no_sp_a = _is_valid_vad_dict(vad_a)
+        valid_b, sp_b, no_sp_b = _is_valid_vad_dict(vad_b)
+
+        if not valid_a or not valid_b:
+            raw_vad_inconclusive = True
+            raw_vad_metrics_complete = False
+            if (isinstance(vad_a, dict) and vad_a.get("status") == "error") or (isinstance(vad_b, dict) and vad_b.get("status") == "error"):
+                raw_vad_status = "error"
+            elif (isinstance(vad_a, dict) and vad_a.get("status") == "uncertain") or (isinstance(vad_b, dict) and vad_b.get("status") == "uncertain"):
+                raw_vad_status = "uncertain"
+            else:
+                raw_vad_status = "uncertain"
+        else:
+            raw_vad_metrics_complete = True
+            if sp_a or sp_b:
+                raw_vad_speech = True
+                raw_vad_status = "speech_detected"
+            elif no_sp_a and no_sp_b:
+                raw_vad_speech = False
+                raw_vad_status = "no_speech"
+    except Exception as vad_err:
+        logger.warning(f"Raw VAD check encountered error: {vad_err}")
+        raw_vad_inconclusive = True
+        raw_vad_metrics_complete = False
+        raw_vad_status = "error"
+        audio_result["raw_vad_error"] = str(vad_err)
+
+    audio_result["raw_vad_speech"] = raw_vad_speech
+    audio_result["raw_vad_inconclusive"] = raw_vad_inconclusive
+    audio_result["raw_vad_status"] = raw_vad_status
+    audio_result["raw_vad_metrics_complete"] = raw_vad_metrics_complete
 
 
 def is_valid_fast_path_audio_skip(comp_type, audio_res: dict) -> bool:
@@ -493,7 +566,7 @@ class ComparisonService:
                 audio_result = {}
                 
                 # ── PRIORITY 1: Check binary identity (DUPLICATE_INPUT) ──
-                from services.audio_service import get_audio_stream_count, compute_file_sha256, detect_raw_audio_speech
+                from services.audio_service import get_audio_stream_count, compute_file_sha256
                 is_binary_duplicate = False
                 try:
                     sha_acc = compute_file_sha256(Path(acceptance_path))
@@ -528,21 +601,7 @@ class ComparisonService:
                 audio_result["audio_mismatch"] = audio_mismatch
                 audio_result["is_binary_duplicate"] = is_binary_duplicate
 
-                if is_binary_duplicate and check_comp_type(job.comparison_type, [ComparisonType.FULL, ComparisonType.AUTOMATION]):
-                    # FULL and AUTOMATION modes: binary duplicate inputs MUST trigger DUPLICATE_INPUT, skip STT, and force REVIEW
-                    logger.warning(f"🚨 {job.comparison_type} mode duplicate inputs: Setting DUPLICATE_INPUT status and forcing REVIEW.")
-                    audio_result["has_audio"] = audio_pair_comparable
-                    audio_result["similarity_score"] = 1.0
-                    audio_result["speech_to_text"] = {
-                        "status": "skipped",
-                        "text_similarity": None,
-                        "is_text_match": None,
-                        "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
-                        "is_uncertain": True,
-                        "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
-                    }
-                    results["audio_result"] = audio_result
-                elif no_audio_tracks:
+                if no_audio_tracks:
                     logger.info("🔇 No audio streams found in both files (silent video / GIF). Skipping audio comparison.")
                     audio_result["has_audio"] = False
                     audio_result["similarity_score"] = 1.0
@@ -618,69 +677,16 @@ class ComparisonService:
                 # because Demucs(MPS) + MLX Whisper + Ollama all compete for the same Unified Memory.
                 # FULL jobs get audio similarity score via MFCC — Ollama uses it for verdict.
                 # Check Raw VAD on mixed audio if both files have audio and mode is FULL
-                raw_vad_speech = False
-                raw_vad_inconclusive = False
-                raw_vad_status = None
-                raw_vad_metrics_complete = False
-                vad_a = None
-                vad_b = None
+                audio_result["raw_vad_speech"] = False
+                audio_result["raw_vad_inconclusive"] = False
+                audio_result["raw_vad_status"] = None
+                audio_result["raw_vad_metrics_complete"] = False
 
                 if check_comp_type(job.comparison_type, ComparisonType.FULL) and audio_result.get("audio_pair_comparable"):
-                    try:
-                        vad_a = detect_raw_audio_speech(acceptance_path)
-                        vad_b = detect_raw_audio_speech(emission_path)
-                        audio_result["raw_vad_a"] = vad_a
-                        audio_result["raw_vad_b"] = vad_b
+                    _populate_raw_vad_metrics(audio_result, acceptance_path, emission_path)
 
-                        def _is_valid_vad_dict(v: Any) -> Tuple[bool, bool, bool]:
-                            if not isinstance(v, dict):
-                                return False, False, False
-                            st = v.get("status")
-                            err = v.get("error")
-                            has_sp = v.get("has_speech")
-                            dur = v.get("speech_duration_s")
-                            segs = v.get("segments_count")
-                            if err is not None:
-                                return False, False, False
-                            if not isinstance(dur, (int, float)) or not isinstance(segs, int):
-                                return False, False, False
-                            if st == "speech_detected" and has_sp is True:
-                                return True, True, False
-                            if st == "no_speech" and has_sp is False:
-                                return True, False, True
-                            return False, False, False
-
-                        valid_a, sp_a, no_sp_a = _is_valid_vad_dict(vad_a)
-                        valid_b, sp_b, no_sp_b = _is_valid_vad_dict(vad_b)
-
-                        if not valid_a or not valid_b:
-                            raw_vad_inconclusive = True
-                            raw_vad_metrics_complete = False
-                            if (isinstance(vad_a, dict) and vad_a.get("status") == "error") or (isinstance(vad_b, dict) and vad_b.get("status") == "error"):
-                                raw_vad_status = "error"
-                            elif (isinstance(vad_a, dict) and vad_a.get("status") == "uncertain") or (isinstance(vad_b, dict) and vad_b.get("status") == "uncertain"):
-                                raw_vad_status = "uncertain"
-                            else:
-                                raw_vad_status = "uncertain"
-                        else:
-                            raw_vad_metrics_complete = True
-                            if sp_a or sp_b:
-                                raw_vad_speech = True
-                                raw_vad_status = "speech_detected"
-                            elif no_sp_a and no_sp_b:
-                                raw_vad_speech = False
-                                raw_vad_status = "no_speech"
-                    except Exception as vad_err:
-                        logger.warning(f"Raw VAD check encountered error: {vad_err}")
-                        raw_vad_inconclusive = True
-                        raw_vad_metrics_complete = False
-                        raw_vad_status = "error"
-                        audio_result["raw_vad_error"] = str(vad_err)
-
-                audio_result["raw_vad_speech"] = raw_vad_speech
-                audio_result["raw_vad_inconclusive"] = raw_vad_inconclusive
-                audio_result["raw_vad_status"] = raw_vad_status
-                audio_result["raw_vad_metrics_complete"] = raw_vad_metrics_complete
+                raw_vad_speech = audio_result["raw_vad_speech"]
+                raw_vad_inconclusive = audio_result["raw_vad_inconclusive"]
 
                 loudness_match_issue = audio_result.get("loudness", {}).get("has_loudness_differences", False)
                 audio_mismatch_issue = audio_result.get("audio_mismatch", False)
@@ -694,6 +700,16 @@ class ComparisonService:
 
                 if has_duplicate_skip and not is_vo_mode:
                     should_run_stt = False
+                    if not audio_result.get("no_audio_tracks") and not audio_result.get("audio_mismatch"):
+                        logger.info(f"ℹ️ {job.comparison_type} mode identical inputs: normal audio analysis completed, skipping heavy STT.")
+                        audio_result["speech_to_text"] = {
+                            "status": "skipped",
+                            "text_similarity": None,
+                            "is_text_match": None,
+                            "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (Cradle workflow: attach last file)",
+                            "is_uncertain": False,
+                            "uncertainty_reason": None,
+                        }
                 else:
                     music_dominance = audio_result.get("music_proportion", 0.0) > 0.55
                     should_run_stt = audio_result.get("has_audio_any", True) and not audio_result.get("no_audio_tracks", False) and (
@@ -758,6 +774,15 @@ class ComparisonService:
                             "error_message": stt_result.get("error_message"),
                         }
                         audio_result["voiceover"] = stt_result.get("voiceover")
+
+                        # Populate Raw VAD in AUTOMATION mode when STT confirms completed_no_speech
+                        if (
+                            is_auto_mode
+                            and audio_result.get("audio_pair_comparable")
+                            and audio_result["speech_to_text"].get("status") == "completed_no_speech"
+                            and not audio_result.get("raw_vad_metrics_complete")
+                        ):
+                            _populate_raw_vad_metrics(audio_result, acceptance_path, emission_path)
                         
                         _sim_disp = stt_result.get('text_similarity')
                         _sim_disp_str = f"{_sim_disp:.1%}" if isinstance(_sim_disp, (int, float)) else "N/A"
@@ -1211,8 +1236,9 @@ class ComparisonService:
                                 uncertainty_reason = "DUPLICATE_INPUT skip invalid: inputs are not verified binary duplicates in FULL or AUTOMATION mode"
                             else:
                                 stt_status = "skipped"
-                                is_uncertain = True
-                                uncertainty_reason = uncertainty_reason or "DUPLICATE_INPUT: Identical binary files detected; requires verification"
+                                is_uncertain = bool(stt.get("is_uncertain", False))
+                                if not is_uncertain:
+                                    uncertainty_reason = None
                         else:
                             stt_status = "failed"
                             is_uncertain = True

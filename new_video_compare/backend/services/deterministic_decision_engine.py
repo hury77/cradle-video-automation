@@ -12,6 +12,11 @@ KEY ARCHITECTURAL PRINCIPLES:
 from typing import Dict, Any, Optional
 import math
 
+try:
+    from .stt_skip_normalizer import normalize_skip_code_strict
+except ImportError:
+    from stt_skip_normalizer import normalize_skip_code_strict
+
 
 # Canonical skipped reasons allowed by system policy
 CANONICAL_FAST_PATH_IDENTICAL_AUDIO = "FAST_PATH_IDENTICAL_AUDIO"
@@ -331,7 +336,7 @@ def is_verified_fast_path_skip(metrics: Dict[str, Any], stt_payload: Dict[str, A
     if not (_is_exact_bool(raw_acc_has_audio) and _is_exact_bool(raw_emi_has_audio) and _is_exact_bool(raw_audio_mismatch) and _is_exact_bool(raw_no_audio) and _is_exact_bool(raw_is_duplicate)):
         return False
 
-    if raw_is_duplicate is True or raw_audio_mismatch is True or raw_no_audio is True:
+    if raw_audio_mismatch is True or raw_no_audio is True:
         return False
 
     audio_pair_comparable = (
@@ -398,7 +403,7 @@ def is_verified_no_audio_streams_skip(metrics: Dict[str, Any], stt_payload: Dict
         return False
     if metrics.get("audio_mismatch") is not False:
         return False
-    if metrics.get("is_binary_duplicate") is not False:
+    if not _is_exact_bool(metrics.get("is_binary_duplicate")):
         return False
 
     raw_is_uncertain = stt_payload.get("is_uncertain")
@@ -583,6 +588,40 @@ class DeterministicDecisionEngineV1:
         lufs_diff = float(raw_lufs_diff) if lufs_diff_valid else None
         abs_lufs_diff = abs(lufs_diff) if lufs_diff is not None else None
 
+        # Verified identical pair ("workflow Cradle: załącz ostatni plik")
+        normalized_skip_reason = (
+            normalize_skip_code_strict(stt_skipped_reason)
+            if stt_skipped_reason
+            else None
+        )
+        raw_uncertainty_reason = stt_payload.get("uncertainty_reason") if stt_present else None
+        normalized_uncertainty_reason = (
+            normalize_skip_code_strict(raw_uncertainty_reason)
+            if raw_uncertainty_reason
+            else None
+        )
+        verified_duplicate_pair = (
+            raw_is_binary_duplicate is True
+            and stt_present
+            and stt_status == "skipped"
+            and normalized_skip_reason == CANONICAL_DUPLICATE_INPUT
+            and audio_probe_complete
+            and raw_audio_mismatch is False
+            and (
+                not is_uncertain
+                or normalized_uncertainty_reason == CANONICAL_DUPLICATE_INPUT
+            )
+        )
+        verified_duplicate_fast_or_dooh = (
+            raw_is_binary_duplicate is True
+            and stt_present
+            and stt_status == "skipped"
+            and (
+                is_verified_fast_path_skip(metrics, stt_payload)
+                or is_verified_no_audio_streams_skip(metrics, stt_payload)
+            )
+        )
+
         # ------------------------------------------------------------------
         # 2. EVALUATE HARD REJECT (PREVALENCE OVER REVIEW)
         # ------------------------------------------------------------------
@@ -662,8 +701,8 @@ class DeterministicDecisionEngineV1:
                 "Brak lub niepoprawna wartość metryki podobieństwa wideo (video_similarity)."
             )
 
-        # B2: Duplicate input
-        if raw_is_binary_duplicate is True:
+        # B2: Duplicate input (only when NOT a verified identical pair)
+        if raw_is_binary_duplicate is True and not (verified_duplicate_pair or verified_duplicate_fast_or_dooh):
             review_reasons.append(
                 "Wykryto identyczność binarną plików wejściowych (DUPLICATE_INPUT) — wymagana weryfikacja poprawności pary."
             )
@@ -694,11 +733,12 @@ class DeterministicDecisionEngineV1:
 
         # B7: Audio pair comparable checks (LUFS and Spectral)
         if audio_pair_comparable:
-            # LUFS validation
+            # LUFS validation (LUFS None is allowed ONLY for verified_duplicate_pair)
             if not lufs_diff_valid:
-                review_reasons.append(
-                    "Brakująca, pusta lub nienumeryczna różnica głośności LUFS przy porównywalnym audio."
-                )
+                if not verified_duplicate_pair:
+                    review_reasons.append(
+                        "Brakująca, pusta lub nienumeryczna różnica głośności LUFS przy porównywalnym audio."
+                    )
             elif abs_lufs_diff > 3.0:
                 review_reasons.append(
                     f"Różnica głośności |LUFS|={abs_lufs_diff:.2f} dB przekracza dopuszczalny próg tolerancji 3.0 dB."
@@ -708,6 +748,10 @@ class DeterministicDecisionEngineV1:
             if not audio_similarity_valid:
                 review_reasons.append(
                     "Brakująca lub nienumeryczna wartość podobieństwa spektralnego audio przy porównywalnym audio."
+                )
+            elif verified_duplicate_pair and audio_sim < 0.98:
+                review_reasons.append(
+                    f"Podobieństwo spektralne audio ({audio_sim:.4f}) spadło poniżej progu 0.98 dla identycznej pary."
                 )
             elif audio_sim < 0.75:
                 review_reasons.append(
@@ -738,7 +782,7 @@ class DeterministicDecisionEngineV1:
                 review_reasons.append(
                     f"Nieznany lub niekompletny status potoku Speech-to-Text ('{safe_status}')."
                 )
-            elif is_uncertain:
+            elif is_uncertain and not verified_duplicate_pair:
                 review_reasons.append(
                     "Wykryto flagę niepewności transkrypcji Whisper (is_uncertain=True) — ryzyko artefaktu / halucynacji."
                 )
@@ -790,6 +834,8 @@ class DeterministicDecisionEngineV1:
                             "UNVERIFIED_NO_AUDIO_STREAMS_SKIP: Pominięcie transkrypcji NO_AUDIO_STREAMS "
                             "wymaga no_audio_tracks=True, acc_has_audio=False, emi_has_audio=False, audio_mismatch=False oraz braku niepewności i duplikatu."
                         )
+                elif verified_duplicate_pair:
+                    pass
                 else:
                     review_reasons.append(
                         "UNTRUSTED_STT_SKIP_REASON: Pominięcie transkrypcji z niekanonicznym powodem spoza allowlisty."
@@ -868,7 +914,9 @@ class DeterministicDecisionEngineV1:
                 parts.append(f"Głośność: OK (|LUFS diff|={abs_lufs_diff:.2f} dB, norma <= 3.0 dB).")
 
             if stt_present:
-                if stt_status == "skipped":
+                if verified_duplicate_pair:
+                    parts.append("Pliki akceptu i emisji są identyczne (workflow Cradle: załącz ostatni plik).")
+                elif stt_status == "skipped":
                     parts.append(
                         f"Transkrypcja pominięta na podstawie zweryfikowanej reguły optymalizacyjnej ({stt_skipped_reason})."
                     )

@@ -431,8 +431,8 @@ def test_full_lufs_match_with_raw_vad_speech_triggers_stt(mock_job):
     )
     assert should_run_stt == True
 
-# 21. test_full_identical_binary_inputs_forces_review_as_duplicate_input
-def test_full_identical_binary_inputs_forces_review_as_duplicate_input():
+# 21. test_full_identical_binary_inputs_allows_approve
+def test_full_identical_binary_inputs_allows_approve():
     with patch('ollama.chat') as mock_chat:
         mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Everything matches 100%", "confidence": 1.0}'}}
         analyst = AnalystService()
@@ -442,14 +442,13 @@ def test_full_identical_binary_inputs_forces_review_as_duplicate_input():
             "audio_similarity": 1.0,
             "audio_transcription": {
                 "status": "skipped",
-                "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
-                "is_uncertain": True,
-                "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
+                "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (Cradle workflow: attach last file)",
+                "is_uncertain": False,
+                "uncertainty_reason": None,
             }
         }
         res = analyst.analyze_job_results(metrics, db=MockDB())
-        assert res["verdict"] == "review"
-        assert "DUPLICATE_INPUT" in res["reasoning"]
+        assert res["verdict"] == "approve"
 
 # 22. test_vo_transcript_ignores_binary_duplicate_and_runs_stt
 def test_vo_transcript_ignores_binary_duplicate_and_runs_stt(mock_job):
@@ -1296,7 +1295,7 @@ def test_duplicate_input_strictly_verified_against_is_binary_duplicate_flag(mock
 
     mock_job.comparison_type = ComparisonType.FULL
 
-    # Case A: True binary duplicate in FULL mode => skip accepted, BUT is_uncertain=True forces REVIEW
+    # Case A: True binary duplicate in FULL mode => skip accepted, is_uncertain=False, APPROVE preserved
     res_true_dup = {
         "overall_similarity": 1.0,
         "video_result": {"overall_similarity": 1.0, "frames_with_differences": 0},
@@ -1316,13 +1315,12 @@ def test_duplicate_input_strictly_verified_against_is_binary_duplicate_flag(mock
     m_dup = ComparisonService._build_ai_metrics(mock_job, res_true_dup)
     assert m_dup["stt_skipped"] is True
     assert m_dup["audio_transcription"]["status"] == "skipped"
-    assert m_dup["audio_transcription"]["is_uncertain"] is True # CRITICAL: MUST FORCE REVIEW!
+    assert m_dup["audio_transcription"]["is_uncertain"] is False
 
     with patch('ollama.chat') as mock_chat:
         mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Identical files", "confidence": 1.0}'}}
         decision = analyst.analyze_job_results(m_dup, db=MockDB())
-        assert decision["verdict"] == "review"
-        assert "DUPLICATE_INPUT" in decision["reasoning"]
+        assert decision["verdict"] == "approve"
 
     # Case B: False/fraudulent duplicate claim when files are NOT binary duplicates => REJECT
     res_fake_dup = {
@@ -1348,8 +1346,8 @@ def test_duplicate_input_strictly_verified_against_is_binary_duplicate_flag(mock
     assert "DUPLICATE_INPUT skip invalid" in m_fake["audio_transcription"]["uncertainty_reason"]
 
 
-# 45. test_automation_duplicate_input_forces_review_job_1634
-def test_automation_duplicate_input_forces_review_job_1634(mock_job):
+# 45. test_automation_duplicate_input_allows_approve_job_1634
+def test_automation_duplicate_input_allows_approve_job_1634(mock_job):
     """
     Recreates Job 1634: In AUTOMATION mode, identical Acceptance and Emission files
     must NOT get fast-path APPROVE. They must be flagged as DUPLICATE_INPUT,
@@ -1361,7 +1359,7 @@ def test_automation_duplicate_input_forces_review_job_1634(mock_job):
 
     mock_job.comparison_type = ComparisonType.AUTOMATION
 
-    # Recreate Job 1634 payload: binary identical files in AUTOMATION
+    # Recreate Job 1634 payload: binary identical files in AUTOMATION (Cradle attach-last-file workflow)
     res_job_1634 = {
         "overall_similarity": 1.0,
         "video_result": {"overall_similarity": 1.0, "frames_with_differences": 0},
@@ -1374,9 +1372,9 @@ def test_automation_duplicate_input_forces_review_job_1634(mock_job):
             "similarity_score": 1.0,
             "speech_to_text": {
                 "status": "skipped",
-                "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
-                "is_uncertain": True,
-                "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
+                "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (Cradle workflow: attach last file)",
+                "is_uncertain": False,
+                "uncertainty_reason": None,
             }
         }
     }
@@ -1387,18 +1385,17 @@ def test_automation_duplicate_input_forces_review_job_1634(mock_job):
     # Metrics construction
     metrics = ComparisonService._build_ai_metrics(mock_job, res_job_1634)
     assert metrics["stt_skipped"] is True
-    assert metrics["stt_skipped_reason"] == "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)"
+    assert metrics["stt_skipped_reason"] == "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (Cradle workflow: attach last file)"
     assert metrics["audio_transcription"]["status"] == "skipped"
-    assert metrics["audio_transcription"]["is_uncertain"] is True
+    assert metrics["audio_transcription"]["is_uncertain"] is False
 
-    # Analyst decision: Even if LLM would approve 100% match, DUPLICATE_INPUT forces REVIEW
+    # Analyst decision: Identical pair allows APPROVE in AnalystService
     with patch('ollama.chat') as mock_chat:
         mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Identical files 100% match", "confidence": 1.0}'}}
         decision = analyst.analyze_job_results(metrics, db=MockDB())
-        assert decision["verdict"] == "review"
-        assert "DUPLICATE_INPUT" in decision["reasoning"]
+        assert decision["verdict"] == "approve"
 
-    # Hard REJECT is NOT downgraded to REVIEW
+    # Hard REJECT is NOT downgraded
     metrics_reject = dict(metrics)
     metrics_reject["duration_difference"] = 1.2
     metrics_reject["is_arpp_slate"] = False
@@ -1406,7 +1403,6 @@ def test_automation_duplicate_input_forces_review_job_1634(mock_job):
         mock_chat.return_value = {"message": {"content": '{"verdict": "reject", "reasoning": "Duration mismatch > 0.5s", "confidence": 1.0}'}}
         decision_reject = analyst.analyze_job_results(metrics_reject, db=MockDB())
         assert decision_reject["verdict"] == "reject"
-        assert "DUPLICATE_INPUT" in decision_reject["reasoning"]
 
 
 # 46. test_automation_different_files_high_similarity_preserves_fast_path
@@ -1515,7 +1511,7 @@ def test_compare_files_real_gate_orchestration_all_modes():
         assert res1["audio_result"]["is_binary_duplicate"] is True
         assert res1["audio_result"]["speech_to_text"]["status"] == "skipped"
         assert "DUPLICATE_INPUT" in res1["audio_result"]["speech_to_text"]["skipped_reason"]
-        assert res1["audio_result"]["speech_to_text"]["is_uncertain"] is True
+        assert res1["audio_result"]["speech_to_text"]["is_uncertain"] is False
 
     # Scenario 2: VO_TRANSCRIPT + identical hash => compare_spoken_text IS called with force_stt=True
     job2 = MockJobModel(ComparisonType.VO_TRANSCRIPT)
@@ -1597,19 +1593,18 @@ def test_analyst_service_strict_skip_code_normalization():
         assert decision["verdict"] == "approve"
         assert "DUPLICATE_INPUT" not in decision["reasoning"]
 
-    # Case B: Canonical 'DUPLICATE_INPUT: Identical SHA256' triggers REVIEW override
+    # Case B: Canonical 'DUPLICATE_INPUT: Identical SHA256' with is_uncertain=False allows APPROVE
     canonical_metrics = {
         "audio_transcription": {
             "status": "skipped",
             "skipped_reason": "DUPLICATE_INPUT: Identical SHA256",
-            "is_uncertain": True,
+            "is_uncertain": False,
         }
     }
     with patch('ollama.chat') as mock_chat:
         mock_chat.return_value = {"message": {"content": '{"verdict": "approve", "reasoning": "Looks good", "confidence": 0.95}'}}
         decision_canon = analyst.analyze_job_results(canonical_metrics, db=MockDB())
-        assert decision_canon["verdict"] == "review"
-        assert "DUPLICATE_INPUT" in decision_canon["reasoning"]
+        assert decision_canon["verdict"] == "approve"
 
 
 # 49. test_build_mlx_worker_env_deterministic_path

@@ -693,21 +693,9 @@ class AnalystService:
                 analysis["verdict"] = "review"
                 analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: KRYTYCZNA RÓŻNICA — brak ścieżki dźwiękowej w jednym z plików (mismatch). Wymuszono status REVIEW. [Oryginalna notatka AI: {analysis.get('reasoning', '')}]"
 
-            # 6. STT Failure / Uncertainty / DUPLICATE_INPUT Overrides (Enforce REVIEW on APPROVE, preserve hard REJECT)
+            # 6. STT Failure / Uncertainty Overrides (Enforce REVIEW on APPROVE)
             if isinstance(stt_data, dict):
-                from services.comparison_service import extract_normalized_skip_code
-                is_duplicate = (
-                    extract_normalized_skip_code(stt_data.get("skipped_reason")) == "DUPLICATE_INPUT"
-                    or extract_normalized_skip_code(stt_data.get("uncertainty_reason")) == "DUPLICATE_INPUT"
-                )
-                if is_duplicate:
-                    if analysis["verdict"] != "reject":
-                        analysis["verdict"] = "review"
-                        analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT). Podejrzenie błędu pobrania (duplikat). Wymuszono status REVIEW do weryfikacji przez człowieka. [Oryginalna notatka: {current_reasoning}]"
-                    else:
-                        analysis["reasoning"] = f"🚨 SYSTEM WARNING: Wykryto identyczne pliki wejściowe (DUPLICATE_INPUT), lecz zachowano twardy status REJECT. [Oryginalna notatka: {current_reasoning}]"
-                    current_reasoning = analysis["reasoning"]
-                elif stt_data.get("status") == "failed" and analysis["verdict"] == "approve":
+                if stt_data.get("status") == "failed" and analysis["verdict"] == "approve":
                     analysis["verdict"] = "review"
                     err = stt_data.get("error_message", "Awaria modułu STT")
                     analysis["reasoning"] = f"🚨 SYSTEM OVERRIDE: Moduł STT uległ awarii ({err}). Wymuszono status REVIEW. [Oryginalna notatka: {current_reasoning}]"
