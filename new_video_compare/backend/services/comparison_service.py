@@ -1395,6 +1395,8 @@ class ComparisonService:
                             category_divergence = "AGREEMENT"
                         elif shad_up == "APPROVE" and prim_up == "REJECT":
                             category_divergence = "DANGEROUS_FALSE_APPROVE"
+                        elif shad_up == "APPROVE" and prim_up == "REVIEW":
+                            category_divergence = "DETERMINISTIC_APPROVE_OVER_REVIEW"
                         elif shad_up == "REVIEW":
                             category_divergence = "DETERMINISTIC_REVIEW"
                         elif shad_up == "REJECT":

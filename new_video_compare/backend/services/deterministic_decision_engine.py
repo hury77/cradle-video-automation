@@ -26,6 +26,8 @@ ALLOWED_STT_SKIP_REASONS = {
     CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH,
 }
 
+MIN_WORDS_FOR_TEXT_REJECT = 5
+
 
 def _is_valid_number(val: Any) -> bool:
     """Check if value is a finite float or int (not None, NaN, inf, or bool)."""
@@ -598,12 +600,12 @@ class DeterministicDecisionEngineV1:
                 f"Pliki różnią się długością o {duration_diff:.2f}s i nie jest to zweryfikowana plansza ARPP/Clearcast."
             )
 
-        # A3: Confirmed VO mismatch
-        confirmed_speech = (
+        # A3: Confirmed VO mismatch (only when BOTH transcripts have >= MIN_WORDS_FOR_TEXT_REJECT words)
+        sufficient_speech_for_reject = (
             word_count_a is not None
             and word_count_b is not None
-            and word_count_a > 0
-            and word_count_b > 0
+            and word_count_a >= MIN_WORDS_FOR_TEXT_REJECT
+            and word_count_b >= MIN_WORDS_FOR_TEXT_REJECT
         )
         stt_clean_completed = (
             stt_present
@@ -612,7 +614,7 @@ class DeterministicDecisionEngineV1:
             and is_uncertain is False
         )
 
-        if confirmed_speech and stt_clean_completed and not is_text_match:
+        if sufficient_speech_for_reject and stt_clean_completed and not is_text_match:
             if text_sim_valid and text_sim < 0.90:
                 reject_reasons.append(
                     f"Krytyczna niezgodność ścieżki lektorskiej VO: zgodność tekstu wynosi {text_sim:.2%} (poniżej progu 90%)."
@@ -741,11 +743,6 @@ class DeterministicDecisionEngineV1:
                     "Wykryto flagę niepewności transkrypcji Whisper (is_uncertain=True) — ryzyko artefaktu / halucynacji."
                 )
             elif stt_status == "completed":
-                if confirmed_speech and not is_text_match:
-                    if text_sim_valid and 0.90 <= text_sim < 1.0:
-                        review_reasons.append(
-                            f"Wykryto drobne różnice w treści lektorskiej: podobieństwo tekstu wynosi {text_sim:.2%} (strefa REVIEW)."
-                        )
                 # Check legacy no-speech claim
                 is_no_speech_claim = (
                     word_count_a == 0
@@ -758,6 +755,15 @@ class DeterministicDecisionEngineV1:
                         review_reasons.append(
                             "UNVERIFIED_NO_SPEECH_RESULT: Deklarowany brak mowy (completed legacy zero words) "
                             "nie posiada pełnego potwierdzenia (brakujące/niepoprawne metryki Raw VAD, VAD, muzyki lub LUFS)."
+                        )
+                elif not is_text_match:
+                    if not sufficient_speech_for_reject:
+                        review_reasons.append(
+                            "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora"
+                        )
+                    elif text_sim_valid and 0.90 <= text_sim < 1.0:
+                        review_reasons.append(
+                            f"Wykryto drobne różnice w treści lektorskiej: podobieństwo tekstu wynosi {text_sim:.2%} (strefa REVIEW)."
                         )
             elif stt_status == "completed_no_speech":
                 if not is_verified_no_speech_result(metrics, stt_payload):

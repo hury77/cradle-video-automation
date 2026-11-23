@@ -19,6 +19,7 @@ from services.deterministic_decision_engine import (
     CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH,
     CANONICAL_DUPLICATE_INPUT,
     CANONICAL_NO_AUDIO_STREAMS,
+    MIN_WORDS_FOR_TEXT_REJECT,
 )
 
 
@@ -702,3 +703,178 @@ def test_new_client_policy_enabled_passes_when_at_or_above_threshold(base_approv
 
     assert res["verdict"] == "approve"
     assert res["confidence"] == 1.0
+
+
+# ==============================================================================
+# 9. MINIMUM SPEECH WORD COUNT & ANONYMIZED SNAPSHOT REGRESSION TESTS
+# ==============================================================================
+
+def test_short_transcript_4_vs_2_zero_similarity_gives_review(engine, base_approved_metrics):
+    """4 vs 2 words at 0% text_similarity must NEVER trigger HARD_REJECT; must return REVIEW."""
+    assert MIN_WORDS_FOR_TEXT_REJECT == 5
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.0,
+        "is_uncertain": False,
+        "word_count_a": 4,
+        "word_count_b": 2,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_min_words_5_vs_5_low_similarity_gives_reject(engine, base_approved_metrics):
+    """5 vs 5 words at low text_similarity (< 0.90) meets MIN_WORDS_FOR_TEXT_REJECT and triggers REJECT."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.45,
+        "is_uncertain": False,
+        "word_count_a": 5,
+        "word_count_b": 5,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "reject"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_HARD_REJECT"
+
+
+def test_33_vs_33_full_match_gives_approve(engine, base_approved_metrics):
+    """33 vs 33 words at 100% text_similarity remains APPROVE."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": True,
+        "text_similarity": 1.0,
+        "is_uncertain": False,
+        "word_count_a": 33,
+        "word_count_b": 33,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "approve"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+
+
+def test_short_transcript_0_vs_6_zero_similarity_gives_review(engine, base_approved_metrics):
+    """0 vs 6 words at 0% text_similarity must trigger REVIEW (not APPROVE and not REJECT)."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.0,
+        "is_uncertain": False,
+        "word_count_a": 0,
+        "word_count_b": 6,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_anonymized_job_1847_snapshot_gives_review(engine):
+    """Anonymized metrics_snapshot fixture from job 1847 (4 vs 2 words, 0% text_sim, -6.46 dB LUFS) -> REVIEW."""
+    snapshot = {
+        "overall_similarity": 0.9839,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 0.9839,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": False,
+        "audio_loudness": {
+            "acceptance_lufs": -15.79,
+            "emission_lufs": -22.25,
+            "lufs_difference": -6.46,
+            "peak_difference_db": -5.99,
+            "has_loudness_issue": True,
+        },
+        "audio_transcription": {
+            "status": "completed",
+            "text_similarity": 0.0,
+            "is_text_match": False,
+            "word_count_a": 4,
+            "word_count_b": 2,
+            "skipped_reason": None,
+            "error_message": None,
+            "is_uncertain": False,
+            "uncertainty_reason": None,
+        },
+        "raw_vad_metrics_complete": False,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": None,
+        "music_proportion": None,
+        "music_dominant": None,
+    }
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_anonymized_job_1846_snapshot_gives_review(engine):
+    """Anonymized metrics_snapshot fixture from job 1846 (0 vs 6 words, 0% text_sim, +5.26 dB LUFS) -> REVIEW."""
+    snapshot = {
+        "overall_similarity": 0.9678,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 0.9678,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": False,
+        "audio_loudness": {
+            "acceptance_lufs": -15.79,
+            "emission_lufs": -10.53,
+            "lufs_difference": 5.26,
+            "peak_difference_db": 3.71,
+            "has_loudness_issue": True,
+        },
+        "audio_transcription": {
+            "status": "completed",
+            "text_similarity": 0.0,
+            "is_text_match": False,
+            "word_count_a": 0,
+            "word_count_b": 6,
+            "skipped_reason": None,
+            "error_message": None,
+            "is_uncertain": False,
+            "uncertainty_reason": None,
+        },
+        "raw_vad_metrics_complete": False,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": None,
+        "music_proportion": None,
+        "music_dominant": None,
+    }
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
