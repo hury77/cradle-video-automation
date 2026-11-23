@@ -79,7 +79,7 @@ def isolated_db_session():
         (1823, "review", "review"),     # Borderline video 97.33%, legacy FAST_PATH
         (1824, "review", "review"),     # AUDIO_MISMATCH
         (1825, "approve", "approve"),   # ARPP slate, matched VO
-        (1826, "review", "review"),     # DUPLICATE_INPUT without LUFS -> AGREEMENT
+        (1826, "approve", "review"),    # DUPLICATE_INPUT without LUFS -> DETERMINISTIC_APPROVE_OVER_REVIEW
         (1827, "review", "reject"),     # LUFS 8.91 > 3.0 -> REVIEW (not DANGEROUS_FALSE_APPROVE)
     ],
 )
@@ -171,10 +171,10 @@ def test_real_payload_1826_duplicate_shadow_agreement(isolated_db_session):
     shadow = saved.knowledge_snapshot["deterministic_shadow_v1"]
     assert shadow["shadow_status"] == "completed"
     assert shadow["metrics_contract_complete"] is True
-    assert shadow["shadow_verdict"] == "review"
-    assert shadow["category_divergence"] == "AGREEMENT"
-    assert len(shadow["rule_evaluation"]["reasons"]) <= 5
-    for r in shadow["rule_evaluation"]["reasons"]:
+    assert shadow["shadow_verdict"] == "approve"
+    assert shadow["category_divergence"] == "DETERMINISTIC_APPROVE_OVER_REVIEW"
+    assert shadow["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+    for r in shadow["rule_evaluation"].get("reasons", []):
         assert len(r) <= 240
     for val in shadow["rule_evaluation"]["checks"].values():
         assert isinstance(val, (int, float, bool, str)) or val is None
@@ -238,9 +238,13 @@ def test_negative_unknown_skip_text_remains_non_canonical():
     assert is_complete is False
 
 
-def test_negative_duplicate_without_lufs_never_approves(engine):
+def test_negative_non_duplicate_without_lufs_never_approves(engine):
     raw = _load_fixture(1826)
     assert raw["audio_loudness"]["lufs_difference"] is None
+    raw["is_binary_duplicate"] = False
+    raw["audio_transcription"]["is_uncertain"] = False
+    raw["audio_transcription"]["skipped_reason"] = "FAST_PATH_IDENTICAL_AUDIO"
+    raw["stt_skipped_reason"] = "FAST_PATH_IDENTICAL_AUDIO"
     canonical = adapt_comparison_metrics(raw)
     decision = engine.evaluate(canonical)
     assert decision["verdict"] == "review"

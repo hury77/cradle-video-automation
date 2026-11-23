@@ -483,3 +483,65 @@ class TestDeterministicShadowMode:
         assert isinstance(raw_json, str)
         parsed = json.loads(raw_json)
         assert parsed["deterministic_shadow_v1"]["shadow_status"] == "completed"
+
+    @pytest.mark.parametrize(
+        "agent_verdict,engine_verdict,expected_category",
+        [
+            ("approve", "approve", "AGREEMENT"),
+            ("review", "review", "AGREEMENT"),
+            ("reject", "reject", "AGREEMENT"),
+            ("reject", "approve", "DANGEROUS_FALSE_APPROVE"),
+            ("review", "approve", "DETERMINISTIC_APPROVE_OVER_REVIEW"),
+            ("approve", "review", "DETERMINISTIC_REVIEW"),
+            ("reject", "review", "DETERMINISTIC_REVIEW"),
+            ("approve", "reject", "DETERMINISTIC_REJECT"),
+            ("review", "reject", "DETERMINISTIC_REJECT"),
+        ],
+    )
+    def test_category_divergence_all_pairs(
+        self,
+        isolated_db_session,
+        dummy_job,
+        comparison_service_instance,
+        monkeypatch,
+        agent_verdict,
+        engine_verdict,
+        expected_category,
+    ):
+        """Verify category_divergence classification for every (agent, engine) verdict pair."""
+        monkeypatch.setattr(settings, "deterministic_shadow_mode", True)
+        monkeypatch.setenv("DETERMINISTIC_SHADOW_MODE", "true")
+
+        service = comparison_service_instance
+        results = _build_dummy_results(complete=True)
+
+        mock_analyst = MagicMock()
+        mock_analyst.analyze_job_results.return_value = {
+            "verdict": agent_verdict,
+            "confidence": 0.90,
+            "reasoning": f"Agent says {agent_verdict}",
+        }
+
+        mock_engine_eval = {
+            "verdict": engine_verdict,
+            "confidence": 1.0 if engine_verdict != "review" else 0.0,
+            "reasoning": f"Engine says {engine_verdict}",
+            "ai_reasoning": f"Engine says {engine_verdict}",
+            "decided_by": "deterministic_rules_v1",
+            "rule_evaluation": {
+                "engine_version": "1.0.0",
+                "fired_rule": "TEST_RULE",
+                "precedence_step": "TEST_STEP",
+            },
+        }
+
+        with patch("services.analyst_service.get_analyst", return_value=mock_analyst), \
+             patch("services.comparison_service.ComparisonService._build_knowledge_snapshot", return_value={"job_meta": {}}), \
+             patch("services.deterministic_decision_engine.DeterministicDecisionEngineV1.evaluate", return_value=mock_engine_eval):
+            service._run_ai_analyst(isolated_db_session, dummy_job.id, results)
+
+        decision = isolated_db_session.query(QADecision).filter(QADecision.job_id == dummy_job.id).first()
+        shadow = decision.knowledge_snapshot["deterministic_shadow_v1"]
+        assert shadow["primary_verdict"] == agent_verdict
+        assert shadow["shadow_verdict"] == engine_verdict
+        assert shadow["category_divergence"] == expected_category

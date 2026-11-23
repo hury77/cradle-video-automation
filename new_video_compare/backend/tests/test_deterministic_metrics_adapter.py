@@ -151,8 +151,8 @@ def test_adapter_audio_mismatch_produces_review(engine):
     assert any("AUDIO_MISMATCH" in r for r in decision["rule_evaluation"]["reasons"])
 
 
-# 4. DUPLICATE_INPUT: Identical binary files
-def test_adapter_duplicate_input_produces_review(engine):
+# 4. DUPLICATE_INPUT: Identical binary files (valid Cradle workflow)
+def test_adapter_duplicate_input_produces_approve(engine):
     raw_results = {
         "job_id": 104,
         "video_result": {
@@ -173,8 +173,8 @@ def test_adapter_duplicate_input_produces_review(engine):
             "speech_to_text": {
                 "status": "skipped",
                 "skipped_reason": "DUPLICATE_INPUT: Identical binary files",
-                "is_uncertain": True,
-                "uncertainty_reason": "DUPLICATE_INPUT",
+                "is_uncertain": False,
+                "uncertainty_reason": None,
             },
         },
     }
@@ -183,9 +183,9 @@ def test_adapter_duplicate_input_produces_review(engine):
     assert canonical["is_binary_duplicate"] is True
 
     decision = engine.evaluate(canonical)
-    assert decision["verdict"] == "review"
-    assert decision["confidence"] == 0.0
-    assert any("DUPLICATE_INPUT" in r for r in decision["rule_evaluation"]["reasons"])
+    assert decision["verdict"] == "approve"
+    assert decision["confidence"] == 1.0
+    assert "Pliki akceptu i emisji są identyczne" in decision["reasoning"]
 
 
 # 5. completed_no_speech with complete VAD metrics

@@ -19,6 +19,7 @@ from services.deterministic_decision_engine import (
     CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH,
     CANONICAL_DUPLICATE_INPUT,
     CANONICAL_NO_AUDIO_STREAMS,
+    MIN_WORDS_FOR_TEXT_REJECT,
 )
 
 
@@ -565,8 +566,8 @@ def test_review_fast_path_lufs_exceeds_threshold(engine, base_approved_metrics):
     assert "|LUFS|=3.50 dB przekracza" in res["reasoning"] or "UNVERIFIED_FAST_PATH_AUDIO_SKIP" in res["reasoning"]
 
 
-def test_review_fast_path_with_duplicate_input(engine, base_approved_metrics):
-    """FAST_PATH with is_binary_duplicate=True must trigger REVIEW."""
+def test_approve_fast_path_with_duplicate_input(engine, base_approved_metrics):
+    """FAST_PATH with is_binary_duplicate=True is allowed under Cradle attach-last-file policy -> APPROVE."""
     metrics = dict(base_approved_metrics)
     metrics["is_binary_duplicate"] = True  # Duplicate!
     metrics["audio_similarity"] = 0.9900
@@ -577,9 +578,9 @@ def test_review_fast_path_with_duplicate_input(engine, base_approved_metrics):
     }
     res = engine.evaluate(metrics)
 
-    assert res["verdict"] == "review"
-    assert res["confidence"] == 0.0
-    assert "DUPLICATE_INPUT" in res["reasoning"]
+    assert res["verdict"] == "approve"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
 
 
 # ==============================================================================
@@ -702,3 +703,300 @@ def test_new_client_policy_enabled_passes_when_at_or_above_threshold(base_approv
 
     assert res["verdict"] == "approve"
     assert res["confidence"] == 1.0
+
+
+# ==============================================================================
+# 9. MINIMUM SPEECH WORD COUNT & ANONYMIZED SNAPSHOT REGRESSION TESTS
+# ==============================================================================
+
+def test_short_transcript_4_vs_2_zero_similarity_gives_review(engine, base_approved_metrics):
+    """4 vs 2 words at 0% text_similarity must NEVER trigger HARD_REJECT; must return REVIEW."""
+    assert MIN_WORDS_FOR_TEXT_REJECT == 5
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.0,
+        "is_uncertain": False,
+        "word_count_a": 4,
+        "word_count_b": 2,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_min_words_5_vs_5_low_similarity_gives_reject(engine, base_approved_metrics):
+    """5 vs 5 words at low text_similarity (< 0.90) meets MIN_WORDS_FOR_TEXT_REJECT and triggers REJECT."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.45,
+        "is_uncertain": False,
+        "word_count_a": 5,
+        "word_count_b": 5,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "reject"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_HARD_REJECT"
+
+
+def test_33_vs_33_full_match_gives_approve(engine, base_approved_metrics):
+    """33 vs 33 words at 100% text_similarity remains APPROVE."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": True,
+        "text_similarity": 1.0,
+        "is_uncertain": False,
+        "word_count_a": 33,
+        "word_count_b": 33,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "approve"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+
+
+def test_short_transcript_0_vs_6_zero_similarity_gives_review(engine, base_approved_metrics):
+    """0 vs 6 words at 0% text_similarity must trigger REVIEW (not APPROVE and not REJECT)."""
+    metrics = dict(base_approved_metrics)
+    metrics["audio_transcription"] = {
+        "status": "completed",
+        "is_text_match": False,
+        "text_similarity": 0.0,
+        "is_uncertain": False,
+        "word_count_a": 0,
+        "word_count_b": 6,
+    }
+    res = engine.evaluate(metrics)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_anonymized_job_1847_snapshot_gives_review(engine):
+    """Anonymized metrics_snapshot fixture from job 1847 (4 vs 2 words, 0% text_sim, -6.46 dB LUFS) -> REVIEW."""
+    snapshot = {
+        "overall_similarity": 0.9839,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 0.9839,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": False,
+        "audio_loudness": {
+            "acceptance_lufs": -15.79,
+            "emission_lufs": -22.25,
+            "lufs_difference": -6.46,
+            "peak_difference_db": -5.99,
+            "has_loudness_issue": True,
+        },
+        "audio_transcription": {
+            "status": "completed",
+            "text_similarity": 0.0,
+            "is_text_match": False,
+            "word_count_a": 4,
+            "word_count_b": 2,
+            "skipped_reason": None,
+            "error_message": None,
+            "is_uncertain": False,
+            "uncertainty_reason": None,
+        },
+        "raw_vad_metrics_complete": False,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": None,
+        "music_proportion": None,
+        "music_dominant": None,
+    }
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+def test_anonymized_job_1846_snapshot_gives_review(engine):
+    """Anonymized metrics_snapshot fixture from job 1846 (0 vs 6 words, 0% text_sim, +5.26 dB LUFS) -> REVIEW."""
+    snapshot = {
+        "overall_similarity": 0.9678,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 0.9678,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": False,
+        "audio_loudness": {
+            "acceptance_lufs": -15.79,
+            "emission_lufs": -10.53,
+            "lufs_difference": 5.26,
+            "peak_difference_db": 3.71,
+            "has_loudness_issue": True,
+        },
+        "audio_transcription": {
+            "status": "completed",
+            "text_similarity": 0.0,
+            "is_text_match": False,
+            "word_count_a": 0,
+            "word_count_b": 6,
+            "skipped_reason": None,
+            "error_message": None,
+            "is_uncertain": False,
+            "uncertainty_reason": None,
+        },
+        "raw_vad_metrics_complete": False,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": None,
+        "music_proportion": None,
+        "music_dominant": None,
+    }
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["confidence"] == 0.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+    assert "zbyt krótki transkrypt do wiarygodnej oceny zgodności lektora" in res["reasoning"]
+
+
+# ==============================================================================
+# 10. IDENTICAL PAIR (DUPLICATE_INPUT CRADLE WORKFLOW) TESTS
+# ==============================================================================
+
+def _make_anonymized_duplicate_snapshot(
+    raw_vad_complete: bool = False,
+    raw_vad_status: str = None,
+):
+    """Syntetyczny snapshot wzorowany na zanonimizowanych metrykach jobów 1837/1838/1840/1865."""
+    return {
+        "overall_similarity": 1.0,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 1.0,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": True,
+        "stt_skipped": True,
+        "stt_skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
+        "audio_loudness": {
+            "acceptance_lufs": None,
+            "emission_lufs": None,
+            "lufs_difference": None,
+            "peak_difference_db": None,
+            "has_loudness_issue": False,
+        },
+        "audio_transcription": {
+            "status": "skipped",
+            "text_similarity": None,
+            "is_text_match": None,
+            "skipped_reason": "DUPLICATE_INPUT: Acceptance and Emission are binary identical files (possible duplicate download)",
+            "error_message": None,
+            "is_uncertain": True,
+            "uncertainty_reason": "DUPLICATE_INPUT: Identical binary files detected; requires verification of download integrity",
+        },
+        "raw_vad_metrics_complete": raw_vad_complete,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": raw_vad_status,
+        "music_proportion": None,
+        "music_dominant": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "job_id,raw_vad_complete,raw_vad_status",
+    [
+        (1837, False, None),
+        (1838, False, None),
+        (1840, False, None),
+        (1865, True, "no_speech"),
+    ],
+)
+def test_anonymized_duplicate_pair_snapshots_give_approve(
+    engine, job_id, raw_vad_complete, raw_vad_status
+):
+    """Anonymized metrics_snapshot fixtures from jobs 1837, 1838, 1840, 1865 -> APPROVE."""
+    snapshot = _make_anonymized_duplicate_snapshot(
+        raw_vad_complete=raw_vad_complete,
+        raw_vad_status=raw_vad_status,
+    )
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "approve", f"Job {job_id} expected APPROVE, got {res}"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+    assert "Pliki akceptu i emisji są identyczne (workflow Cradle: załącz ostatni plik)" in res["reasoning"]
+
+
+def test_duplicate_pair_negative_audio_mismatch_gives_review(engine):
+    snapshot = _make_anonymized_duplicate_snapshot()
+    snapshot["audio_mismatch"] = True
+    snapshot["emi_has_audio"] = False
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_duplicate_pair_negative_non_canonical_skip_gives_review(engine):
+    snapshot = _make_anonymized_duplicate_snapshot()
+    snapshot["audio_transcription"]["skipped_reason"] = "EXPLOIT_DUPLICATE_INPUT: fake"
+    snapshot["stt_skipped_reason"] = "EXPLOIT_DUPLICATE_INPUT: fake"
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_duplicate_pair_negative_is_uncertain_true_gives_review(engine):
+    snapshot = _make_anonymized_duplicate_snapshot()
+    snapshot["audio_transcription"]["is_uncertain"] = True
+    snapshot["audio_transcription"]["uncertainty_reason"] = None
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_duplicate_pair_negative_video_below_98_gives_review(engine):
+    snapshot = _make_anonymized_duplicate_snapshot()
+    snapshot["video_similarity"] = 0.965
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_duplicate_pair_negative_video_below_95_gives_reject(engine):
+    snapshot = _make_anonymized_duplicate_snapshot()
+    snapshot["video_similarity"] = 0.91
+    res = engine.evaluate(snapshot)
+
+    assert res["verdict"] == "reject"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_HARD_REJECT"
