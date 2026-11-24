@@ -144,9 +144,17 @@ def is_verified_no_speech_result(metrics: Dict[str, Any], stt_payload: Dict[str,
     if raw_vad_speech is not False:
         return False
 
-    # music_dominant must be strictly False
+    # music_dominant must be strictly False (or None in AUTOMATION mode where music_proportion is not computed)
+    comp_type = str(
+        metrics.get("comparison_type")
+        or (metrics.get("job_meta") or {}).get("comparison_type")
+        or ""
+    ).lower()
     music_dominant = _extract_vad_flag("music_dominant", metrics, stt_payload, audio_data, vad_info)
-    if music_dominant is not False:
+    if comp_type == "automation":
+        if music_dominant not in (False, None):
+            return False
+    elif music_dominant is not False:
         return False
 
     # Side-specific raw_vad_status_acc and raw_vad_status_emi must be strictly "no_speech"
@@ -579,8 +587,10 @@ class DeterministicDecisionEngineV1:
         # Loudness (LUFS)
         audio_loudness = metrics.get("audio_loudness")
         raw_lufs_diff = None
+        one_side_silent = False
         if isinstance(audio_loudness, dict):
             raw_lufs_diff = audio_loudness.get("lufs_difference")
+            one_side_silent = audio_loudness.get("one_side_silent") is True
         elif "lufs_difference" in metrics:
             raw_lufs_diff = metrics.get("lufs_difference")
 
@@ -734,7 +744,11 @@ class DeterministicDecisionEngineV1:
         # B7: Audio pair comparable checks (LUFS and Spectral)
         if audio_pair_comparable:
             # LUFS validation (LUFS None is allowed ONLY for verified_duplicate_pair)
-            if not lufs_diff_valid:
+            if one_side_silent:
+                review_reasons.append(
+                    "Asymetria ciszy: jeden z plików ma niemą ścieżkę audio (LUFS nieokreślony), drugi zawiera sygnał audio."
+                )
+            elif not lufs_diff_valid:
                 if not verified_duplicate_pair:
                     review_reasons.append(
                         "Brakująca, pusta lub nienumeryczna różnica głośności LUFS przy porównywalnym audio."

@@ -426,3 +426,58 @@ def test_adapter_output_matches_direct_canonical_fixture(engine):
         adapted_decision["rule_evaluation"]["fired_rule"]
         == direct_decision["rule_evaluation"]["fired_rule"]
     )
+
+
+def test_adapter_automation_no_speech_1892_1893_contract_complete(engine):
+    """AUTOMATION + completed_no_speech + Raw VAD no_speech + music_dominant=None passes contract and approves."""
+    from services.deterministic_metrics_adapter import is_metrics_contract_complete
+    raw = {
+        "video_similarity": 1.0,
+        "duration_difference": 0.0,
+        "is_arpp_slate": False,
+        "is_binary_duplicate": False,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "audio_similarity": 0.9786,
+        "audio_loudness": {"lufs_difference": 0.05},
+        "audio_transcription": {
+            "status": "completed_no_speech",
+            "is_uncertain": False,
+            "word_count_a": 0,
+            "word_count_b": 0,
+            "acceptance_text": "",
+            "emission_text": "",
+        },
+        "raw_vad_metrics_complete": True,
+        "raw_vad_error": None,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_status": "no_speech",
+        "raw_vad_a": {"status": "no_speech", "has_speech": False},
+        "raw_vad_b": {"status": "no_speech", "has_speech": False},
+        "music_dominant": None,
+    }
+    canonical = adapt_comparison_metrics(raw, job_meta={"comparison_type": "automation"})
+    is_complete, flags = is_metrics_contract_complete(canonical)
+    assert is_complete is True, f"Expected complete contract, got flags={flags}"
+    assert flags["has_raw_vad_complete"] is True
+    assert engine.evaluate(canonical)["verdict"] == "approve"
+
+    # Negative: one-sided speech in Raw VAD -> incomplete contract
+    raw_one_sided = dict(raw)
+    raw_one_sided["raw_vad_speech"] = True
+    raw_one_sided["raw_vad_a"] = {"status": "speech_detected", "has_speech": True}
+    canonical_bad = adapt_comparison_metrics(raw_one_sided, job_meta={"comparison_type": "automation"})
+    is_complete_bad, flags_bad = is_metrics_contract_complete(canonical_bad)
+    assert is_complete_bad is False
+    assert flags_bad["has_raw_vad_complete"] is False
+
+    # Negative: incomplete Raw VAD -> incomplete contract
+    raw_incomp = dict(raw)
+    raw_incomp["raw_vad_metrics_complete"] = False
+    canonical_incomp = adapt_comparison_metrics(raw_incomp, job_meta={"comparison_type": "automation"})
+    is_complete_incomp, flags_incomp = is_metrics_contract_complete(canonical_incomp)
+    assert is_complete_incomp is False
+    assert flags_incomp["has_raw_vad_complete"] is False

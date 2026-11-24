@@ -489,32 +489,62 @@ def compare_loudness(
         acc_peak = acceptance_loudness.get("true_peak_db")
         emi_peak = emission_loudness.get("true_peak_db")
 
+        def _is_silent_lufs(val: Any) -> bool:
+            if val is None:
+                return True
+            try:
+                return bool(np.isinf(val) or np.isnan(val))
+            except TypeError:
+                return False
+
+        acc_silent = _is_silent_lufs(acc_lufs)
+        emi_silent = _is_silent_lufs(emi_lufs)
+        both_silent = acc_silent and emi_silent
+        one_side_silent = acc_silent != emi_silent
+
         lufs_diff = None
-        if acc_lufs is not None and emi_lufs is not None:
+        if both_silent:
+            lufs_diff = 0.0
+        elif not one_side_silent:
             lufs_diff = emi_lufs - acc_lufs
 
         peak_diff = None
-        if acc_peak is not None and emi_peak is not None:
+        if (
+            acc_peak is not None
+            and emi_peak is not None
+            and not np.isinf(acc_peak)
+            and not np.isinf(emi_peak)
+        ):
             peak_diff = emi_peak - acc_peak
         
         # Determine if within broadcast tolerances
         # EBU R128: Target -23 LUFS ±1 LU
         # US: -24 LUFS ±2 LU
         lufs_tolerance = 1.0  # ±1 LU tolerance
-        is_lufs_match = abs(lufs_diff) <= lufs_tolerance if lufs_diff is not None else False
+        if both_silent:
+            is_lufs_match = True
+        elif one_side_silent:
+            is_lufs_match = False
+        else:
+            is_lufs_match = abs(lufs_diff) <= lufs_tolerance if lufs_diff is not None else False
         
         peak_tolerance = 1.0  # ±1 dB tolerance
-        is_peak_match = abs(peak_diff) <= peak_tolerance if peak_diff is not None else False
+        if both_silent:
+            is_peak_match = True
+        else:
+            is_peak_match = abs(peak_diff) <= peak_tolerance if peak_diff is not None else False
         
         result = {
             "acceptance": acceptance_loudness,
             "emission": emission_loudness,
             "comparison": {
-                "lufs_difference": None if (lufs_diff is None or np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2),
-                "peak_difference_db": round(peak_diff, 2) if peak_diff is not None else None,
+                "lufs_difference": 0.0 if both_silent else (None if (lufs_diff is None or np.isinf(lufs_diff) or np.isnan(lufs_diff)) else round(lufs_diff, 2)),
+                "peak_difference_db": round(peak_diff, 2) if (peak_diff is not None and not np.isinf(peak_diff) and not np.isnan(peak_diff)) else None,
                 "is_lufs_match": is_lufs_match,
                 "is_peak_match": is_peak_match,
                 "loudness_tolerance": lufs_tolerance,
+                "both_silent": both_silent,
+                "one_side_silent": one_side_silent,
             },
             "has_loudness_differences": not (is_lufs_match and is_peak_match),
         }
@@ -522,7 +552,9 @@ def compare_loudness(
         if is_lufs_match and is_peak_match:
             logger.info("✅ Loudness levels match within tolerance")
         else:
-            logger.warning(f"⚠️ Loudness difference: {lufs_diff:+.1f} LU, Peak diff: {peak_diff:+.1f} dB")
+            lufs_str = f"{lufs_diff:+.1f} LU" if lufs_diff is not None else "N/A (silent)"
+            peak_str = f"{peak_diff:+.1f} dB" if peak_diff is not None else "N/A"
+            logger.warning(f"⚠️ Loudness difference: {lufs_str}, Peak diff: {peak_str}")
         
         return result
         

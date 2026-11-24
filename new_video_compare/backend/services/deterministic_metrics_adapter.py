@@ -119,10 +119,16 @@ def adapt_comparison_metrics(
         canonical["job_id"] = job_meta.get("id") or job_meta.get("job_id")
         canonical["job_name"] = job_meta.get("job_name", "")
         canonical["client_name"] = job_meta.get("client_name", "")
+        canonical["comparison_type"] = job_meta.get("comparison_type")
     else:
         canonical["job_id"] = raw_data.get("job_id")
         canonical["job_name"] = raw_data.get("job_name", "")
         canonical["client_name"] = raw_data.get("client_name", "")
+        canonical["comparison_type"] = raw_data.get("comparison_type") or (
+            raw_data.get("job_meta", {}).get("comparison_type")
+            if isinstance(raw_data.get("job_meta"), dict)
+            else None
+        )
 
     # 1. Video metrics
     if is_results_dict and isinstance(video_res, dict):
@@ -184,6 +190,17 @@ def adapt_comparison_metrics(
         else:
             raw_lufs = loudness_dict.get("lufs_difference")
 
+        raw_both_silent = (
+            comp.get("both_silent")
+            if isinstance(comp, dict) and "both_silent" in comp
+            else loudness_dict.get("both_silent")
+        )
+        raw_one_side_silent = (
+            comp.get("one_side_silent")
+            if isinstance(comp, dict) and "one_side_silent" in comp
+            else loudness_dict.get("one_side_silent")
+        )
+
         canonical["audio_loudness"] = {
             "lufs_difference": float(raw_lufs) if _is_valid_number(raw_lufs) else None,
             "acceptance_lufs": loudness_dict.get("acceptance", {}).get("integrated_lufs")
@@ -197,6 +214,8 @@ def adapt_comparison_metrics(
                 if "has_loudness_differences" in loudness_dict
                 else loudness_dict.get("has_loudness_issue")
             ),
+            "both_silent": _extract_exact_bool(raw_both_silent),
+            "one_side_silent": _extract_exact_bool(raw_one_side_silent),
         }
     else:
         canonical["audio_loudness"] = None
@@ -468,7 +487,8 @@ def is_metrics_contract_complete(
 
     loudness = canonical_metrics.get("audio_loudness")
     raw_lufs = loudness.get("lufs_difference") if isinstance(loudness, dict) else canonical_metrics.get("lufs_difference")
-    flags["has_lufs"] = _is_valid_number(raw_lufs)
+    one_side_silent = isinstance(loudness, dict) and loudness.get("one_side_silent") is True
+    flags["has_lufs"] = _is_valid_number(raw_lufs) or one_side_silent
 
     stt = canonical_metrics.get("audio_transcription")
     stt_valid = (
@@ -494,6 +514,12 @@ def is_metrics_contract_complete(
     )
 
     if is_no_speech:
+        comp_type = str(canonical_metrics.get("comparison_type") or "").lower()
+        music_ok = (
+            canonical_metrics.get("music_dominant") in (False, None)
+            if comp_type == "automation"
+            else canonical_metrics.get("music_dominant") is False
+        )
         raw_vad_complete = (
             canonical_metrics.get("raw_vad_metrics_complete") is True
             and canonical_metrics.get("raw_vad_error") in (False, None)
@@ -503,7 +529,7 @@ def is_metrics_contract_complete(
             and canonical_metrics.get("raw_vad_status_emi") == "no_speech"
             and canonical_metrics.get("raw_vad_speech_acc") is False
             and canonical_metrics.get("raw_vad_speech_emi") is False
-            and canonical_metrics.get("music_dominant") is False
+            and music_ok
         )
         flags["has_raw_vad_complete"] = raw_vad_complete
         return raw_vad_complete, flags
