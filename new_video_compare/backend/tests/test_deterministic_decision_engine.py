@@ -1000,3 +1000,107 @@ def test_duplicate_pair_negative_video_below_95_gives_reject(engine):
 
     assert res["verdict"] == "reject"
     assert res["rule_evaluation"]["fired_rule"] == "RULE_HARD_REJECT"
+
+
+# ==============================================================================
+# 11. AUTOMATION NO-SPEECH (RAW VAD + music_dominant=None) REGRESSION TESTS
+# ==============================================================================
+
+def _make_anonymized_automation_no_speech_snapshot(lufs_diff: float = 0.05):
+    """Syntetyczny snapshot wzorowany na zanonimizowanych metrykach jobów 1892 i 1893."""
+    return {
+        "overall_similarity": 0.9786,
+        "video_similarity": 1.0,
+        "video_differences_count": 0,
+        "is_arpp_slate": False,
+        "duration_difference": 0.0,
+        "audio_similarity": 0.9786,
+        "audio_mismatch": False,
+        "no_audio_tracks": False,
+        "acc_has_audio": True,
+        "emi_has_audio": True,
+        "is_binary_duplicate": False,
+        "audio_loudness": {
+            "acceptance_lufs": -12.13,
+            "emission_lufs": -12.08,
+            "lufs_difference": lufs_diff,
+            "peak_difference_db": 0.49,
+            "has_loudness_issue": abs(lufs_diff) > 1.0,
+        },
+        "audio_transcription": {
+            "status": "completed_no_speech",
+            "text_similarity": None,
+            "is_text_match": None,
+            "word_count_a": 0,
+            "word_count_b": 0,
+            "acceptance_text": "",
+            "emission_text": "",
+            "skipped_reason": None,
+            "error_message": None,
+            "is_uncertain": False,
+        },
+        "raw_vad_metrics_complete": True,
+        "raw_vad_inconclusive": False,
+        "raw_vad_speech": False,
+        "raw_vad_error": None,
+        "raw_vad_status": "no_speech",
+        "raw_vad_status_acc": "no_speech",
+        "raw_vad_status_emi": "no_speech",
+        "raw_vad_speech_acc": False,
+        "raw_vad_speech_emi": False,
+        "music_proportion": None,
+        "music_dominant": None,
+        "comparison_type": "automation",
+    }
+
+
+@pytest.mark.parametrize("job_id,lufs_diff", [(1892, 0.05), (1893, -0.21)])
+def test_anonymized_automation_no_speech_1892_1893_give_approve(engine, job_id, lufs_diff):
+    """Anonymized fixtures from jobs 1892 and 1893 (AUTOMATION + completed_no_speech + music_dominant=None) -> APPROVE."""
+    snap = _make_anonymized_automation_no_speech_snapshot(lufs_diff=lufs_diff)
+    res = engine.evaluate(snap)
+
+    assert res["verdict"] == "approve", f"Job {job_id} expected APPROVE, got {res}"
+    assert res["confidence"] == 1.0
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+
+
+def test_automation_no_speech_one_sided_raw_vad_speech_gives_review(engine):
+    snap = _make_anonymized_automation_no_speech_snapshot()
+    snap["raw_vad_speech"] = True
+    snap["raw_vad_status"] = "speech_detected"
+    snap["raw_vad_status_acc"] = "speech_detected"
+    snap["raw_vad_speech_acc"] = True
+    res = engine.evaluate(snap)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_automation_no_speech_one_sided_word_count_gives_review(engine):
+    snap = _make_anonymized_automation_no_speech_snapshot()
+    snap["audio_transcription"]["status"] = "completed"
+    snap["audio_transcription"]["word_count_b"] = 2
+    snap["audio_transcription"]["is_text_match"] = False
+    snap["audio_transcription"]["text_similarity"] = 0.0
+    res = engine.evaluate(snap)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_automation_no_speech_lufs_above_3_gives_review(engine):
+    snap = _make_anonymized_automation_no_speech_snapshot(lufs_diff=3.5)
+    res = engine.evaluate(snap)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"
+
+
+def test_automation_no_speech_incomplete_raw_vad_gives_review(engine):
+    snap = _make_anonymized_automation_no_speech_snapshot()
+    snap["raw_vad_metrics_complete"] = False
+    res = engine.evaluate(snap)
+
+    assert res["verdict"] == "review"
+    assert res["rule_evaluation"]["fired_rule"] == "RULE_PROTECTIVE_REVIEW"

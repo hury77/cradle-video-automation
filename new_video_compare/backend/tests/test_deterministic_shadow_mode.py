@@ -545,3 +545,108 @@ class TestDeterministicShadowMode:
         assert shadow["primary_verdict"] == agent_verdict
         assert shadow["shadow_verdict"] == engine_verdict
         assert shadow["category_divergence"] == expected_category
+
+    def test_automation_no_speech_music_dominant_none_shadow_approves(
+        self, isolated_db_session, dummy_job, comparison_service_instance, monkeypatch
+    ):
+        """
+        Point 1 integration test (AUTOMATION):
+        _run_ai_analyst passes job.comparison_type into adapt_comparison_metrics, so
+        completed_no_speech + Raw VAD no_speech + music_dominant=None + valid LUFS
+        completes the contract and yields shadow_verdict == 'approve'.
+        """
+        monkeypatch.setattr(settings, "deterministic_shadow_mode", True)
+        monkeypatch.setenv("DETERMINISTIC_SHADOW_MODE", "true")
+
+        dummy_job.comparison_type = ComparisonType.AUTOMATION
+        isolated_db_session.commit()
+
+        results = _build_dummy_results(complete=True, sim=0.995)
+        results["audio_result"]["similarity_score"] = 0.995
+        results["audio_result"]["speech_to_text"] = {
+            "status": "completed_no_speech",
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "acceptance_text": "",
+            "emission_text": "",
+            "is_uncertain": False,
+            "comparison": {"word_count_a": 0, "word_count_b": 0, "word_differences": []},
+        }
+        results["audio_result"]["raw_vad_speech"] = False
+        results["audio_result"]["raw_vad_a"] = {"status": "no_speech", "has_speech": False}
+        results["audio_result"]["raw_vad_b"] = {"status": "no_speech", "has_speech": False}
+        results["audio_result"]["music_dominant"] = None
+        results["audio_result"]["music_proportion"] = None
+
+        mock_analyst = MagicMock()
+        mock_analyst.analyze_job_results.return_value = {
+            "verdict": "approve",
+            "confidence": 0.96,
+            "reasoning": "AI approves no-speech automation job",
+        }
+
+        with patch("services.analyst_service.get_analyst", return_value=mock_analyst), \
+             patch("services.comparison_service.ComparisonService._build_knowledge_snapshot", return_value={"job_meta": {}}):
+            comparison_service_instance._run_ai_analyst(isolated_db_session, dummy_job.id, results)
+
+        decision = isolated_db_session.query(QADecision).filter(QADecision.job_id == dummy_job.id).first()
+        assert decision is not None
+        shadow = decision.knowledge_snapshot["deterministic_shadow_v1"]
+        assert shadow["shadow_status"] == "completed"
+        assert shadow["metrics_contract_complete"] is True
+        assert shadow["shadow_verdict"] == "approve"
+        assert shadow["category_divergence"] == "AGREEMENT"
+        assert shadow["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+
+    def test_full_no_speech_music_dominant_none_shadow_insufficient(
+        self, isolated_db_session, dummy_job, comparison_service_instance, monkeypatch
+    ):
+        """
+        Point 1 integration test (FULL):
+        With ComparisonType.FULL and identical no-speech + music_dominant=None metrics,
+        the strict FULL contract rejects incomplete Raw VAD -> insufficient_metrics / REVIEW.
+        """
+        monkeypatch.setattr(settings, "deterministic_shadow_mode", True)
+        monkeypatch.setenv("DETERMINISTIC_SHADOW_MODE", "true")
+
+        dummy_job.comparison_type = ComparisonType.FULL
+        isolated_db_session.commit()
+
+        results = _build_dummy_results(complete=True, sim=0.995)
+        results["audio_result"]["similarity_score"] = 0.995
+        results["audio_result"]["speech_to_text"] = {
+            "status": "completed_no_speech",
+            "text_similarity": 1.0,
+            "is_text_match": True,
+            "acceptance_text": "",
+            "emission_text": "",
+            "is_uncertain": False,
+            "comparison": {"word_count_a": 0, "word_count_b": 0, "word_differences": []},
+        }
+        results["audio_result"]["raw_vad_speech"] = False
+        results["audio_result"]["raw_vad_a"] = {"status": "no_speech", "has_speech": False}
+        results["audio_result"]["raw_vad_b"] = {"status": "no_speech", "has_speech": False}
+        results["audio_result"]["music_dominant"] = None
+        results["audio_result"]["music_proportion"] = None
+
+        mock_analyst = MagicMock()
+        mock_analyst.analyze_job_results.return_value = {
+            "verdict": "approve",
+            "confidence": 0.96,
+            "reasoning": "AI approves no-speech full job",
+        }
+
+        with patch("services.analyst_service.get_analyst", return_value=mock_analyst), \
+             patch("services.comparison_service.ComparisonService._build_knowledge_snapshot", return_value={"job_meta": {}}):
+            comparison_service_instance._run_ai_analyst(isolated_db_session, dummy_job.id, results)
+
+        decision = isolated_db_session.query(QADecision).filter(QADecision.job_id == dummy_job.id).first()
+        assert decision is not None
+        shadow = decision.knowledge_snapshot["deterministic_shadow_v1"]
+        assert shadow["shadow_status"] == "insufficient_metrics"
+        assert shadow["metrics_contract_complete"] is False
+        assert shadow["shadow_verdict"] is None
+        assert shadow["category_divergence"] == "INSUFFICIENT_HISTORICAL_METRICS"
+        assert shadow["rule_evaluation"]["fired_rule"] == "INSUFFICIENT_METRICS_CONTRACT"
+        assert shadow["rule_evaluation"]["completeness_flags"]["has_raw_vad_complete"] is False
+        assert "has_raw_vad_complete" in shadow["rule_evaluation"]["failed_flags"]
