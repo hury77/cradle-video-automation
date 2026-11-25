@@ -16,7 +16,6 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from config import settings
 from models.models import (
     Base,
     ComparisonJob,
@@ -152,31 +151,25 @@ def test_real_payload_1826_duplicate_shadow_agreement(isolated_db_session):
         patch("services.comparison_service.AudioProcessor"),
     ):
         service = ComparisonService()
-    mock_analyst = MagicMock()
-    mock_analyst.analyze_job_results.return_value = {
-        "verdict": "review",
-        "reasoning": "DUPLICATE_INPUT detected.",
-    }
 
     with (
-        patch.object(settings, "deterministic_shadow_mode", True),
         patch.object(service, "_build_ai_metrics", return_value=raw),
         patch.object(service, "_build_knowledge_snapshot", return_value={}),
-        patch("services.analyst_service.get_analyst", return_value=mock_analyst),
     ):
         service._run_ai_analyst(isolated_db_session, job.id, {"video_result": {}, "audio_result": {}})
 
     saved = isolated_db_session.query(QADecision).filter(QADecision.job_id == job.id).first()
     assert saved is not None
-    shadow = saved.knowledge_snapshot["deterministic_shadow_v1"]
-    assert shadow["shadow_status"] == "completed"
-    assert shadow["metrics_contract_complete"] is True
-    assert shadow["shadow_verdict"] == "approve"
-    assert shadow["category_divergence"] == "DETERMINISTIC_APPROVE_OVER_REVIEW"
-    assert shadow["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
-    for r in shadow["rule_evaluation"].get("reasons", []):
+    assert saved.verdict == DecisionVerdict.APPROVE
+    assert saved.decided_by == "deterministic_rules_v1"
+    dd = saved.knowledge_snapshot["deterministic_decision_v1"]
+    assert dd["status"] == "completed"
+    assert dd["metrics_contract_complete"] is True
+    assert dd["verdict"] == "approve"
+    assert dd["rule_evaluation"]["fired_rule"] == "RULE_QUALIFIED_APPROVE"
+    for r in dd["rule_evaluation"].get("reasons", []):
         assert len(r) <= 240
-    for val in shadow["rule_evaluation"]["checks"].values():
+    for val in dd["rule_evaluation"]["checks"].values():
         assert isinstance(val, (int, float, bool, str)) or val is None
 
 
@@ -334,18 +327,17 @@ def test_shadow_incomplete_contract_records_failed_flags(isolated_db_session):
     }
 
     with (
-        patch.object(settings, "deterministic_shadow_mode", True),
         patch.object(service, "_build_ai_metrics", return_value=incomplete_metrics),
         patch.object(service, "_build_knowledge_snapshot", return_value={}),
-        patch("services.analyst_service.get_analyst", return_value=mock_analyst),
     ):
         service._run_ai_analyst(isolated_db_session, job.id, {"video_result": {}, "audio_result": {}})
 
     saved = isolated_db_session.query(QADecision).filter(QADecision.job_id == job.id).first()
-    shadow = saved.knowledge_snapshot["deterministic_shadow_v1"]
-    assert shadow["shadow_status"] == "insufficient_metrics"
-    assert "failed_flags" in shadow["rule_evaluation"]
-    assert "has_lufs" in shadow["rule_evaluation"]["failed_flags"]
+    assert saved.verdict == DecisionVerdict.REVIEW
+    dd = saved.knowledge_snapshot["deterministic_decision_v1"]
+    assert dd["status"] == "insufficient_metrics"
+    assert "failed_flags" in dd["rule_evaluation"]
+    assert "has_lufs" in dd["rule_evaluation"]["failed_flags"]
 
 
 def test_production_skip_normalization_unchanged(isolated_db_session, monkeypatch):
@@ -355,7 +347,6 @@ def test_production_skip_normalization_unchanged(isolated_db_session, monkeypatc
     with DETERMINISTIC_SHADOW_MODE=false match origin/dev on the full 34-input corpus,
     including the 3 legacy-matching variants rejected by normalize_skip_code_strict.
     """
-    from services.analyst_service import AnalystService
     from services.comparison_service import extract_normalized_skip_code
 
     golden_corpus = [
@@ -442,7 +433,6 @@ def test_production_skip_normalization_unchanged(isolated_db_session, monkeypatc
         patch("services.comparison_service.AudioProcessor"),
     ):
         service = ComparisonService()
-    analyst = AnalystService()
 
     for reason in diff_inputs:
         assert normalize_skip_code_strict(reason) is None
@@ -472,15 +462,9 @@ def test_production_skip_normalization_unchanged(isolated_db_session, monkeypatc
                 },
             },
         }
-        with patch.object(settings, "deterministic_shadow_mode", False):
-            metrics = service._build_ai_metrics(job, results)
+        metrics = service._build_ai_metrics(job, results)
         assert metrics["audio_transcription"]["status"] == "skipped"
         assert metrics["stt_skipped"] is True
-        ares = analyst._parse_response(
-            json.dumps({"verdict": "approve", "reasoning": "OK"}),
-            metrics=metrics,
-        )
-        assert ares["verdict"] == "approve"
 
 
 @pytest.mark.parametrize(
@@ -606,22 +590,14 @@ def test_shadow_snapshot_sentinel_no_transcript_or_error_leak(
     ):
         service = ComparisonService()
 
-    mock_analyst = MagicMock()
-    mock_analyst.analyze_job_results.return_value = {
-        "verdict": "review",
-        "reasoning": "Mocked",
-    }
-
     with (
-        patch.object(settings, "deterministic_shadow_mode", True),
         patch.object(service, "_build_ai_metrics", return_value=metrics_payload),
         patch.object(service, "_build_knowledge_snapshot", return_value={}),
-        patch("services.analyst_service.get_analyst", return_value=mock_analyst),
     ):
         service._run_ai_analyst(isolated_db_session, job.id, {"video_result": {}, "audio_result": {}})
 
     saved = isolated_db_session.query(QADecision).filter(QADecision.job_id == job.id).first()
     assert saved is not None
-    shadow = saved.knowledge_snapshot["deterministic_shadow_v1"]
-    serialized = json.dumps(shadow)
+    dd = saved.knowledge_snapshot["deterministic_decision_v1"]
+    serialized = json.dumps(dd)
     assert sentinel not in serialized, f"Sentinel leaked in scenario={scenario}: {serialized}"
