@@ -130,6 +130,7 @@ class Settings(BaseSettings):
     # DETERMINISTIC DECISION ENGINE & SHADOW MODE
     # =============================================================================
     deterministic_shadow_mode: bool = Field(default=False, env="DETERMINISTIC_SHADOW_MODE")
+    decision_engine: str = Field(default="agent", env="DECISION_ENGINE")
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -140,6 +141,15 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
+        allowed_engines = {"agent", "deterministic_rules_v1"}
+        if self.decision_engine not in allowed_engines:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Invalid DECISION_ENGINE={self.decision_engine!r}; falling back to 'agent'. "
+                f"Allowed values: {sorted(allowed_engines)}"
+            )
+            self.decision_engine = "agent"
+
         # Override upload_dir based on environment
         if self.is_development:
             self.upload_dir = Path("./uploads_dev")

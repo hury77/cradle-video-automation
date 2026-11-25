@@ -100,3 +100,23 @@ W Cradle dozwolonym i częstym scenariuszem biznesowym jest workflow **„załą
 | `CANONICAL_FAST_PATH_IDENTICAL_AUDIO` | `"FAST_PATH_IDENTICAL_AUDIO"` | Kanoniczny kod skipu fast-path |
 | `CANONICAL_FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH` | `"FULL_MODE_IDENTICAL_LOUDNESS_AND_NO_SPEECH"` | Kanoniczny kod skipu w trybie `FULL` |
 | `CANONICAL_NO_AUDIO_STREAMS` | `"NO_AUDIO_STREAMS"` | Kanoniczny kod skipu dla par niemych (DOOH) |
+
+---
+
+## 10. Tryb główny (`DECISION_ENGINE`)
+
+- **Flaga konfiguracyjna:** `settings.decision_engine` (zmienna środowiskowa `DECISION_ENGINE` w `new_video_compare/backend/config.py`).
+  - Dozwolone wartości: `"agent"` (domyślna) oraz `"deterministic_rules_v1"`.
+  - Każda niepoprawna wartość powoduje ostrzeżenie w logu i bezpieczny powrót do `"agent"`.
+- **Zachowanie w trybie `"agent"` (domyślny):**
+  - Pełna zgodność wsteczna: `ComparisonService._run_ai_analyst` wywołuje `AnalystService` (Ollama), stosuje nadpisania STT, zapisuje `decided_by="agent"` oraz (gdy `DETERMINISTIC_SHADOW_MODE=true`) wykonuje ocenę shadow do `knowledge_snapshot["deterministic_shadow_v1"]`.
+- **Zachowanie w trybie `"deterministic_rules_v1"`:**
+  - `main.lifespan` pomija sprawdzanie i automatyczne uruchamianie procesu Ollama.
+  - `ComparisonService._run_ai_analyst` nie wywołuje `get_analyst().analyze_job_results` (Ollama nie jest używana).
+  - Metryki są adaptowane przez `adapt_comparison_metrics(metrics, job_meta=...)` (z `comparison_type`) i walidowane przez `is_metrics_contract_complete`:
+    - niekompletny kontrakt → `REVIEW` (`status="insufficient_metrics"`, `failed_flags`),
+    - wyjątek silnika → `REVIEW` z zanonimizowanym komunikatem (`redact_shadow_error`, `status="error"`),
+    - kompletny kontrakt → `DeterministicDecisionEngineV1().evaluate(canonical)`.
+  - Decyzja zapisywana jest w `qa_decisions` z `decided_by="deterministic_rules_v1"`, a zredagowany ślad reguł trafia do `knowledge_snapshot["deterministic_decision_v1"]` (bez klucza `deterministic_shadow_v1`).
+  - UI (`QAVerdictPanel.tsx`) wyświetla osobną etykietę (`Deterministic Rules Engine v1 — automatic decision`) i obsługuje nadpisanie przez człowieka (`decided_by="human"` + `override_reason`).
+- **Rollback:** zmiana `DECISION_ENGINE=agent` w `.env` i restart backendu natychmiast przywraca ścieżkę agenta AI bez migracji bazy danych.

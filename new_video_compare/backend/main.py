@@ -186,9 +186,12 @@ async def lifespan(app: FastAPI):
             f"⚠️ Best-effort startup recovery failed (continuing startup): {recovery_err}"
         )
     
-    # Start Ollama if not running
+    # Start Ollama if not running (skipped when primary engine is deterministic_rules_v1)
+    from config import settings
     ollama_process = None
-    if not check_ollama_running():
+    if getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1":
+        logger.info("⚙️ Tryb deterministyczny (decision_engine=deterministic_rules_v1) — pomijam sprawdzanie i uruchamianie serwera Ollama.")
+    elif not check_ollama_running():
         logger.info("Ollama nie działa. Uruchamianie serwera Ollama w tle...")
         ollama_path = os.path.expanduser("~/.local/bin/ollama")
         if os.path.exists(ollama_path):

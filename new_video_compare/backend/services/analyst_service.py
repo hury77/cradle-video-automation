@@ -124,12 +124,12 @@ class AnalystService:
                 .all()
             )
 
-            # --- AI decisions that were not overridden (confirmed patterns)
+            # --- Automatic decisions (agent or deterministic_rules_v1) that were not overridden
             ai_decisions = (
                 db.query(QADecision)
                 .filter(
                     QADecision.client_name == client_name,
-                    QADecision.decided_by == "agent",
+                    QADecision.decided_by.in_(("agent", "deterministic_rules_v1")),
                     QADecision.metrics_snapshot.isnot(None),
                     QADecision.job_id != current_job_id,
                 )
@@ -245,7 +245,7 @@ class AnalystService:
         kb_section = ""
         if historical_context:
             human_examples = [e for e in historical_context if e["decided_by"] == "human"]
-            ai_examples = [e for e in historical_context if e["decided_by"] == "agent"]
+            ai_examples = [e for e in historical_context if e["decided_by"] in ("agent", "deterministic_rules_v1")]
 
             kb_section += (
                 "BAZA WIEDZY — HISTORIA DECYZJI DLA TEGO KLIENTA:\n"
