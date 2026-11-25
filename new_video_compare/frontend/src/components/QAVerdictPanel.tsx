@@ -51,7 +51,9 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
     setSaving(true);
     setError(null);
     try {
-      const isOverride = existingDecision?.decided_by === "agent";
+      const isOverride =
+        existingDecision?.decided_by === "agent" ||
+        existingDecision?.decided_by === "deterministic_rules_v1";
       const response = await fetch(`/api/v1/compare/${jobId}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -101,7 +103,9 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
   };
 
   const selectedStyle = verdict ? VERDICT_LABELS[verdict] : null;
-  const isAiDecision = existingDecision?.decided_by === "agent";
+  const isAgentDecision = existingDecision?.decided_by === "agent";
+  const isDeterministicDecision = existingDecision?.decided_by === "deterministic_rules_v1";
+  const isAiDecision = isAgentDecision || isDeterministicDecision;
   const isHumanOverride = existingDecision?.decided_by === "human";
 
   // ── Read-only view ──
@@ -129,11 +133,15 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
           <div className="mb-4">
             {isHumanOverride ? (
               <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold w-fit">
-                <span>👤</span><span>Human override — decision changed by QA user</span>
+                <span>👤</span><span>{t.humanOverrideBadge}</span>
               </div>
-            ) : isAiDecision ? (
+            ) : isDeterministicDecision ? (
               <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold w-fit">
-                <span>🧠</span><span>AI Analyst (Agent 2) — automatic decision</span>
+                <span>⚙️</span><span>{t.deterministicRulesBadge}</span>
+              </div>
+            ) : isAgentDecision ? (
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold w-fit">
+                <span>🧠</span><span>{t.aiAnalystBadge}</span>
               </div>
             ) : null}
           </div>
