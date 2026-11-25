@@ -1273,19 +1273,28 @@ class ComparisonService:
             
             loudness = audio_res.get("loudness", {})
             loudness_comparison = loudness.get("comparison", {})
-            metrics["audio_loudness"] = {
+            shadow_enabled_loudness = getattr(settings, "deterministic_shadow_mode", False) or (
+                os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
+            )
+            deterministic_primary_loudness = getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1"
+            audio_loudness_entry = {
                 "acceptance_lufs": loudness.get("acceptance", {}).get("integrated_lufs"),
                 "emission_lufs": loudness.get("emission", {}).get("integrated_lufs"),
                 "lufs_difference": loudness_comparison.get("lufs_difference"),
                 "peak_difference_db": loudness_comparison.get("peak_difference_db"),
-                "has_loudness_issue": loudness.get("has_loudness_differences", False)
+                "has_loudness_issue": loudness.get("has_loudness_differences", False),
             }
+            if shadow_enabled_loudness or deterministic_primary_loudness:
+                audio_loudness_entry["both_silent"] = loudness_comparison.get("both_silent")
+                audio_loudness_entry["one_side_silent"] = loudness_comparison.get("one_side_silent")
+            metrics["audio_loudness"] = audio_loudness_entry
 
-        # Enrich metrics with complete probe, raw VAD, and duplicate flags strictly when shadow mode is enabled
+        # Enrich metrics with complete probe, raw VAD, and duplicate flags when shadow mode or deterministic primary engine is enabled
         shadow_enabled = getattr(settings, "deterministic_shadow_mode", False) or (
             os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
         )
-        if shadow_enabled:
+        deterministic_primary = getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1"
+        if shadow_enabled or deterministic_primary:
             audio_source = audio_res if isinstance(audio_res, dict) else {}
 
             def _exact_bool(val: Any) -> Optional[bool]:
@@ -1319,9 +1328,218 @@ class ComparisonService:
 
         return metrics
 
+    @staticmethod
+    def _redact_rule_evaluation(rule_eval: dict) -> dict:
+        """Redact rule_evaluation to scalar checks, bounded reasons, and no raw paths/transcripts."""
+        if not isinstance(rule_eval, dict):
+            return {}
+        redacted = {
+            "engine_version": rule_eval.get("engine_version", "1.0.0"),
+            "fired_rule": rule_eval.get("fired_rule", "UNKNOWN_RULE"),
+            "precedence_step": rule_eval.get("precedence_step", "UNKNOWN_STEP"),
+        }
+        raw_reasons = rule_eval.get("reasons")
+        if isinstance(raw_reasons, list):
+            redacted["reasons"] = [
+                str(r)[:240] for r in raw_reasons[:5] if isinstance(r, str)
+            ]
+        raw_checks = rule_eval.get("checks")
+        if isinstance(raw_checks, dict):
+            redacted_checks = {}
+            for k, v in raw_checks.items():
+                if isinstance(v, (int, float, bool)) or v is None:
+                    redacted_checks[k] = v
+                elif (
+                    isinstance(v, str)
+                    and len(v) <= 64
+                    and "/" not in v
+                    and "\\" not in v
+                ):
+                    redacted_checks[k] = v
+            redacted["checks"] = redacted_checks
+        if "details" in rule_eval and isinstance(rule_eval["details"], dict):
+            redacted["details"] = {
+                k: v for k, v in rule_eval["details"].items()
+                if isinstance(v, (int, float, bool))
+            }
+        return redacted
+
+    def _run_deterministic_primary(self, db: Session, job_id: int, job, results: Dict[str, Any], metrics: Dict[str, Any]) -> None:
+        """Evaluate QA decision using DeterministicDecisionEngineV1 as primary engine (no Ollama)."""
+        try:
+            from .deterministic_metrics_adapter import (
+                adapt_comparison_metrics,
+                is_metrics_contract_complete,
+                redact_shadow_error,
+            )
+            from .deterministic_decision_engine import DeterministicDecisionEngineV1
+
+            knowledge_snapshot = self._build_knowledge_snapshot(db, job_id, job, results)
+            job_meta = {
+                "job_id": job.id,
+                "job_name": job.job_name,
+                "client_name": job.client_name,
+                "comparison_type": job.comparison_type.value if job.comparison_type else None,
+                "sensitivity": job.sensitivity_level.value if job.sensitivity_level else None,
+            }
+
+            try:
+                canonical = adapt_comparison_metrics(metrics, job_meta=job_meta)
+                is_complete, completeness_flags = is_metrics_contract_complete(canonical)
+
+                if not is_complete:
+                    verdict = DecisionVerdict.REVIEW
+                    failed_flags = sorted(
+                        [k for k, v in completeness_flags.items() if not v]
+                    )
+                    reasoning_text = (
+                        "Niekompletny kontrakt metryk dla silnika deterministycznego "
+                        f"(brakujące/niepoprawne flagi: {', '.join(failed_flags)}). "
+                        "Wymagana weryfikacja człowieka (REVIEW)."
+                    )
+                    ai_reasoning_text = reasoning_text
+                    confidence = 0.0
+                    dec_status = "insufficient_metrics"
+                    redacted_rule_eval = {
+                        "engine_version": "1.0.0",
+                        "fired_rule": "INSUFFICIENT_METRICS_CONTRACT",
+                        "precedence_step": "PRE_EVALUATION_GUARD",
+                        "completeness_flags": completeness_flags,
+                        "failed_flags": failed_flags,
+                    }
+                    dec_error = None
+                else:
+                    eval_res = DeterministicDecisionEngineV1().evaluate(canonical)
+                    verdict_str = str(eval_res.get("verdict", "review")).lower()
+                    verdict = DecisionVerdict.REVIEW
+                    if verdict_str == "approve":
+                        verdict = DecisionVerdict.APPROVE
+                    elif verdict_str == "reject":
+                        verdict = DecisionVerdict.REJECT
+
+                    reasoning_text = eval_res.get("reasoning")
+                    ai_reasoning_text = eval_res.get("ai_reasoning") or reasoning_text
+                    confidence = float(eval_res.get("confidence", 0.0))
+                    dec_status = "completed"
+                    redacted_rule_eval = self._redact_rule_evaluation(
+                        eval_res.get("rule_evaluation") or {}
+                    )
+                    dec_error = None
+            except Exception as det_exc:
+                safe_err = redact_shadow_error(det_exc)
+                logger.warning(f"⚠️ Deterministic primary evaluation failed: {safe_err}")
+                verdict = DecisionVerdict.REVIEW
+                reasoning_text = (
+                    f"Błąd silnika deterministycznego ({safe_err}). "
+                    "Wymagana weryfikacja człowieka (REVIEW)."
+                )
+                ai_reasoning_text = reasoning_text
+                confidence = 0.0
+                dec_status = "error"
+                is_complete = False
+                completeness_flags = {}
+                redacted_rule_eval = {}
+                dec_error = safe_err
+
+            knowledge_snapshot["deterministic_decision_v1"] = {
+                "engine": "DeterministicDecisionEngineV1",
+                "engine_version": "1.0.0",
+                "status": dec_status,
+                "verdict": verdict.value.lower() if hasattr(verdict, "value") else str(verdict).lower(),
+                "confidence": confidence,
+                "metrics_contract_complete": bool(is_complete),
+                "metrics_contract_details": completeness_flags,
+                "decided_by": "deterministic_rules_v1",
+                "rule_evaluation": redacted_rule_eval,
+                "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                "error": dec_error,
+            }
+
+            with db.begin_nested():
+                decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
+                if not decision:
+                    decision = QADecision(
+                        job_id=job_id,
+                        verdict=verdict,
+                        reasoning=reasoning_text,
+                        ai_reasoning=ai_reasoning_text,
+                        client_name=job.client_name,
+                        cradle_id=job.cradle_id,
+                        metrics_snapshot=metrics,
+                        knowledge_snapshot=knowledge_snapshot,
+                        decided_by="deterministic_rules_v1",
+                    )
+                    db.add(decision)
+                elif decision.decided_by != "human":
+                    decision.verdict = verdict
+                    decision.reasoning = reasoning_text
+                    decision.ai_reasoning = ai_reasoning_text
+                    decision.metrics_snapshot = metrics
+                    decision.knowledge_snapshot = knowledge_snapshot
+                    decision.decided_by = "deterministic_rules_v1"
+
+            db.commit()
+            logger.info(
+                f"⚙️ Deterministic engine verdict for job {job_id}: {verdict.value} | "
+                f"status={dec_status} | KB snapshot saved"
+            )
+        except Exception as e:
+            try:
+                safe_outer_err = redact_shadow_error(e)
+                fallback_reasoning = (
+                    f"Błąd systemu decyzyjnego ({safe_outer_err}); wymagana weryfikacja człowieka"
+                )
+                fallback_snapshot = {
+                    "deterministic_decision_v1": {
+                        "engine": "DeterministicDecisionEngineV1",
+                        "engine_version": "1.0.0",
+                        "status": "error",
+                        "verdict": "review",
+                        "confidence": 0.0,
+                        "metrics_contract_complete": False,
+                        "metrics_contract_details": {},
+                        "decided_by": "deterministic_rules_v1",
+                        "rule_evaluation": {},
+                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                        "error": safe_outer_err,
+                    }
+                }
+                with db.begin_nested():
+                    decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
+                    if not decision:
+                        decision = QADecision(
+                            job_id=job_id,
+                            verdict=DecisionVerdict.REVIEW,
+                            reasoning=fallback_reasoning,
+                            ai_reasoning=fallback_reasoning,
+                            client_name=job.client_name,
+                            cradle_id=job.cradle_id,
+                            metrics_snapshot=metrics,
+                            knowledge_snapshot=fallback_snapshot,
+                            decided_by="deterministic_rules_v1",
+                        )
+                        db.add(decision)
+                    elif decision.decided_by != "human":
+                        decision.verdict = DecisionVerdict.REVIEW
+                        decision.reasoning = fallback_reasoning
+                        decision.ai_reasoning = fallback_reasoning
+                        decision.metrics_snapshot = metrics
+                        decision.knowledge_snapshot = fallback_snapshot
+                        decision.decided_by = "deterministic_rules_v1"
+                db.commit()
+                logger.warning(
+                    f"⚠️ Deterministic decision outer fallback saved REVIEW for job {job_id}: {safe_outer_err}"
+                )
+            except Exception as inner_e:
+                logger.error(
+                    f"❌ Critical failure saving fallback deterministic REVIEW decision for job {job_id}: {inner_e}"
+                )
+                raise
+
     def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
         """
-        Orchestrates the AI analyst brain for a given job.
+        Orchestrates the AI analyst brain (or DeterministicDecisionEngineV1 when
+        settings.decision_engine == 'deterministic_rules_v1') for a given job.
         
         Args:
             db: Database session
@@ -1333,6 +1551,10 @@ class ComparisonService:
             return
 
         metrics = self._build_ai_metrics(job, results)
+
+        if getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1":
+            self._run_deterministic_primary(db, job_id, job, results, metrics)
+            return
 
         # Call AI Analyst — pass db session so it can load per-client KB context (SOUL.md)
         from .analyst_service import get_analyst
@@ -1431,37 +1653,7 @@ class ComparisonService:
                             category_divergence = "DETERMINISTIC_REVIEW"
 
                         rule_eval = shadow_eval.get("rule_evaluation") or {}
-                        redacted_rule_eval = {
-                            "engine_version": rule_eval.get("engine_version", "1.0.0"),
-                            "fired_rule": rule_eval.get("fired_rule", "UNKNOWN_RULE"),
-                            "precedence_step": rule_eval.get("precedence_step", "UNKNOWN_STEP"),
-                        }
-                        raw_reasons = rule_eval.get("reasons")
-                        if isinstance(raw_reasons, list):
-                            redacted_rule_eval["reasons"] = [
-                                str(r)[:240] for r in raw_reasons[:5] if isinstance(r, str)
-                            ]
-                        raw_checks = rule_eval.get("checks")
-                        if isinstance(raw_checks, dict):
-                            # Keep only scalar values (numbers, bool, None, short enums without paths)
-                            redacted_checks = {}
-                            for k, v in raw_checks.items():
-                                if isinstance(v, (int, float, bool)) or v is None:
-                                    redacted_checks[k] = v
-                                elif (
-                                    isinstance(v, str)
-                                    and len(v) <= 64
-                                    and "/" not in v
-                                    and "\\" not in v
-                                ):
-                                    redacted_checks[k] = v
-                            redacted_rule_eval["checks"] = redacted_checks
-                        if "details" in rule_eval and isinstance(rule_eval["details"], dict):
-                            # Keep only scalar numeric/bool details, strictly no raw paths or transcripts
-                            redacted_rule_eval["details"] = {
-                                k: v for k, v in rule_eval["details"].items()
-                                if isinstance(v, (int, float, bool))
-                            }
+                        redacted_rule_eval = self._redact_rule_evaluation(rule_eval)
 
                     knowledge_snapshot["deterministic_shadow_v1"] = {
                         "engine": "DeterministicDecisionEngineV1",
