@@ -120,3 +120,29 @@ W Cradle dozwolonym i częstym scenariuszem biznesowym jest workflow **„załą
   - Decyzja zapisywana jest w `qa_decisions` z `decided_by="deterministic_rules_v1"`, a zredagowany ślad reguł trafia do `knowledge_snapshot["deterministic_decision_v1"]` (bez klucza `deterministic_shadow_v1`).
   - UI (`QAVerdictPanel.tsx`) wyświetla osobną etykietę (`Deterministic Rules Engine v1 — automatic decision`) i obsługuje nadpisanie przez człowieka (`decided_by="human"` + `override_reason`).
 - **Rollback:** zmiana `DECISION_ENGINE=agent` w `.env` i restart backendu natychmiast przywraca ścieżkę agenta AI bez migracji bazy danych.
+
+---
+
+## 11. Usunięcie Ollamy
+
+- **Data:** `2026-11-25`
+- **Tag powrotu:** `pre-ollama-removal-2af4f4f` (na `2af4f4f`, wypchnięty do `origin`).
+- **Zakres zmian:**
+  - Usunięto `new_video_compare/backend/services/analyst_service.py`, `scripts/test_analyst.py`, `scripts/test_soul_rigour.py` oraz zależność `ollama==0.4.5` z `requirements.txt`.
+  - `main.py` (`lifespan`) nie sprawdza ani nie uruchamia procesu Ollama; `comparison_service._run_ai_analyst` zawsze wykonuje ścieżkę deterministyczną (`_run_deterministic_primary`).
+  - `SOUL.md` przeniesiono do `docs/legacy/SOUL.md` jako dokumentację historyczną.
+  - Pola `decision_engine` i `deterministic_shadow_mode` w `config.py` pozostają jako przestarzałe (żeby istniejące pliki `.env` nie powodowały błędów walidacji); wartość inna niż `"deterministic_rules_v1"` loguje ostrzeżenie `"agent removed"`.
+  - Historyczne rekordy w bazie (`decided_by="agent"`, `deterministic_shadow_v1`) nie są migrowane; UI zachowuje odznakę historyczną.
+- **Skutki:** brak trybu `agent` oraz brak wstrzykiwania przykładów few-shot z KB do promptu LLM.
+- **Pozostałe mechanizmy:** tabela `whisper_hallucinations` (`25` wpisów) pozostaje aktywna w warstwie filtrowania STT.
+
+---
+
+## 12. Szew doradczy (`DecisionAdvisor`)
+
+- Moduł `new_video_compare/backend/services/decision_advisor.py` definiuje protokół `DecisionAdvisor` (`annotate(canonical_metrics, decision) -> Optional[dict]`) oraz domyślną implementację `NullAdvisor` (`ADVISOR_PROVIDER=none`, jedyna dozwolona wartość).
+- **Zasady dopinania ewentualnego modelu w przyszłości:**
+  1. **Wyłącznie doradczo:** wynik trafia wyłącznie do `knowledge_snapshot["advisor_v1"]` dla celów audytu; **werdykt (`verdict`) oraz `decided_by` nigdy nie mogą być zmienione przez advisora**.
+  2. **Brak automatycznego `APPROVE`:** advisor nie może wydawać ani nadpisywać zatwierdzeń.
+  3. **Izolacja i timeout:** wywołanie działa w `try/except` z krótkim limitem czasu; błąd lub timeout nie wpływa na decyzję.
+  4. **Wymagana zgoda bezpieczeństwa:** podłączenie dowolnego modelu wymaga osobnej weryfikacji bezpieczeństwa i aktualizacji dozwolonych wartości `ADVISOR_PROVIDER`.

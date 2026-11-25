@@ -31,10 +31,7 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 import time
-import shutil
 import subprocess
-import urllib.request
-import urllib.error
 
 async def dev_cleanup_loop():
     from config import settings
@@ -111,13 +108,6 @@ async def dev_cleanup_loop():
         except Exception as err:
             logger.error(f"🧹 [CLEANER] Error in DEV periodic cleaner: {err}")
 
-def check_ollama_running():
-    try:
-        response = urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1)
-        return response.getcode() == 200
-    except Exception:
-        return False
-
 def verify_git_hooks():
     try:
         repo_root = Path(__file__).parent.parent.parent
@@ -186,42 +176,7 @@ async def lifespan(app: FastAPI):
             f"⚠️ Best-effort startup recovery failed (continuing startup): {recovery_err}"
         )
     
-    # Start Ollama if not running (skipped when primary engine is deterministic_rules_v1)
-    from config import settings
-    ollama_process = None
-    if getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1":
-        logger.info("⚙️ Tryb deterministyczny (decision_engine=deterministic_rules_v1) — pomijam sprawdzanie i uruchamianie serwera Ollama.")
-    elif not check_ollama_running():
-        logger.info("Ollama nie działa. Uruchamianie serwera Ollama w tle...")
-        ollama_path = os.path.expanduser("~/.local/bin/ollama")
-        if os.path.exists(ollama_path):
-            try:
-                # Uruchamiamy w nowej grupie procesów (preexec_fn=os.setpgrp), 
-                # aby CTRL+C (SIGINT) z terminala nie zabiło Ollamy natychmiast.
-                # Zostanie ona bezpiecznie zamknięta w bloku teardown po zakończeniu zadań.
-                ollama_process = subprocess.Popen(
-                    [ollama_path, "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    preexec_fn=os.setpgrp
-                )
-                logger.info("Serwer Ollama uruchamiany...")
-                
-                # Polling: Czekaj aż Ollama w pełni wstanie (max 15 sekund)
-                for _ in range(15):
-                    if check_ollama_running():
-                        logger.info("✅ Serwer Ollama uruchomił się i jest gotowy.")
-                        break
-                    await asyncio.sleep(1)
-                else:
-                    logger.warning("Serwer Ollama uruchomiony, ale nie odpowiada po 15 sekundach.")
-                    
-            except Exception as e:
-                logger.error(f"Nie udało się uruchomić serwera Ollama: {e}")
-        else:
-            logger.warning(f"Brak pliku Ollama w {ollama_path}. Nie można uruchomić automatycznie.")
-    else:
-        logger.info("✅ Serwer Ollama jest już uruchomiony.")
+    logger.info("⚙️ Tryb deterministyczny (deterministic_rules_v1) aktywny.")
 
     # Start periodic background cleanup task
     cleanup_task = asyncio.create_task(dev_cleanup_loop())
@@ -232,14 +187,6 @@ async def lifespan(app: FastAPI):
         await cleanup_task
     except asyncio.CancelledError:
         pass
-        
-    if ollama_process:
-        logger.info("Zatrzymywanie serwera Ollama...")
-        ollama_process.terminate()
-        try:
-            ollama_process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            ollama_process.kill()
 
     logger.info("Zamknięcie aplikacji - czyszczenie połączeń WebSocket")
 
@@ -285,6 +232,7 @@ from api.v1.websocket import router as websocket_router
 from api.v1.files import router as files_router
 from api.v1.dashboard import router as dashboard_router
 from api.v1.settings import router as settings_router
+from api.v1.system import router as system_router
 
 # Dołącz routery
 app.include_router(compare_router, prefix="/api/v1", tags=["comparison"])
@@ -292,6 +240,7 @@ app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(files_router, prefix="/api/v1", tags=["files"])
 app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(settings_router, prefix="/api/v1", tags=["settings"])
+app.include_router(system_router, prefix="/api/v1", tags=["system"])
 
 @app.get("/health")
 async def health_check():

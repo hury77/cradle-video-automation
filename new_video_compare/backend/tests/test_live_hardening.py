@@ -185,7 +185,6 @@ def test_lifespan_continues_when_recovery_fails():
 
     with (
         patch("main.verify_git_hooks"),
-        patch("main.check_ollama_running", return_value=True),
         patch("main.dev_cleanup_loop", side_effect=_noop_cleaner),
         patch("main.recover_interrupted_jobs", side_effect=RuntimeError("database is locked")),
     ):

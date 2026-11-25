@@ -127,10 +127,12 @@ class Settings(BaseSettings):
     celery_result_backend: str = Field(default="redis://localhost:6379/2", env="CELERY_RESULT_BACKEND")
     
     # =============================================================================
-    # DETERMINISTIC DECISION ENGINE & SHADOW MODE
+    # DETERMINISTIC DECISION ENGINE & ADVISOR SEAM
     # =============================================================================
+    # Deprecated & ignored (kept so existing .env files do not trigger validation errors)
     deterministic_shadow_mode: bool = Field(default=False, env="DETERMINISTIC_SHADOW_MODE")
-    decision_engine: str = Field(default="agent", env="DECISION_ENGINE")
+    decision_engine: str = Field(default="deterministic_rules_v1", env="DECISION_ENGINE")
+    advisor_provider: str = Field(default="none", env="ADVISOR_PROVIDER")
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -141,14 +143,21 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        allowed_engines = {"agent", "deterministic_rules_v1"}
-        if self.decision_engine not in allowed_engines:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Invalid DECISION_ENGINE={self.decision_engine!r}; falling back to 'agent'. "
-                f"Allowed values: {sorted(allowed_engines)}"
+        import logging
+        _cfg_logger = logging.getLogger(__name__)
+        if self.decision_engine != "deterministic_rules_v1":
+            _cfg_logger.warning(
+                f"DECISION_ENGINE={self.decision_engine!r} is deprecated (agent removed); "
+                "using 'deterministic_rules_v1'."
             )
-            self.decision_engine = "agent"
+            self.decision_engine = "deterministic_rules_v1"
+
+        if self.advisor_provider != "none":
+            _cfg_logger.warning(
+                f"Invalid ADVISOR_PROVIDER={self.advisor_provider!r}; falling back to 'none'. "
+                "Allowed values: ['none']"
+            )
+            self.advisor_provider = "none"
 
         # Override upload_dir based on environment
         if self.is_development:

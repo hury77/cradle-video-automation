@@ -4,7 +4,6 @@ Orchestrates video and audio comparison processing for jobs
 """
 
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -1273,58 +1272,47 @@ class ComparisonService:
             
             loudness = audio_res.get("loudness", {})
             loudness_comparison = loudness.get("comparison", {})
-            shadow_enabled_loudness = getattr(settings, "deterministic_shadow_mode", False) or (
-                os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
-            )
-            deterministic_primary_loudness = getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1"
-            audio_loudness_entry = {
+            metrics["audio_loudness"] = {
                 "acceptance_lufs": loudness.get("acceptance", {}).get("integrated_lufs"),
                 "emission_lufs": loudness.get("emission", {}).get("integrated_lufs"),
                 "lufs_difference": loudness_comparison.get("lufs_difference"),
                 "peak_difference_db": loudness_comparison.get("peak_difference_db"),
                 "has_loudness_issue": loudness.get("has_loudness_differences", False),
+                "both_silent": loudness_comparison.get("both_silent"),
+                "one_side_silent": loudness_comparison.get("one_side_silent"),
             }
-            if shadow_enabled_loudness or deterministic_primary_loudness:
-                audio_loudness_entry["both_silent"] = loudness_comparison.get("both_silent")
-                audio_loudness_entry["one_side_silent"] = loudness_comparison.get("one_side_silent")
-            metrics["audio_loudness"] = audio_loudness_entry
 
-        # Enrich metrics with complete probe, raw VAD, and duplicate flags when shadow mode or deterministic primary engine is enabled
-        shadow_enabled = getattr(settings, "deterministic_shadow_mode", False) or (
-            os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
-        )
-        deterministic_primary = getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1"
-        if shadow_enabled or deterministic_primary:
-            audio_source = audio_res if isinstance(audio_res, dict) else {}
+        # Always enrich metrics with complete probe, raw VAD, and duplicate flags
+        audio_source = audio_res if isinstance(audio_res, dict) else {}
 
-            def _exact_bool(val: Any) -> Optional[bool]:
-                return val if isinstance(val, bool) else None
+        def _exact_bool(val: Any) -> Optional[bool]:
+            return val if isinstance(val, bool) else None
 
-            metrics["is_binary_duplicate"] = _exact_bool(audio_source.get("is_binary_duplicate"))
-            metrics["acc_has_audio"] = _exact_bool(audio_source.get("acc_has_audio"))
-            metrics["emi_has_audio"] = _exact_bool(audio_source.get("emi_has_audio"))
-            metrics["no_audio_tracks"] = _exact_bool(audio_source.get("no_audio_tracks"))
-            metrics["audio_mismatch"] = _exact_bool(audio_source.get("audio_mismatch"))
+        metrics["is_binary_duplicate"] = _exact_bool(audio_source.get("is_binary_duplicate"))
+        metrics["acc_has_audio"] = _exact_bool(audio_source.get("acc_has_audio"))
+        metrics["emi_has_audio"] = _exact_bool(audio_source.get("emi_has_audio"))
+        metrics["no_audio_tracks"] = _exact_bool(audio_source.get("no_audio_tracks"))
+        metrics["audio_mismatch"] = _exact_bool(audio_source.get("audio_mismatch"))
 
-            metrics["raw_vad_metrics_complete"] = _exact_bool(audio_source.get("raw_vad_metrics_complete"))
-            metrics["raw_vad_inconclusive"] = _exact_bool(audio_source.get("raw_vad_inconclusive"))
-            metrics["raw_vad_speech"] = _exact_bool(audio_source.get("raw_vad_speech"))
-            metrics["raw_vad_error"] = audio_source.get("raw_vad_error")
-            metrics["raw_vad_status"] = audio_source.get("raw_vad_status")
-            metrics["raw_vad_a"] = audio_source.get("raw_vad_a")
-            metrics["raw_vad_b"] = audio_source.get("raw_vad_b")
+        metrics["raw_vad_metrics_complete"] = _exact_bool(audio_source.get("raw_vad_metrics_complete"))
+        metrics["raw_vad_inconclusive"] = _exact_bool(audio_source.get("raw_vad_inconclusive"))
+        metrics["raw_vad_speech"] = _exact_bool(audio_source.get("raw_vad_speech"))
+        metrics["raw_vad_error"] = audio_source.get("raw_vad_error")
+        metrics["raw_vad_status"] = audio_source.get("raw_vad_status")
+        metrics["raw_vad_a"] = audio_source.get("raw_vad_a")
+        metrics["raw_vad_b"] = audio_source.get("raw_vad_b")
 
-            music_prop = audio_source.get("music_proportion")
-            if music_prop is not None and not isinstance(music_prop, bool):
-                try:
-                    metrics["music_proportion"] = float(music_prop)
-                    metrics["music_dominant"] = float(music_prop) > 0.55
-                except (ValueError, TypeError):
-                    metrics["music_proportion"] = None
-                    metrics["music_dominant"] = None
-            else:
+        music_prop = audio_source.get("music_proportion")
+        if music_prop is not None and not isinstance(music_prop, bool):
+            try:
+                metrics["music_proportion"] = float(music_prop)
+                metrics["music_dominant"] = float(music_prop) > 0.55
+            except (ValueError, TypeError):
                 metrics["music_proportion"] = None
-                metrics["music_dominant"] = _exact_bool(audio_source.get("music_dominant"))
+                metrics["music_dominant"] = None
+        else:
+            metrics["music_proportion"] = None
+            metrics["music_dominant"] = _exact_bool(audio_source.get("music_dominant"))
 
         return metrics
 
@@ -1425,6 +1413,18 @@ class ComparisonService:
                         eval_res.get("rule_evaluation") or {}
                     )
                     dec_error = None
+
+                    # Optional advisory annotation (never alters verdict or decided_by)
+                    try:
+                        from .decision_advisor import get_decision_advisor, run_advisor_advisory
+                        advisor = get_decision_advisor(getattr(settings, "advisor_provider", "none"))
+                        advisor_note = run_advisor_advisory(
+                            advisor, canonical, eval_res, timeout_seconds=1.5
+                        )
+                        if isinstance(advisor_note, dict):
+                            knowledge_snapshot["advisor_v1"] = advisor_note
+                    except Exception as adv_exc:
+                        logger.warning(f"⚠️ DecisionAdvisor skipped ({type(adv_exc).__name__})")
             except Exception as det_exc:
                 safe_err = redact_shadow_error(det_exc)
                 logger.warning(f"⚠️ Deterministic primary evaluation failed: {safe_err}")
@@ -1538,8 +1538,7 @@ class ComparisonService:
 
     def _run_ai_analyst(self, db: Session, job_id: int, results: Dict[str, Any]) -> None:
         """
-        Orchestrates the AI analyst brain (or DeterministicDecisionEngineV1 when
-        settings.decision_engine == 'deterministic_rules_v1') for a given job.
+        Evaluates comparison metrics using DeterministicDecisionEngineV1 and saves QADecision.
         
         Args:
             db: Database session
@@ -1551,173 +1550,7 @@ class ComparisonService:
             return
 
         metrics = self._build_ai_metrics(job, results)
-
-        if getattr(settings, "decision_engine", "agent") == "deterministic_rules_v1":
-            self._run_deterministic_primary(db, job_id, job, results, metrics)
-            return
-
-        # Call AI Analyst — pass db session so it can load per-client KB context (SOUL.md)
-        from .analyst_service import get_analyst
-        ai_result = get_analyst().analyze_job_results(metrics, db=db)
-        
-        # Save AI Verdict
-        try:
-            # Map string verdict to enum
-            verdict_str = ai_result.get("verdict", "review").lower()
-            verdict = DecisionVerdict.REVIEW
-            if verdict_str == "approve":
-                verdict = DecisionVerdict.APPROVE
-            elif verdict_str == "reject":
-                verdict = DecisionVerdict.REJECT
-                
-            stt_status = metrics.get("audio_transcription", {}).get("status")
-            is_stt_uncertain = metrics.get("audio_transcription", {}).get("is_uncertain", False)
-            if stt_status == "failed" and verdict == DecisionVerdict.APPROVE:
-                verdict = DecisionVerdict.REVIEW
-                error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
-                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono aprobatę AI. Moduł STT uległ awarii technicznej i weryfikacja głosu nie została ukończona. Zgłoszony błąd: {error_msg}\n\nOryginalna odpowiedź AI: {ai_result.get('reasoning', '')}"
-            elif stt_status == "failed" and verdict == DecisionVerdict.REJECT:
-                error_msg = metrics.get("audio_transcription", {}).get("error_message", "Unknown error")
-                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono (REJECT). Dodatkowo, moduł STT napotkał awarię techniczną: {error_msg}.\n\n" + ai_result.get("reasoning", "")
-            elif is_stt_uncertain and verdict == DecisionVerdict.APPROVE:
-                verdict = DecisionVerdict.REVIEW
-                unc_msg = metrics.get("audio_transcription", {}).get("uncertainty_reason", "wykryto zapętlenie lektora")
-                ai_result["reasoning"] = f"[SYSTEM OVERRIDE] Odrzucono aprobatę AI. Wynik STT oznaczono jako niepewny ({unc_msg}). Wymuszono status REVIEW do weryfikacji przez człowieka.\n\nOryginalna odpowiedź AI: {ai_result.get('reasoning', '')}"
-
-
-            # Build knowledge snapshot — full audit trail for post-job-deletion review
-            knowledge_snapshot = self._build_knowledge_snapshot(db, job_id, job, results)
-
-            # Deterministic Shadow Mode (only when flag is enabled)
-            shadow_enabled = getattr(settings, "deterministic_shadow_mode", False) or (
-                os.getenv("DETERMINISTIC_SHADOW_MODE", "false").lower() in ("true", "1", "yes")
-            )
-            if shadow_enabled:
-                try:
-                    from .deterministic_metrics_adapter import (
-                        adapt_comparison_metrics,
-                        is_metrics_contract_complete,
-                        redact_shadow_error,
-                    )
-                    from .deterministic_decision_engine import DeterministicDecisionEngineV1
-
-                    job_meta = {
-                        "job_id": job.id,
-                        "job_name": job.job_name,
-                        "client_name": job.client_name,
-                        "comparison_type": job.comparison_type.value if job.comparison_type else None,
-                        "sensitivity": job.sensitivity_level.value if job.sensitivity_level else None,
-                    }
-                    canonical = adapt_comparison_metrics(metrics, job_meta=job_meta)
-                    is_complete, completeness_flags = is_metrics_contract_complete(canonical)
-
-                    primary_verdict_str = verdict.value.lower() if hasattr(verdict, "value") else str(verdict).lower()
-                    decided_by_str = "system" if "[SYSTEM OVERRIDE]" in (ai_result.get("reasoning") or "") else "agent"
-
-                    if not is_complete:
-                        # Fail closed before engine evaluation: do NOT call DecisionEngineV1.evaluate()
-                        shadow_status = "insufficient_metrics"
-                        shadow_verdict_str = None
-                        shadow_conf = 0.0
-                        category_divergence = "INSUFFICIENT_HISTORICAL_METRICS"
-                        failed_flags = sorted(
-                            [k for k, v in completeness_flags.items() if not v]
-                        )
-                        redacted_rule_eval = {
-                            "engine_version": "1.0.0",
-                            "fired_rule": "INSUFFICIENT_METRICS_CONTRACT",
-                            "precedence_step": "PRE_EVALUATION_GUARD",
-                            "completeness_flags": completeness_flags,
-                            "failed_flags": failed_flags,
-                        }
-                    else:
-                        shadow_status = "completed"
-                        engine = DeterministicDecisionEngineV1()
-                        shadow_eval = engine.evaluate(canonical)
-                        shadow_verdict_str = shadow_eval.get("verdict", "review").lower()
-                        shadow_conf = float(shadow_eval.get("confidence", 0.0))
-
-                        prim_up = primary_verdict_str.upper()
-                        shad_up = shadow_verdict_str.upper()
-                        if shad_up == prim_up:
-                            category_divergence = "AGREEMENT"
-                        elif shad_up == "APPROVE" and prim_up == "REJECT":
-                            category_divergence = "DANGEROUS_FALSE_APPROVE"
-                        elif shad_up == "APPROVE" and prim_up == "REVIEW":
-                            category_divergence = "DETERMINISTIC_APPROVE_OVER_REVIEW"
-                        elif shad_up == "REVIEW":
-                            category_divergence = "DETERMINISTIC_REVIEW"
-                        elif shad_up == "REJECT":
-                            category_divergence = "DETERMINISTIC_REJECT"
-                        else:
-                            category_divergence = "DETERMINISTIC_REVIEW"
-
-                        rule_eval = shadow_eval.get("rule_evaluation") or {}
-                        redacted_rule_eval = self._redact_rule_evaluation(rule_eval)
-
-                    knowledge_snapshot["deterministic_shadow_v1"] = {
-                        "engine": "DeterministicDecisionEngineV1",
-                        "engine_version": "1.0.0",
-                        "shadow_status": shadow_status,
-                        "shadow_verdict": shadow_verdict_str,
-                        "shadow_confidence": shadow_conf,
-                        "metrics_contract_complete": bool(is_complete),
-                        "metrics_contract_details": completeness_flags,
-                        "primary_verdict": primary_verdict_str,
-                        "primary_decided_by": decided_by_str,
-                        "category_divergence": category_divergence,
-                        "rule_evaluation": redacted_rule_eval,
-                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
-                        "shadow_error": None,
-                    }
-                except Exception as shadow_exc:
-                    safe_err = redact_shadow_error(shadow_exc)
-                    logger.warning(f"⚠️ Deterministic shadow evaluation failed non-fatally: {safe_err}")
-                    primary_verdict_str = verdict.value.lower() if hasattr(verdict, "value") else str(verdict).lower()
-                    decided_by_str = "system" if "[SYSTEM OVERRIDE]" in (ai_result.get("reasoning") or "") else "agent"
-                    knowledge_snapshot["deterministic_shadow_v1"] = {
-                        "engine": "DeterministicDecisionEngineV1",
-                        "engine_version": "1.0.0",
-                        "shadow_status": "error",
-                        "shadow_verdict": None,
-                        "shadow_confidence": 0.0,
-                        "metrics_contract_complete": False,
-                        "metrics_contract_details": {},
-                        "primary_verdict": primary_verdict_str,
-                        "primary_decided_by": decided_by_str,
-                        "category_divergence": "INSUFFICIENT_HISTORICAL_METRICS",
-                        "rule_evaluation": {},
-                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
-                        "shadow_error": safe_err,
-                    }
-
-            decision = db.query(QADecision).filter(QADecision.job_id == job_id).first()
-            if not decision:
-                decision = QADecision(
-                    job_id=job_id,
-                    verdict=verdict,
-                    reasoning=ai_result.get('reasoning'),
-                    ai_reasoning=ai_result.get('reasoning'),
-                    client_name=job.client_name,
-                    cradle_id=job.cradle_id,
-                    metrics_snapshot=metrics,
-                    knowledge_snapshot=knowledge_snapshot,
-                    decided_by="agent"
-                )
-                db.add(decision)
-            else:
-                # Update if not already decided by human (SOUL.md: preserve human decisions)
-                if decision.decided_by != "human":
-                    decision.verdict = verdict
-                    decision.reasoning = ai_result.get('reasoning')
-                    decision.ai_reasoning = ai_result.get('reasoning')
-                    decision.metrics_snapshot = metrics
-                    decision.knowledge_snapshot = knowledge_snapshot
-
-            logger.info(f"🧠 AI Analyst verdict for job {job_id}: {verdict_str} | KB snapshot saved")
-
-        except Exception as e:
-            logger.error(f"❌ Failed to prepare AI decision: {e}")
+        self._run_deterministic_primary(db, job_id, job, results, metrics)
 
     def _build_knowledge_snapshot(self, db, job_id: int, job, results: dict) -> dict:
         """
