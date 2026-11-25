@@ -129,7 +129,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#161824] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-white/10 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
-              <h2 className="text-lg font-black text-slate-900 dark:text-white">Archived AI Knowledge Snapshot</h2>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white">{t.archivedDecisionSnapshot}</h2>
               <button 
                 onClick={() => setSelectedDecisionDetails(null)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-white focus:outline-none"
@@ -148,7 +148,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
                   </div>
                </div>
                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white uppercase tracking-wide text-xs mb-2">AI Expert Reasoning</h3>
+                  <h3 className="font-bold text-slate-900 dark:text-white uppercase tracking-wide text-xs mb-2">{t.decisionRationale}</h3>
                   <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 p-4 rounded-xl whitespace-pre-wrap font-sans text-xs">
                     {selectedDecisionDetails.ai_reasoning || selectedDecisionDetails.reasoning || "No reasoning captured."}
                   </div>
@@ -174,7 +174,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
               QA Knowledge Base
             </h1>
             <p className="text-slate-500 dark:text-slate-400 mt-1 ml-14 font-semibold text-sm">
-              Historical QA decisions for Agent 2 training.
+              {t.kbSubtitle}
             </p>
           </div>
           <button onClick={() => fetchKnowledgeBase(currentPage)} className="text-xs font-bold text-indigo-600 dark:text-cyan-400 hover:underline">
@@ -221,7 +221,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
             <button
               onClick={() => handleExport('json')}
               className="inline-flex items-center px-3.5 py-1.5 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold rounded-xl text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-              title="Full export for AI Training Model"
+              title={t.kbJsonExportTitle}
             >
               <CodeBracketIcon className="w-4 h-4 mr-1.5" />
               JSON
@@ -315,7 +315,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({ onSelectJob, lang = "PL",
                               title="View extracted reasoning & metrics for this deleted job"
                             >
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              AI Details
+                              {t.decisionDetailsBtn}
                             </button>
                           )}
                         </td>
