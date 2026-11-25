@@ -19,6 +19,7 @@ export const translations = {
     // Notifications & System Status
     backendStatus: "Backend",
     wsStatus: "WS",
+    decisionEngineLabel: "Silnik decyzji",
     systemErrors: "Błędy Systemowe",
     viewLogs: "Zobacz logi",
     noSystemErrors: "Brak zgłoszonych błędów systemowych.",
@@ -100,6 +101,7 @@ export const translations = {
     // Notifications & System Status
     backendStatus: "Backend",
     wsStatus: "WS",
+    decisionEngineLabel: "Decision engine",
     systemErrors: "System Errors",
     viewLogs: "View logs",
     noSystemErrors: "No system errors reported.",

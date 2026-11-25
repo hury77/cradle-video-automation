@@ -4,6 +4,7 @@ import VideoComparison from "./components/VideoComparison";
 import AutoPairForm from "./components/AutoPairForm";
 import KnowledgeBase from "./components/KnowledgeBase";
 import AutomationLogs from "./components/AutomationLogs";
+import SystemEngineBadge from "./components/SystemEngineBadge";
 import {
   BellIcon,
   ChartBarIcon,
@@ -118,6 +119,7 @@ function App() {
                   <div className={`w-2 h-2 rounded-full ${getStatusDot(wsStatus)}`}></div>
                   <span>{t.wsStatus}</span>
                 </div>
+                <SystemEngineBadge lang={lang} />
               </div>
 
               <div className="h-6 w-px bg-slate-200 dark:bg-white/10 mx-1"></div>
