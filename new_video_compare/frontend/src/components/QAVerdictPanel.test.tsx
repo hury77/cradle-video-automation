@@ -34,10 +34,15 @@ describe("QAVerdictPanel decided_by support", () => {
     expect(
       await screen.findByText("Deterministic Rules Engine v1 — automatic decision")
     ).toBeInTheDocument();
+    expect(screen.getByText(/Decision rationale/i)).toBeInTheDocument();
+    expect(screen.queryByText(/AI Analysis/i)).toBeNull();
+    expect(screen.queryByText(/Override AI Decision/i)).toBeNull();
 
-    fireEvent.click(screen.getByText("Override AI Decision"));
+    fireEvent.click(screen.getByText("Override decision"));
+    expect(screen.queryByText(/AI Analysis/i)).toBeNull();
+    expect(screen.queryByText(/Overriding AI verdict/i)).toBeNull();
     fireEvent.change(
-      screen.getByPlaceholderText(/AI missed logo change/i),
+      screen.getByPlaceholderText(/logo change not detected/i),
       { target: { value: "Manual check override" } }
     );
     fireEvent.click(screen.getByText(/Save as Human Override/i));

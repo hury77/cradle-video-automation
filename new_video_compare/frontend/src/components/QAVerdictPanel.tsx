@@ -146,10 +146,10 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
             ) : null}
           </div>
 
-          {/* AI Reasoning (if AI decision or preserved after override) */}
+          {/* Decision rationale (if automated decision or preserved after override) */}
           {existingDecision.ai_reasoning && (
             <div className="mb-3 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
-              <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">🧠 AI Analysis</p>
+              <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">📋 {t.decisionRationale}</p>
               <p className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">{existingDecision.ai_reasoning}</p>
             </div>
           )}
@@ -176,7 +176,7 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
             className="w-full py-3 rounded-xl font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-2 print:hidden bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-white/10"
           >
             <span>✏️</span>
-            <span>{isAiDecision ? "Override AI Decision" : "Edit Decision"}</span>
+            <span>{isAiDecision ? t.overrideDecisionBtn : t.editDecisionBtn}</span>
           </button>
         </div>
       </div>
@@ -197,15 +197,15 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
           </div>
           {isAiDecision && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 text-xs font-bold">
-              <span>🧠</span><span>Overriding AI verdict</span>
+              <span>📋</span><span>{t.overridingDecisionBadge}</span>
             </div>
           )}
         </div>
 
-        {/* Show original AI reasoning when overriding */}
+        {/* Show original decision rationale when overriding */}
         {isAiDecision && existingDecision?.ai_reasoning && (
           <div className="mb-4 rounded-xl bg-slate-50 dark:bg-[#12131c] border border-slate-200 dark:border-white/10 px-4 py-3">
-            <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">🧠 Original AI Analysis (for reference)</p>
+            <p className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">📋 {t.originalDecisionRationale}</p>
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed italic">{existingDecision.ai_reasoning}</p>
           </div>
         )}
@@ -224,17 +224,17 @@ const QAVerdictPanel: React.FC<QAVerdictPanelProps> = ({ jobId, clientName, lang
           })}
         </div>
 
-        {/* Override Reason (only shown when overriding AI) */}
+        {/* Override Reason (only shown when overriding automated decision) */}
         {isAiDecision && (
           <div className="mb-4">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
-              Override Reason <span className="text-slate-400 font-medium">(why are you changing the AI decision?)</span>
+              {t.overrideReasonLabel} <span className="text-slate-400 font-medium">({t.overrideReasonHint})</span>
             </label>
             <input
               type="text"
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
-              placeholder="e.g. 'AI missed logo change at 0:08'"
+              placeholder={t.overrideReasonPlaceholder}
               className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#12131c] px-4 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
             />
           </div>
